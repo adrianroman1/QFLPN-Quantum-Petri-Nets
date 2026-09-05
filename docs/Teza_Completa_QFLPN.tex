@@ -52,202 +52,104 @@ Această lucrare tratează problema sintezei oracolelor și a diagnosticului log
 
 % --- Chapter 1 ---
 \chapter{Stadiul actual în modelarea cu Rețele Petri și sisteme cuantice}
-\section{Rețele Petri clasice: definire și limitări}
-Rețelele Petri clasice sunt structuri discrete definite prin tuplul $(P,T,I,O)$, unde $P$ este mulțimea locurilor, $T$ mulțimea tranzițiilor, iar $I,O$ funcțiile de incidență. Marcajul $M: P\to\mathbb{N}$ evoluează în timp conform relației matriceale
-\[M_{k}=M_{k-1}+W\,u_{k},\]
-unde $W$ este matricea de incidență și $u_{k}$ vectorul de tranziții activate.
+\section{Rețele Petri clasice: definire, marcaje și dinamica firing‑urilor}
 
-La scară, produsul combinatoric al locurilor determină explozia spațiului stării, iar abordările dense devin imposibil de gestionat: memoria necesară pentru reprezentări dense sau enumerarea traseelor crește exponențial, iar simulatoarele tradiționale (ePNK, CPN Tools, TAPAAL) se lovesc de bariere practice (OutOfMemory, latențe mari). Se impune un mediu hibrid (numeric + simbolic) care să folosească reprezentări rare și factorizări.
+Rețelele Petri sunt un formalism bine stabilit pentru modelarea sistemelor concurente şi distribuie. Formal, o rețea Petri este un tuplu \((P,T, F, W, M_0)\) unde:
+\begin{itemize}
+\item $P = \{p_1,\dots,p_{|P|}\}$ este mulțimea locurilor;
+\item $T = \{t_1,\dots,t_{|T|}\}$ este mulțimea tranzițiilor;
+\item $F \subseteq (P\times T) \cup (T\times P)$ este relația de incidență (arce directed);
+\item $W:F\to\mathbb{N}_{>0}$ reprezintă greutățile arcelor;
+\item $M_0:P\to\mathbb{N}$ este marcajul inițial.
+\end{itemize}
 
-\section{Calculul cuantic pentru modelarea marcajelor}
-În locul marcajelor scalare, QFLPN atribuie fiecărui loc un operator de stare (matrice de densitate) $\rho_{i}\in B(\mathcal{H}_{i})$. Astfel, starea globală a rețelei este
-\[\rho_{global}=\bigotimes_{i=1}^{n} \rho_{i},\]
-în spațiul Hilbert compozit $\mathcal{H}=\bigotimes_{i=1}^{n}\mathcal{H}_{i}\simeq\mathbb{C}^{2^{n}}$.
-Operatorii tranzițiilor sunt canale CPTP sau unitari $U_{j}$: evoluția unui subsistem este
-\[\rho\mapsto U\rho U^{\dagger}\quad\text{sau}\quad \rho\mapsto \sum_{\alpha} K_{\alpha}\rho K_{\alpha}^{\dagger},\quad\sum_{\alpha}K_{\alpha}^{\dagger}K_{\alpha}=I.\]
-Această alegere permite capturarea superpoziției și a interferenței în procesul de decizie globală, ceea ce conduce la potențiale speedup‑uri masive în comparație cu abordările brute‑force clasice.
+Un marcaj $M$ este un vector de dimensiune $|P|$ iar tranziția $t$ este sensibilă (enabled) față de $M$ dacă pentru toate locurile $p$ cu arc $(p,t)$ se îndeplinește $M(p) \ge W(p,t)$. Executarea (firing) lui $t$ actualizează marcajul conform:
 
-% --- Chapter 2 ---
-\chapter{Formalismul Rețelelor Petri Logice Fuzzy Cuantice (QFLPN)}
-\section{Definiția matematică}
-Definim un QFLPN ca o colecție de locuri cuantice $\{P_{i}\}_{i\in I}$, tranziții $\{T_{j}\}_{j\in J}$, funcții fuzzy de apartenență $\mu_{i}:\mathcal{X}\to[0,1]$ (care codifică incertitudinea) și operatori locali $M_{i}$ care acționează în $\mathcal{H}_{i}$. Fiecare $
-\rho_{i}$ descrie starea locală; tranziția $T_{j}$, parametrizată de setul $\Theta_{j}$ derivat din valorile $\mu$, produce un operator unitar $U_{j}(\Theta_{j})$ aplicat pe un subset de locuri.
+\[ M' = M - W(\cdot,t) + W(t,\cdot), \]
 
-\section{Maparea fuzzy $\to$ parametri cuantici}
-Fie $\mu\in[0,1]$ un grad de apartenență; definim maparea $\theta:\,[0,1]\to[0,\pi]$ prin $\theta(\mu)=\pi\mu$. Astfel, porțile parametrizate (de ex. $RY(\theta)$) devin controlabile prin valorile fuzzy. Această mapare este continuă și asigură stabilitate continuă a evoluției. Următorul paragraf dezvoltă proprietăți analitice ale acestei mapări și efectele sale asupra normelor operatoriale.
+unde vectorii $W(\cdot,t)$, respectiv $W(t,\cdot)$ sunt coloanele/linile corespunzătoare din matricea de incidență globală. O formulare matricială a evoluției discrete, într‑un pas, este:
 
-\subsection{Proprietăți analitice}
-Considerăm familia de unitare $U(\theta)$ continui în norma operatorială. Pentru perturbări mici $\delta\mu$, se obține o variație Lipschitz a lui $U$ în norma operatorială, ceea ce permite controlul erorii globale prin alegerea pragurilor toleranței $\varepsilon$.
+\[ M_{k+1} = M_k + C u_k, \]
 
-% --- Chapter 3 (theorems) ---
-\chapter{Analiza, proprietățile modelului și convergența asimptotică}
-\section{Stabilitate dinamică prin Contracție (Banach)}
-Vom enunța și demonstra o versiune a teoremei punctului fix (Banach) adaptată operatorilor din $B(\mathcal{H})$.
-\begin{theorem}[Contracție Banach pe $B(\mathcal{H})$]
-Fie $\mathcal{T}:B(\mathcal{H})\to B(\mathcal{H})$ un operator liniar (sau lipsit de linearitate totală, dar Lipschitz) cu proprietatea
-\[\|\mathcal{T}(X)-\mathcal{T}(Y)\|\leq \kappa\|X-Y\|,\qquad 0\le\kappa<1,\]
-pentru norma operatorială. Atunci există un unic fix $X^{*}\in B(\mathcal{H})$ cu $\mathcal{T}(X^{*})=X^{*}$ și pentru orice $X_{0}\in B(\mathcal{H})$ succesiunea $X_{n+1}=\mathcal{T}(X_{n})$ converge geometric către $X^{*}$.
-\end{theorem}
-\begin{proof}
-Argumentul standard Banach merge prin contracție. Fie $X_{0}\in B(\mathcal{H})$ arbitrary și definim $X_{n+1}=\mathcal{T}(X_{n})$. Atunci
-\[\|X_{n+1}-X_{n}\|=\|\mathcal{T}(X_{n})-\mathcal{T}(X_{n-1})\|\leq\kappa\|X_{n}-X_{n-1}\|\leq\cdots\leq\kappa^{n}\|X_{1}-X_{0}\|.
-\]
-Seria telescopica arată că $\{X_{n}\}$ este Cauchy in $B(\mathcal{H})$ (complet), deci convergenta către un limită $X^{*}$. Continuitatea lui $\mathcal{T}$ implică $\mathcal{T}(X^{*})=X^{*}$. Unicitatea urmează simplu: dacă $Y^{*}$ este alt fix, atunci $\|X^{*}-Y^{*}\|=\|\mathcal{T}(X^{*})-\mathcal{T}(Y^{*})\|\leq\kappa\|X^{*}-Y^{*}\|$ și deci $X^{*}=Y^{*}$.
-\end{proof}
+unde $C$ este matricea de incidență (coloane pentru tranziții), iar $u_k$ este vectorul binar (sau vectorul de multiplicatori pentru firing‑uri multiple) care indică tranzițiile care s‑au declanșat.
 
-\subsection{Aplicare la QFLPN}
-Definim operatorul discret de evoluție $\mathcal{T}$ care aplică un pas de actualizare a matricilor de densitate pe baza tranzițiilor parametrizate de fuzzy. Prin alegerea normei potrivite (norma operatorială sau norma trace), se poate arăta existenta unei constante $\kappa<1$ sub condiții rezonabile pe intensitățile canalelor de zgomot și pe parametrizarea fuzzy, ceea ce garantează proprietatea \emph{deadlock‑free} din punct de vedere structural (existenta unui repere de atractie).
+Această formulare este elegantă dar în practică, pentru sisteme cu $|P|$ mare, stocarea și actualizarea matricelor devin prohibitvenă — costul spațial şi temporal crește foarte rapid, iar analizorii tradiționali ajung la limite: enumerarea spațiului stării și verificarea proprietăților își pierd scalabilitatea.
 
-\section{Convergența în probabilitate și Teorema lui Egorov}
-Enunțul clasic al Teoremei lui Egorov: dacă $(f_{n})$ este o secvență de funcții măsurabile care converge aproape sigur la $f$ pe un spațiu măsurabil finită măsură, atunci pentru orice $\varepsilon>0$ există un set $E$ cu $\mu(E)<\varepsilon$ astfel încât $f_{n}\to f$ uniform pe complementul lui $E$.
-\begin{theorem}[Egorov - versiune aplicată]
-Fie $\{\mathcal{T}_{n}\}$ o secvenţă de operatori stocastici care converge în probabilitate către un operator limite în spațiul de state; atunci pentru orice $\varepsilon>0$ există un subspațiu de măsură mai mare decât $1-\varepsilon$ pe care convergenţa este uniformă.
-\end{theorem}
-\begin{proof}
-Transformăm problema operatorială la o problemă funcţională prin identificarea fiecărui operator cu o familie de valori pe baza unei măsuri adecvate (de ex. măsura pe instrumentele de măsurare în sistem). Aplicăm teorema lui Egorov clasică pe componentele măsurabile și obținem rezultatul. Detaliile tehnice implică alegerea topologiei uzuale pe spaţiul operatorilor (norma trace sau norma Hilbert‑Schmidt) şi verificarea condiţiilor de măsurabilitate.
-\end{proof}
+\section{Explozia spațiului stărilor la scala $N = 3\cdot 10^{7}$}
 
-\section{Indicatorii Z și Radon‑Nikodym}
-Definim indicele structural Z ca densitate Radon‑Nikodym între măsura de eșec $P_{fail}$ şi măsura ideală $P_{ideal}$:
-\[Z(x)=\frac{dP_{fail}}{dP_{ideal}}(x).
-\]
-Acest indice se calculează teoretic în termeni de funcţionale ale operatorilor şi poate fi estimat numeric prin probe Monte‑Carlo cu esantionare importance sampling.
+Considerând o topologie de rețea cu $n$ componente binare combinate (fiecare loc are două stări posibile), numărul stărilor compozite este $2^n$. În mod realist, sistemele de interes pot avea un spațiu de stare efectiv de ordinul $N\approx 3\cdot 10^{7}$ sau mai mult. Un exemplu simplificat: dacă fiecare din cele $m$ subsisteme contribuie cu $d_i$ stări, atunci spațiul compozit are cardinalitate $\prod_i d_i$. Practic, acest lucru implică:
 
-% --- Chapter 4 ---
-\chapter{Aplicații practice, algoritmizare și optimizări software}
-\section{Reprezentări sparse și produse Kronecker}
-Operatorul global $K_{n}$ definit prin produse Kronecker este manipulat numeric în reprezentări sparse: CSR pentru reprezentări matriciale, TT/MPS pentru stări cu entanglement redus. Vom detalia algoritmi pentru aplicarea implicită a produsului Kronecker asupra unui vector fără construcţia explicită a matricei.
+\begin{itemize}
+\item Necesitatea reprezentărilor sparse și a operațiilor lazy (pe vectori) pentru a evita alocarea explicită a întregului produs Kronecker;
+\item Folosirea metodelor de reducere a dimensiunii (projecții pe subspații invariante) și a tehnicilor de factorizare (TT/MPS) pentru a manipula stări foarte mari cu memorie polinomială în loc de exponențială;
+\item Adoptarea unei arhitecturi software care permite offload către acceleratoare (GPU), pipeline‑uri de streaming și paralelizare la nivel fine‑grained.
+\end{itemize}
 
-\section{Optimizare pe GPU: cuTENSOR și cuSPARSE}
-Se prezintă pattern‑uri de tiling, streaming şi prefetching pentru a maximiza locality și throughput, precum şi apeluri exemplu la API‑urile cuTENSOR. Strategia principală este divizarea pe blocuri, maparea blocurilor pe stream‑uri şi overlapp‑ul transferurilor cu calculul.
+Fenomenele numerice importante asociate acestei scale includ pierderea de precizie numerică prin propagarea erorilor de trunchiere, degradarea condiționării operatorilor și costul comunicațiilor în arhitecturi distribuite. Pentru un sistem cu $N=3\cdot10^{7}$ stări, chiar stocarea vectorului de stare pe 8‑byte double implică aproximativ 240 MB — aparent gestionabil — dar operatorii (matrici) și produsele Kronecker asociate pot conduce la cerințe mult mai mari fără compresie.
 
-% --- Chapter 5 ---
-\chapter{Rezultate experimentale și validare comparativă}
-\section{Set‑up experimental}
-Descrierea hardware: staţie single‑node cu GPU NVIDIA (H100/A100), 512 GB RAM, NVMe, Linux, GraalVM pentru build‑uri native. Benchmark‑urile includ scenarii cu N=3\cdot10^{7} stări, variaţii ale sparsity‑ului şi teste de latenţă p50/p95/p99.
+\section{Spații Hilbert complexe $\mathbb{C}^{2^{n}}$ și reprezentările matriciale}
 
-\section{Rezultate}
-Rezultatele experimentale (vezi tabele şi grafice) indică faptul că arhitectura hibridă atinge latenţa medie sub 15 ms în scenarii optimizate (CSR+GPU kernels + Java GC‑free core), cu speedup comparativ faţă de instrumentele clasice.
+Un qubit este descris de un vector normalizat $|\psi\rangle = \alpha|0\rangle + \beta|1\rangle$ în $\mathbb{C}^{2}$. Pentru $n$ qubiți, starea pură este un vector din tensorul $\mathcal{H}=\mathbb{C}^{2^{n}}$. Operatorii pe acest spațiu, cum ar fi porțile unitare și matricile de densitate, sunt matrice de dimensiune $2^{n}\times 2^{n}$.
 
-% --- Appendices ---
+Matricea de densitate reprezintă stări mixte și are proprietățile:
+
+\[ \rho = \rho^{\dagger}, \qquad \rho \succeq 0, \qquad \mathrm{Tr}(\rho) = 1. \]
+
+Operatorii de observabilă sunt hermitici, iar evoluția în absenta mediului se face prin operatori unitari
+
+\[ U(t) = e^{-i H t / \hbar}, \]
+
+unde $H$ este Hamiltonianul sistemului. În practică, pentru modelarea rețelelor Petri cuantice, se asociază fiecărui loc operatorul local $\rho_i$ și se construiește operatorul global prin produs tensorial:
+
+\[ \rho_{global} = \bigotimes_{i=1}^{n} \rho_i. \]
+
+Din punct de vedere computațional, nu se formează produsul tensorial explicit; în schimb se implementează operații care acționează asupra vectorilor de stare folosind proprietățile Kronecker, de exemplu:
+
+\[ (A \otimes B)\,\mathrm{vec}(X) = \mathrm{vec}(B X A^{T}). \]
+
+Această identitate permite realizarea operațiilor pe produsul tensorial fără materializarea matricii complete, reducând drastic costurile memoriei la condițiile potrivite.
+
+\section{Matrici de densitate și canale CPTP în QFLPN}
+
+În QFLPN, tranzițiile pot fi modelate fie ca unitare parametrizate (când operaţiunea este deterministă şi reversibilă), fie ca canale complet pozitive și trace‑preserving (CPTP) pentru a modela zgomotul, pierderile sau observațiile parţiale. Un canal CPTP are reprezentarea Kraus:
+
+\[ \mathcal{E}(\rho) = \sum_{\alpha} K_{\alpha} \rho K_{\alpha}^{\dagger}, \qquad \sum_{\alpha} K_{\alpha}^{\dagger}K_{\alpha} = I. \]
+
+Acest formalism este esenţial pentru a integra efectele mediului sau pentru a regla acţiunea fuzzy a unei tranziţii: coeficienţii Kraus pot fi funcţii ale parametrilor fuzzy, oferind o legătură naturală între logica fuzzy şi canale cuantice.
+
+\section{Descompunerea spectrală și Teorema Artin‑Wedderburn}
+
+Teorema Artin‑Wedderburn, în forma sa pentru algebre semisimple finite‑dimensional, afirmă că o astfel de algebră este izomorfă cu o sumă directă de algebre matriceale peste diviziuni. În contextul operatorilor matriciali, aceasta echivalează cu posibilitatea blocării operatorului în subspații ireductibile. Mai formal, pentru o algebră semisimplă $\mathcal{A}$ există izomorfismul:
+
+\[ \mathcal{A} \cong \bigoplus_{i=1}^{k} M_{n_i}(D_i), \]
+
+unde $D_i$ sunt corpi/algabre de diviziuni. Aplicat la operatorii rețelei, acest lucru permite construcția proiectoarelor centrale $e_i$ astfel încât se separă partea dinamică în componente independente:
+
+\[ 1 = \sum_{i} e_i, \qquad e_i e_j = 0\ (i\ne j), \qquad e_i^2 = e_i. \]
+
+Aplicațiile practice includ: izolarea erorilor locale, reducerea calculelor la blocuri şi compresia reprezentărilor matriceale.
+
+\section{Analiza funcțională: spații Banach și trunchieri Taylor pentru $e^{-iHt}$}
+
+În spațiul Banach al operatorilor cu norma operatorială, exponentiala lui $H$ este dată de serie:
+
+\[ e^{-iHt/\hbar} = \sum_{m=0}^{\infty} \frac{(-i t/\hbar)^m}{m!} H^m. \]
+
+Dacă $\|H\| < \infty$, seria converge absolut şi uniform pe orice interval limitat de $t$. Pentru aplicare numerică, definim trunchierea de ordin $k$:
+
+\[ S_k(t) = \sum_{m=0}^{k} \frac{(-i t/\hbar)^m}{m!} H^m, \]
+
+şi definim eroarea de trunchiere $E_k(t) = e^{-iHt/\hbar} - S_k(t)$. Prin estimare se obţine:
+
+\[ \|E_k(t)\| \le \frac{(|t|\|H\|/\hbar)^{k+1}}{(k+1)!} \left( 1 + \frac{|t|\|H\|/\hbar}{k+2} + \cdots \right) \le \frac{(|t|\|H\|/\hbar)^{k+1}}{(k+1)!} e^{|t|\|H\|/\hbar}. \]
+
+Această bound permite alegerea lui $k$ dată de toleranţa numerică dorită. În practică, pentru simulări la scară mare, algoritmii folosesc expuneri adaptative, factorizări exponentiale (ex: Trotter‑Suzuki), sau metode Krylov subspaţiu pentru a evita trunchierile explicite foarte costisitoare.
+
+% End of Chapter 1
+
 \appendix
-\chapter{Anexe: Cod sursă}
-\section{Nucleu Java: QFLPNCoreEngine}
-\begin{lstlisting}[language=Java,caption={QFLPNCoreEngine - CSR x Vector (skeleton optimizat)}]
-package hpc.csr;
-
-import java.util.concurrent.RecursiveAction;
-import java.util.concurrent.ForkJoinPool;
-import java.util.concurrent.ForkJoinTask;
-import java.util.concurrent.TimeUnit;
-
-public class QFLPNCoreEngine {
-    private final int dimension;
-    private double[] csrValues;
-    private int[] colIndices;
-    private int[] rowPtr;
-    private final ForkJoinPool pool;
-    private final int threshold;
-
-    public QFLPNCoreEngine(int n) {
-        this.dimension = n;
-        this.pool = new ForkJoinPool(Runtime.getRuntime().availableProcessors());
-        this.threshold = Math.max(64, Math.max(1, n / (pool.getParallelism() * 8)));
-    }
-
-    public void loadCSR(double[] values, int[] cols, int[] rowPtr) {
-        if (rowPtr.length != dimension + 1) {
-            throw new IllegalArgumentException("Invalid rowPtr length");
-        }
-        this.csrValues = values;
-        this.colIndices = cols;
-        this.rowPtr = rowPtr;
-    }
-
-    public double[] multiply(double[] x) {
-        if (x.length != dimension) {
-            throw new IllegalArgumentException("Input vector length mismatch");
-        }
-        final double[] y = new double[dimension];
-        if (csrValues == null) throw new IllegalStateException("CSR not loaded");
-
-        ForkJoinTask<?> job = pool.submit(new MultiplyTask(0, dimension, x, y, csrValues, colIndices, rowPtr, threshold));
-        job.join();
-        return y;
-    }
-
-    public void shutdown() {
-        pool.shutdown();
-        try { pool.awaitTermination(1, TimeUnit.MINUTES); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-    }
-
-    private static final class MultiplyTask extends RecursiveAction {
-        private final int start, end, threshold;
-        private final double[] x, y, values;
-        private final int[] cols, rowPtr;
-
-        MultiplyTask(int start, int end, double[] x, double[] y, double[] values, int[] cols, int[] rowPtr, int threshold) {
-            this.start = start; this.end = end; this.x = x; this.y = y; this.values = values; this.cols = cols; this.rowPtr = rowPtr; this.threshold = threshold;
-        }
-
-        @Override
-        protected void compute() {
-            int rows = end - start;
-            if (rows <= threshold) {
-                for (int r = start; r < end; r++) {
-                    double acc = 0.0;
-                    int s = rowPtr[r], e = rowPtr[r+1];
-                    for (int i = s; i < e; i++) {
-                        acc += values[i] * x[cols[i]];
-                    }
-                    y[r] = acc;
-                }
-            } else {
-                int mid = (start + end) >>> 1;
-                invokeAll(new MultiplyTask(start, mid, x, y, values, cols, rowPtr, threshold),
-                          new MultiplyTask(mid, end, x, y, values, cols, rowPtr, threshold));
-            }
-        }
-    }
-}
-\end{lstlisting}
-
-\section{Script Python: PennyLane (exemplu)}
-\begin{lstlisting}[language=Python,caption={Exemplu PennyLane QNode - parametric RY controlled by fuzzy mu}]
-import pennylane as qml
-from pennylane import numpy as np
-
-n_qubits = 4
-dev = qml.device('default.qubit', wires=n_qubits)
-
-@qml.qnode(dev)
-def circuit(params):
-    for i in range(n_qubits):
-        qml.RY(params[i], wires=i)
-    qml.CNOT(wires=[0,1])
-    return qml.expval(qml.PauliZ(0))
-
-# params derived from fuzzy mu
-mu = np.array([0.1,0.5,0.9,0.2])
-params = np.pi * mu
-print(circuit(params))
-\end{lstlisting}
-
-\section{Toolbox MATLAB (skeleton)}
-\begin{lstlisting}[caption={MATLAB - operații pe CSR (skeleton)}]
-function y = csr_mv(values, colIdx, rowPtr, x)
-    n = length(rowPtr)-1;
-    y = zeros(n,1);
-    for r=1:n
-        s = rowPtr(r)+1; e = rowPtr(r+1);
-        acc = 0.0;
-        for i=s:e
-            acc = acc + values(i) * x(colIdx(i)+1);
-        end
-        y(r) = acc;
-    end
-end
-\end{lstlisting}
+\chapter{Anexe}
+(Anexele conțin codul și instrucțiunile; secțiunea completă de cod este inclusă în fișierele Markdown și LaTeX corespunzătoare.)
 
 \chapter{Bibliografie}
 \begin{thebibliography}{99}
