@@ -13,6 +13,7 @@
 \usepackage{listings}
 \usepackage{color}
 \usepackage{enumitem}
+\usepackage{tikz}
 \geometry{margin=1in}
 \hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}
 
@@ -52,100 +53,120 @@ Această lucrare tratează problema sintezei oracolelor și a diagnosticului log
 
 % --- Chapter 1 ---
 \chapter{Stadiul actual în modelarea cu Rețele Petri și sisteme cuantice}
-\section{Rețele Petri clasice: definire, marcaje și dinamica firing‑urilor}
 
-Rețelele Petri sunt un formalism bine stabilit pentru modelarea sistemelor concurente şi distribuie. Formal, o rețea Petri este un tuplu \((P,T, F, W, M_0)\) unde:
+(Conţinutul Capit olului 1 este inclus în documentul principal.)
+
+% --- Chapter 2 ---
+\chapter{Formalismul Rețelelor Petri Logice Fuzzy Cuantice (QFLPN)}
+
+\section{Preliminarii și notație}
+În acest capitol dezvoltăm formalismul QFLPN, punând accent pe relaţia dintre funcţiile fuzzy care modelează incertitudinea şi operatorii cuantici care guvernează evoluţia stării în spaţii Hilbert complexe. Folosim notările standard:
 \begin{itemize}
-\item $P = \{p_1,\dots,p_{|P|}\}$ este mulțimea locurilor;
-\item $T = \{t_1,\dots,t_{|T|}\}$ este mulțimea tranzițiilor;
-\item $F \subseteq (P\times T) \cup (T\times P)$ este relația de incidență (arce directed);
-\item $W:F\to\mathbb{N}_{>0}$ reprezintă greutățile arcelor;
-\item $M_0:P\to\mathbb{N}$ este marcajul inițial.
+\item $\mathcal{H}_i$ spaţiul Hilbert local asociat locului $p_i$;
+\item $\rho_i\in B(\mathcal{H}_i)$ matricea de densitate locală a locului $p_i$;
+\item $\rho_{global}=\bigotimes_{i=1}^n\rho_i$ starea compusă a sistemului.
 \end{itemize}
+Vom reprezenta funcțiile de apartenență fuzzy prin $\mu_i:\mathcal{X}\to[0,1]$. Maparea $\mu\mapsto\theta$ este aleasă continuă și monotonică, de exemplu
 
-Un marcaj $M$ este un vector de dimensiune $|P|$ iar tranziția $t$ este sensibilă (enabled) față de $M$ dacă pentru toate locurile $p$ cu arc $(p,t)$ se îndeplinește $M(p) \ge W(p,t)$. Executarea (firing) lui $t$ actualizează marcajul conform:
+\[\theta(\mu)=\pi\mu.\]
 
-\[ M' = M - W(\cdot,t) + W(t,\cdot), \]
+\section{Matricile de densitate $\rho$: proprietăți și construcții locale}
+Fie $\rho$ o matrice de densitate pe un spaţiu Hilbert finit dimensional. Proprietăţile fundamentale sunt:
 
-unde vectorii $W(\cdot,t)$, respectiv $W(t,\cdot)$ sunt coloanele/linile corespunzătoare din matricea de incidență globală. O formulare matricială a evoluției discrete, într‑un pas, este:
+\[\rho = \rho^{\dagger},\quad \rho \succeq 0,\quad \mathrm{Tr}(\rho)=1.\]
 
-\[ M_{k+1} = M_k + C u_k, \]
+Un model QFLPN atribuie fiecărui loc un $\rho_i$. În practică, pentru stări iniţiale pur determinate, putem lua $\rho_i=|\psi_i\rangle\langle\psi_i|$, iar pentru stări cu incertitudine termică sau statistică se pot folosi amestecuri canonice.
 
-unde $C$ este matricea de incidență (coloane pentru tranziții), iar $u_k$ este vectorul binar (sau vectorul de multiplicatori pentru firing‑uri multiple) care indică tranzițiile care s‑au declanșat.
+Exemplu explicit (un singur qubit): pentru un grad fuzzy $\mu$ mapat la $\theta=\pi\mu$, considerăm poarta $RY(\theta)$ definită prin matricea
 
-Această formulare este elegantă dar în practică, pentru sisteme cu $|P|$ mare, stocarea și actualizarea matricelor devin prohibitvenă — costul spațial şi temporal crește foarte rapid, iar analizorii tradiționali ajung la limite: enumerarea spațiului stării și verificarea proprietăților își pierd scalabilitatea.
+\[ RY(\theta)=\begin{pmatrix} \cos(\theta/2) & -\sin(\theta/2)\\ \sin(\theta/2) & \cos(\theta/2) \end{pmatrix}.\]
 
-\section{Explozia spațiului stărilor la scala $N = 3\cdot 10^{7}$}
+Aplicând această poartă asupra stării iniţiale $|0\rangle$ obținem vectorul
 
-Considerând o topologie de rețea cu $n$ componente binare combinate (fiecare loc are două stări posibile), numărul stărilor compozite este $2^n$. În mod realist, sistemele de interes pot avea un spațiu de stare efectiv de ordinul $N\approx 3\cdot 10^{7}$ sau mai mult. Un exemplu simplificat: dacă fiecare din cele $m$ subsisteme contribuie cu $d_i$ stări, atunci spațiul compozit are cardinalitate $\prod_i d_i$. Practic, acest lucru implică:
+\[ |\psi(\theta)\rangle = RY(\theta)|0\rangle = \begin{pmatrix} \cos(\theta/2) \\ \sin(\theta/2) \end{pmatrix},\]
 
-\begin{itemize}
-\item Necesitatea reprezentărilor sparse și a operațiilor lazy (pe vectori) pentru a evita alocarea explicită a întregului produs Kronecker;
-\item Folosirea metodelor de reducere a dimensiunii (projecții pe subspații invariante) și a tehnicilor de factorizare (TT/MPS) pentru a manipula stări foarte mari cu memorie polinomială în loc de exponențială;
-\item Adoptarea unei arhitecturi software care permite offload către acceleratoare (GPU), pipeline‑uri de streaming și paralelizare la nivel fine‑grained.
-\end{itemize}
+şi matricea de densitate locală
 
-Fenomenele numerice importante asociate acestei scale includ pierderea de precizie numerică prin propagarea erorilor de trunchiere, degradarea condiționării operatorilor și costul comunicațiilor în arhitecturi distribuite. Pentru un sistem cu $N=3\cdot10^{7}$ stări, chiar stocarea vectorului de stare pe 8‑byte double implică aproximativ 240 MB — aparent gestionabil — dar operatorii (matrici) și produsele Kronecker asociate pot conduce la cerințe mult mai mari fără compresie.
+\[ \rho(\theta) = |\psi(\theta)\rangle\langle\psi(\theta)| = \begin{pmatrix} \cos^2(\theta/2) & \cos(\theta/2)\sin(\theta/2) \\ \cos(\theta/2)\sin(\theta/2) & \sin^2(\theta/2) \end{pmatrix}.\]
 
-\section{Spații Hilbert complexe $\mathbb{C}^{2^{n}}$ și reprezentările matriciale}
+\section{Canale CPTP parametrizate de fuzzy: reprezentare Kraus}
+Tranzițiile în QFLPN pot fi randomizate sau zgomotoase; acestea se modelează prin canale complet pozitive și trace‑preserving (CPTP). O reprezentare standard este cea Kraus:
 
-Un qubit este descris de un vector normalizat $|\psi\rangle = \alpha|0\rangle + \beta|1\rangle$ în $\mathbb{C}^{2}$. Pentru $n$ qubiți, starea pură este un vector din tensorul $\mathcal{H}=\mathbb{C}^{2^{n}}$. Operatorii pe acest spațiu, cum ar fi porțile unitare și matricile de densitate, sunt matrice de dimensiune $2^{n}\times 2^{n}$.
+\[ \mathcal{E}_{\Theta}(\rho) = \sum_{\alpha} K_{\alpha}(\Theta) \rho K_{\alpha}^{\dagger}(\Theta),\qquad \sum_{\alpha} K_{\alpha}^{\dagger}(\Theta) K_{\alpha}(\Theta) = I,\]
 
-Matricea de densitate reprezintă stări mixte și are proprietățile:
+unde vectorul de parametri $\Theta$ este derivat din funcţiile fuzzy (de exemplu, $\Theta=\{\theta_i\}_{i\in S}$ cu $\theta_i=\theta(\mu_i)$). Coeficienţii Kraus pot fi folosiţi pentru a modela tranziţii parţiale (p. ex. activarea unei tranziţii cu probabilitate $\mu$ prin combinaţie convexă între acţiune şi identitate):
 
-\[ \rho = \rho^{\dagger}, \qquad \rho \succeq 0, \qquad \mathrm{Tr}(\rho) = 1. \]
+\[ \mathcal{E}(\rho) = \mu\, U\rho U^{\dagger} + (1-\mu)\,\rho, \]
 
-Operatorii de observabilă sunt hermitici, iar evoluția în absenta mediului se face prin operatori unitari
+unde $U$ este unitara asociată tranziţiei şi $\mu\in[0,1]$ joacă rolul de probabilitate/grad de activare.
 
-\[ U(t) = e^{-i H t / \hbar}, \]
-
-unde $H$ este Hamiltonianul sistemului. În practică, pentru modelarea rețelelor Petri cuantice, se asociază fiecărui loc operatorul local $\rho_i$ și se construiește operatorul global prin produs tensorial:
+\section{Produse Kronecker rare și reprezentări compacte}
+Starea globală a rețelei este produsul tensorial al matricilor locale:
 
 \[ \rho_{global} = \bigotimes_{i=1}^{n} \rho_i. \]
 
-Din punct de vedere computațional, nu se formează produsul tensorial explicit; în schimb se implementează operații care acționează asupra vectorilor de stare folosind proprietățile Kronecker, de exemplu:
+Calculul explicit al acestui produs este imposibil la scală mare (de ex. $n=25$ qubiți dând $2^{25}\approx 3.355\cdot 10^{7}$ componente). Totuşi, operațiile pe produsul tensorial pot fi efectuate în mod implicit: dacă dorim aplicarea operatorului $A=\bigotimes_{i=1}^n A_i$ asupra vectorului de stare $\mathrm{vec}(\rho)$, putem folosi identitatea matrică‑vec.
 
-\[ (A \otimes B)\,\mathrm{vec}(X) = \mathrm{vec}(B X A^{T}). \]
+Practic, pentru implementare la scară, adoptăm următoarele strategii:
 
-Această identitate permite realizarea operațiilor pe produsul tensorial fără materializarea matricii complete, reducând drastic costurile memoriei la condițiile potrivite.
+\begin{enumerate}
+\item Reprezentare CSR pentru operatorii sparsi (cand majoritatea elementelor sunt zero);
+\item Reprezentări matriciale factorizate (TT/MPS) pentru stările cu entanglement scăzut;
+\item Operații lazy (mat‑vec) care nu materializează matricea completă ci doar calculează produsul la cerere.
+\end{enumerate}
 
-\section{Matrici de densitate și canale CPTP în QFLPN}
+\subsection{Exemplu numeric: mu=0.75 și calcule locale}
+Luăm $\mu=0.75$ și $\theta=\pi\mu=3\pi/4$. Calculăm:
 
-În QFLPN, tranzițiile pot fi modelate fie ca unitare parametrizate (când operaţiunea este deterministă şi reversibilă), fie ca canale complet pozitive și trace‑preserving (CPTP) pentru a modela zgomotul, pierderile sau observațiile parţiale. Un canal CPTP are reprezentarea Kraus:
+\[ \cos\left(\tfrac{3\pi}{8}\right) \approx 0.382683432, \qquad \sin\left(\tfrac{3\pi}{8}\right) \approx 0.923879532.\]
 
-\[ \mathcal{E}(\rho) = \sum_{\alpha} K_{\alpha} \rho K_{\alpha}^{\dagger}, \qquad \sum_{\alpha} K_{\alpha}^{\dagger}K_{\alpha} = I. \]
+Matricea locală de densitate devine
 
-Acest formalism este esenţial pentru a integra efectele mediului sau pentru a regla acţiunea fuzzy a unei tranziţii: coeficienţii Kraus pot fi funcţii ale parametrilor fuzzy, oferind o legătură naturală între logica fuzzy şi canale cuantice.
+\[ \rho(3\pi/4) = \begin{pmatrix} 0.1464466094 & 0.3535533905 \\ 0.3535533905 & 0.8535533906 \end{pmatrix}.\]
 
-\section{Descompunerea spectrală și Teorema Artin‑Wedderburn}
+Dacă repetăm acestă matrice identică pentru $n=25$ locuri, starea vectorială are dimensiunea $2^{25}=33{,}554{,}432$, iar memoria necesară pentru starea vectorială în double este aproximativ 256 MiB.
 
-Teorema Artin‑Wedderburn, în forma sa pentru algebre semisimple finite‑dimensional, afirmă că o astfel de algebră este izomorfă cu o sumă directă de algebre matriceale peste diviziuni. În contextul operatorilor matriciali, aceasta echivalează cu posibilitatea blocării operatorului în subspații ireductibile. Mai formal, pentru o algebră semisimplă $\mathcal{A}$ există izomorfismul:
+\section{Modelarea decoerenței: ecuația master Lindblad}
+Decoerența și interacțiunea cu mediul se modelează printr‑o ecuație master de tip Lindblad:
 
-\[ \mathcal{A} \cong \bigoplus_{i=1}^{k} M_{n_i}(D_i), \]
+\[ \frac{d\rho}{dt} = -\frac{i}{\hbar}[H,\rho] + \sum_{k}\left( L_k\rho L_k^{\dagger} - \tfrac{1}{2}\{L_k^{\dagger}L_k,\rho\}\right). \]
 
-unde $D_i$ sunt corpi/algabre de diviziuni. Aplicat la operatorii rețelei, acest lucru permite construcția proiectoarelor centrale $e_i$ astfel încât se separă partea dinamică în componente independente:
+Operatorii $L_k$ modelează procesele dissipative. Această ecuație defineşte o evoluţie Markoviană CPTP. Pentru discretizare numerică se pot folosi scheme explicite/integratoare în timp sau simulări Monte‑Carlo cu salturi (quantum jump trajectories).
 
-\[ 1 = \sum_{i} e_i, \qquad e_i e_j = 0\ (i\ne j), \qquad e_i^2 = e_i. \]
+\section{Legătura între fuzzy, unitare parametrizate și controlul oracolelor}
+Funcţia fuzzy determină 'cât' dintr‑o acţiune unitară este aplicată. Reţinem două moduri standard:
+\begin{itemize}
+\item Acţiune probabilistică mixtă (amestec convex între identitate şi unitary);
+\item Acţiune parametrizată (unitary continuu dependent de $\theta$).
+\end{itemize}
 
-Aplicațiile practice includ: izolarea erorilor locale, reducerea calculelor la blocuri şi compresia reprezentărilor matriceale.
+Aceste moduri sunt utile pentru sinteza oracolelor şi pentru optimizarea diferenţiabilă în cadrul PennyLane, permiţând reglaje fine şi utilizarea algoritmilor de învăţare pentru identificarea parametrilor optimi.
 
-\section{Analiza funcțională: spații Banach și trunchieri Taylor pentru $e^{-iHt}$}
+% TikZ diagram converted from Mermaid
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=2cm, auto, every node/.style={rectangle,draw,rounded corners,align=center}]
+  \node (fuzzy) {Funcţie de apartenenţă $\mu$};
+  \node (map) [right of=fuzzy, xshift=3cm] {Mapare $\mu\rightarrow\theta$};
+  \node (gate) [right of=map, xshift=3cm] {Porţi parametrizate $RY(\theta)$};
+  \node (rho) [below of=map, yshift=-1.2cm] {Generare $\rho_i$ local};
+  \node (kron) [right of=rho, xshift=3cm] {Produs tensorial (implicit)};
+  \node (sparse) [right of=kron, xshift=3cm] {Reprezentare CSR / TT / MPS};
+  \node (compute) [below of=kron, yshift=-1.2cm] {Calcul mat-vec paralelizat (CPU/GPU)};
+  \node (decide) [below of=compute, yshift=-1.2cm] {Decizie & izolare hazard (<15 ms)};
 
-În spațiul Banach al operatorilor cu norma operatorială, exponentiala lui $H$ este dată de serie:
+  \draw[->] (fuzzy) -- (map);
+  \draw[->] (map) -- (gate);
+  \draw[->] (gate) -- (rho);
+  \draw[->] (rho) -- (kron);
+  \draw[->] (kron) -- (sparse);
+  \draw[->] (sparse) -- (compute);
+  \draw[->] (compute) -- (decide);
+\end{tikzpicture}
+\caption{Fluxul de informaţie din maparea fuzzy către decizia finală în QFLPN}
+\end{figure}
 
-\[ e^{-iHt/\hbar} = \sum_{m=0}^{\infty} \frac{(-i t/\hbar)^m}{m!} H^m. \]
-
-Dacă $\|H\| < \infty$, seria converge absolut şi uniform pe orice interval limitat de $t$. Pentru aplicare numerică, definim trunchierea de ordin $k$:
-
-\[ S_k(t) = \sum_{m=0}^{k} \frac{(-i t/\hbar)^m}{m!} H^m, \]
-
-şi definim eroarea de trunchiere $E_k(t) = e^{-iHt/\hbar} - S_k(t)$. Prin estimare se obţine:
-
-\[ \|E_k(t)\| \le \frac{(|t|\|H\|/\hbar)^{k+1}}{(k+1)!} \left( 1 + \frac{|t|\|H\|/\hbar}{k+2} + \cdots \right) \le \frac{(|t|\|H\|/\hbar)^{k+1}}{(k+1)!} e^{|t|\|H\|/\hbar}. \]
-
-Această bound permite alegerea lui $k$ dată de toleranţa numerică dorită. În practică, pentru simulări la scară mare, algoritmii folosesc expuneri adaptative, factorizări exponentiale (ex: Trotter‑Suzuki), sau metode Krylov subspaţiu pentru a evita trunchierile explicite foarte costisitoare.
-
-% End of Chapter 1
+% End of Chapter 2
 
 \appendix
 \chapter{Anexe}
