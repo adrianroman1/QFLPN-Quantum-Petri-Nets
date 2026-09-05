@@ -2,157 +2,76 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
-  <modelVersion>4.0.0</modelVersion>
 
-  <groupId>ro.utcluj.ac</groupId>
-  <artifactId>quantum-hpc-csr</artifactId>
-  <version>1.0-SNAPSHOT</version>
+    <modelVersion>4.0.0</modelVersion>
 
-  <properties>
-    <maven.compiler.release>21</maven.compiler.release>
-    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <jmh.version>1.36</jmh.version>
-    <graalvm.native.image.plugin.version>22.3.0</graalvm.native.image.plugin.version>
-  </properties>
+    <groupId>ro.utcluj.ac</groupId>
+    <artifactId>quantum-hpc-csr</artifactId>
+    <version>1.0-SNAPSHOT</version>
 
-  <dependencies>
-    <!-- Apache Commons Math -->
-    <dependency>
-      <groupId>org.apache.commons</groupId>
-      <artifactId>commons-math3</artifactId>
-      <version>3.6.1</version>
-    </dependency>
+    <properties>
+        <maven.compiler.release>21</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <jmh.version>1.37</jmh.version>
+    </properties>
 
-    <!-- JMH for micro-benchmarks -->
-    <dependency>
-      <groupId>org.openjdk.jmh</groupId>
-      <artifactId>jmh-core</artifactId>
-      <version>${jmh.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.openjdk.jmh</groupId>
-      <artifactId>jmh-generator-annprocess</artifactId>
-      <version>${jmh.version}</version>
-      <scope>provided</scope>
-    </dependency>
-  </dependencies>
+    <dependencies>
 
-  <build>
-    <plugins>
-      <!-- Compiler plugin -->
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-compiler-plugin</artifactId>
-        <version>3.13.0</version>
-        <configuration>
-          <release>${maven.compiler.release}</release>
-          <annotationProcessorPaths>
-            <path>
-              <groupId>org.openjdk.jmh</groupId>
-              <artifactId>jmh-generator-annprocess</artifactId>
-              <version>${jmh.version}</version>
-            </path>
-          </annotationProcessorPaths>
-        </configuration>
-      </plugin>
+        <!-- Apache Commons Math -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-math3</artifactId>
+            <version>3.6.1</version>
+        </dependency>
 
-      <!-- Exec plugin (for running MainApp) -->
-      <plugin>
-        <groupId>org.codehaus.mojo</groupId>
-        <artifactId>exec-maven-plugin</artifactId>
-        <version>3.3.0</version>
-        <configuration>
-          <mainClass>hpc.csr.MainApp</mainClass>
-        </configuration>
-      </plugin>
+        <!-- JMH - folosit ulterior pentru benchmark-uri -->
+        <dependency>
+            <groupId>org.openjdk.jmh</groupId>
+            <artifactId>jmh-core</artifactId>
+            <version>${jmh.version}</version>
+        </dependency>
 
-      <!-- Shade plugin to produce fat jar for native-image -->
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-shade-plugin</artifactId>
-        <version>3.4.1</version>
-        <executions>
-          <execution>
-            <phase>package</phase>
-            <goals><goal>shade</goal></goals>
-            <configuration>
-              <createDependencyReducedPom>false</createDependencyReducedPom>
-              <transformers>
-                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-                  <mainClass>hpc.csr.MainApp</mainClass>
-                </transformer>
-              </transformers>
-            </configuration>
-          </execution>
-        </executions>
-      </plugin>
+        <dependency>
+            <groupId>org.openjdk.jmh</groupId>
+            <artifactId>jmh-generator-annprocess</artifactId>
+            <version>${jmh.version}</version>
+            <scope>provided</scope>
+        </dependency>
 
-      <!-- JMH maven plugin -->
-      <plugin>
-        <groupId>org.openjdk.jmh</groupId>
-        <artifactId>jmh-maven-plugin</artifactId>
-        <version>${jmh.version}</version>
-        <executions>
-          <execution>
-            <goals><goal>benchmark</goal></goals>
-          </execution>
-        </executions>
-      </plugin>
+    </dependencies>
 
-      <!-- GraalVM native-image plugin -->
-      <plugin>
-        <groupId>org.graalvm.nativeimage</groupId>
-        <artifactId>native-image-maven-plugin</artifactId>
-        <version>${graalvm.native.image.plugin.version}</version>
-        <executions>
-          <execution>
-            <id>native-image</id>
-            <phase>package</phase>
-            <goals><goal>native-image</goal></goals>
-            <configuration>
-              <mainClass>hpc.csr.MainApp</mainClass>
-              <enableAllSecurityServices>false</enableAllSecurityServices>
-              <buildArgs>
-                <!-- Graal tuning flags requested -->
-                <arg>--vm.Dgraal.LoopUnrollLimit=32</arg>
-                <arg>--vm.Dgraal.PartialUnroll=true</arg>
-                <arg>--vm.Dgraal.EscapeAnalysis=true</arg>
-                <arg>--no-fallback</arg>
-                <arg>--enable-jni</arg>
-                <arg>-H:+ReportUnsupportedElementsAtRuntime</arg>
-                <arg>-H:+AllowVMInspection</arg>
-              </buildArgs>
-            </configuration>
-          </execution>
-        </executions>
-      </plugin>
-    </plugins>
-  </build>
-
-  <profiles>
-    <profile>
-      <id>native</id>
-      <activation>
-        <property><name>native</name><value>true</value></property>
-      </activation>
-      <build>
+    <build>
         <plugins>
-          <plugin>
-            <groupId>org.graalvm.nativeimage</groupId>
-            <artifactId>native-image-maven-plugin</artifactId>
-            <version>${graalvm.native.image.plugin.version}</version>
-            <configuration>
-              <mainClass>hpc.csr.MainApp</mainClass>
-              <buildArgs>
-                <arg>--vm.Dgraal.LoopUnrollLimit=32</arg>
-                <arg>--vm.Dgraal.PartialUnroll=true</arg>
-                <arg>--vm.Dgraal.EscapeAnalysis=true</arg>
-                <arg>--no-fallback</arg>
-              </buildArgs>
-            </configuration>
-          </plugin>
+
+            <!-- Java 21 compiler -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.13.0</version>
+                <configuration>
+                    <release>${maven.compiler.release}</release>
+
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.openjdk.jmh</groupId>
+                            <artifactId>jmh-generator-annprocess</artifactId>
+                            <version>${jmh.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
+
+            <!-- Rulează MainApp -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.3.0</version>
+                <configuration>
+                    <mainClass>hpc.csr.MainApp</mainClass>
+                </configuration>
+            </plugin>
+
         </plugins>
-      </build>
-    </profile>
-  </profiles>
+    </build>
+
 </project>
