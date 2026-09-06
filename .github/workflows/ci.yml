@@ -26,3 +26,11 @@ jobs:
 
       - name: Run CSR smoke validation
         run: mvn -B -DskipTests compile exec:java
+
+      - name: Run CSR benchmark smoke
+        run: >
+          mvn -B
+          -DskipTests
+          -Dexec.mainClass=hpc.csr.BenchmarkRunner
+          -Dexec.args="--n=1000000 --warmup=1 --iterations=2 --threshold=4096 --parallelism=2"
+          exec:java
