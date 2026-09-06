@@ -4,7 +4,6 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -25,6 +24,7 @@ class SparseMatrixCSRTest {
      *
      * A*x = [7, 22, 23, 46]
      */
+
     private static double[] values() {
         return new double[] {
                 1.0, 2.0,
@@ -85,7 +85,7 @@ class SparseMatrixCSRTest {
     @Test
     void mismatchedValuesAndColumnsAreRejected() {
 
-        double[] invalidColumns = {
+        int[] invalidColumns = {
                 0, 2, 1, 3, 0, 2, 1
         };
 
@@ -632,14 +632,16 @@ class SparseMatrixCSRTest {
         assertEquals(0, matrix.getRows());
         assertEquals(0, matrix.getColumns());
         assertEquals(0, matrix.getNonZeroCount());
-        assertEquals(0.0, matrix.getDensity(), EPSILON);
-
-        assertNotNull(
-                matrix.multiply(new double[0]));
-
         assertEquals(
-                0,
-                matrix.multiply(new double[0]).length);
+                0.0,
+                matrix.getDensity(),
+                EPSILON);
+
+        double[] result =
+                matrix.multiply(new double[0]);
+
+        assertNotNull(result);
+        assertEquals(0, result.length);
     }
 
     @Test
@@ -652,6 +654,7 @@ class SparseMatrixCSRTest {
          * [0 0 0]
          * [0 0 2]
          */
+
         SparseMatrixCSR matrix =
                 new SparseMatrixCSR(
                         new double[] {1.0, 2.0},
@@ -662,10 +665,14 @@ class SparseMatrixCSRTest {
 
         double[] actual =
                 matrix.multiply(
-                        new double[] {5.0, 7.0, 11.0});
+                        new double[] {
+                                5.0, 7.0, 11.0
+                        });
 
         assertArrayEquals(
-                new double[] {5.0, 0.0, 22.0},
+                new double[] {
+                        5.0, 0.0, 22.0
+                },
                 actual,
                 EPSILON);
     }
