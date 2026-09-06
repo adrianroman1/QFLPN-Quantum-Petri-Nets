@@ -1,418 +1,182 @@
 package hpc.csr;
 
-import org.junit.jupiter.api.Test;
-
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import java.util.Objects;
 
 /**
- * Teste unitare pentru QFLPNCoreEngine.
+ * QFLPNCoreEngine
  *
- * Verifică integrarea dintre motorul QFLPN
- * și reprezentarea SparseMatrixCSR.
+ * Nucleul computational al motorului QFLPN pentru operații
+ * matrice-vector pe structuri rare CSR.
+ *
+ * Responsabilități:
+ * 1. încărcarea reprezentării CSR;
+ * 2. validarea dimensiunilor;
+ * 3. execuția multiplicării secvențiale;
+ * 4. execuția multiplicării paralele;
+ * 5. expunerea metadatelor structurii computaționale.
  */
-class QFLPNCoreEngineTest {
+public final class QFLPNCoreEngine {
 
-    private static final double TOLERANCE = 1.0e-12;
+    private final int dimension;
 
-    /**
-     * Matricea de referință:
-     *
-     * A =
-     *
-     * [ 1  0  2  0 ]
-     * [ 0  3  0  4 ]
-     * [ 5  0  6  0 ]
-     * [ 0  7  0  8 ]
-     *
-     * x = [1, 2, 3, 4]^T
-     *
-     * A*x = [7, 22, 23, 46]^T
-     */
-    private static double[] values() {
+    private SparseMatrixCSR matrix;
 
-        return new double[]{
-                1.0, 2.0,
-                3.0, 4.0,
-                5.0, 6.0,
-                7.0, 8.0
-        };
+    public QFLPNCoreEngine(int n) {
+
+        if (n <= 0) {
+            throw new IllegalArgumentException(
+                    "Dimension must be greater than zero.");
+        }
+
+        this.dimension = n;
     }
 
-    private static int[] columns() {
+    public void loadCSR(
+            double[] values,
+            int[] columns,
+            int[] rowPointers) {
 
-        return new int[]{
-                0, 2,
-                1, 3,
-                0, 2,
-                1, 3
-        };
+        Objects.requireNonNull(
+                values,
+                "values cannot be null");
+
+        Objects.requireNonNull(
+                columns,
+                "columns cannot be null");
+
+        Objects.requireNonNull(
+                rowPointers,
+                "rowPointers cannot be null");
+
+        this.matrix = new SparseMatrixCSR(
+                values,
+                columns,
+                rowPointers,
+                dimension,
+                dimension);
     }
 
-    private static int[] rowPointers() {
+    public void loadMatrix(
+            SparseMatrixCSR matrix) {
 
-        return new int[]{
-                0, 2, 4, 6, 8
-        };
+        Objects.requireNonNull(
+                matrix,
+                "matrix cannot be null");
+
+        if (matrix.getRows() != dimension
+                || matrix.getColumns() != dimension) {
+
+            throw new IllegalArgumentException(
+                    "Matrix dimensions must be "
+                            + dimension + " x " + dimension
+                            + ", but received "
+                            + matrix.getRows() + " x "
+                            + matrix.getColumns() + ".");
+        }
+
+        this.matrix = matrix;
     }
 
-    private static double[] input() {
+    public double[] multiply(
+            double[] x) {
 
-        return new double[]{
-                1.0, 2.0, 3.0, 4.0
-        };
+        ensureMatrixLoaded();
+        validateVector(x);
+
+        return matrix.multiply(x);
     }
 
-    private static double[] expected() {
+    public double[] multiplyParallel(
+            double[] x) {
 
-        return new double[]{
-                7.0, 22.0, 23.0, 46.0
-        };
+        ensureMatrixLoaded();
+        validateVector(x);
+
+        return matrix.multiplyParallel(x);
     }
 
-    @Test
-    void shouldCreateEngineWithValidDimension() {
+    public double[] multiplyParallel(
+            double[] x,
+            int threshold,
+            int parallelism) {
 
-        QFLPNCoreEngine engine =
-                new QFLPNCoreEngine(4);
+        ensureMatrixLoaded();
+        validateVector(x);
 
-        try {
-            assertEquals(
-                    4,
-                    engine.getDimension());
+        return matrix.multiplyParallel(
+                x,
+                threshold,
+                parallelism);
+    }
 
-        } finally {
-            engine.shutdown();
+    private void ensureMatrixLoaded() {
+
+        if (matrix == null) {
+            throw new IllegalStateException(
+                    "CSR matrix has not been loaded.");
         }
     }
 
-    @Test
-    void shouldRejectNegativeDimension() {
+    private void validateVector(
+            double[] x) {
 
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new QFLPNCoreEngine(-1));
-    }
+        Objects.requireNonNull(
+                x,
+                "Input vector cannot be null.");
 
-    @Test
-    void shouldRejectMultiplyBeforeCSRIsLoaded() {
-
-        QFLPNCoreEngine engine =
-                new QFLPNCoreEngine(4);
-
-        try {
-            assertThrows(
-                    IllegalStateException.class,
-                    () -> engine.multiply(
-                            input()));
-
-        } finally {
-            engine.shutdown();
+        if (x.length != dimension) {
+            throw new IllegalArgumentException(
+                    "Input vector length (" + x.length
+                            + ") must equal engine dimension ("
+                            + dimension + ").");
         }
     }
 
-    @Test
-    void shouldLoadCSRMatrixCorrectly() {
-
-        QFLPNCoreEngine engine =
-                new QFLPNCoreEngine(4);
-
-        try {
-            engine.loadCSR(
-                    values(),
-                    columns(),
-                    rowPointers());
-
-            assertEquals(
-                    4,
-                    engine.getDimension());
-
-            assertEquals(
-                    8,
-                    engine.getNonZeroCount());
-
-            assertEquals(
-                    0.5,
-                    engine.getMatrixDensity(),
-                    TOLERANCE);
-
-        } finally {
-            engine.shutdown();
-        }
+    public int getDimension() {
+        return dimension;
     }
 
-    @Test
-    void shouldComputeCorrectSequentialResult() {
+    public SparseMatrixCSR getMatrix() {
 
-        QFLPNCoreEngine engine =
-                new QFLPNCoreEngine(4);
+        ensureMatrixLoaded();
 
-        try {
-            engine.loadCSR(
-                    values(),
-                    columns(),
-                    rowPointers());
-
-            double[] actual =
-                    engine.multiply(input());
-
-            assertArrayEquals(
-                    expected(),
-                    actual,
-                    TOLERANCE);
-
-        } finally {
-            engine.shutdown();
-        }
+        return matrix;
     }
 
-    @Test
-    void shouldComputeCorrectParallelResult() {
+    public int getNonZeroCount() {
 
-        QFLPNCoreEngine engine =
-                new QFLPNCoreEngine(4);
+        ensureMatrixLoaded();
 
-        try {
-            engine.loadCSR(
-                    values(),
-                    columns(),
-                    rowPointers());
-
-            double[] actual =
-                    engine.multiplyParallel(
-                            input(),
-                            1,
-                            2);
-
-            assertArrayEquals(
-                    expected(),
-                    actual,
-                    TOLERANCE);
-
-        } finally {
-            engine.shutdown();
-        }
+        return matrix.getNonZeroCount();
     }
 
-    @Test
-    void sequentialAndParallelResultsShouldMatch() {
+    public double getMatrixDensity() {
 
-        QFLPNCoreEngine engine =
-                new QFLPNCoreEngine(4);
+        ensureMatrixLoaded();
 
-        try {
-            engine.loadCSR(
-                    values(),
-                    columns(),
-                    rowPointers());
-
-            double[] sequential =
-                    engine.multiply(input());
-
-            double[] parallel =
-                    engine.multiplyParallel(
-                            input(),
-                            1,
-                            2);
-
-            assertArrayEquals(
-                    sequential,
-                    parallel,
-                    TOLERANCE);
-
-        } finally {
-            engine.shutdown();
-        }
+        return matrix.getDensity();
     }
 
-    @Test
-    void shouldRejectWrongInputDimension() {
-
-        QFLPNCoreEngine engine =
-                new QFLPNCoreEngine(4);
-
-        try {
-            engine.loadCSR(
-                    values(),
-                    columns(),
-                    rowPointers());
-
-            assertThrows(
-                    IllegalArgumentException.class,
-                    () -> engine.multiply(
-                            new double[]{1.0, 2.0, 3.0}));
-
-        } finally {
-            engine.shutdown();
-        }
+    public void shutdown() {
+        // No persistent resources to release in the current design.
     }
 
-    @Test
-    void shouldRejectInvalidCSRData() {
+    @Override
+    public String toString() {
 
-        QFLPNCoreEngine engine =
-                new QFLPNCoreEngine(4);
-
-        try {
-            assertThrows(
-                    IllegalArgumentException.class,
-                    () -> engine.loadCSR(
-                            new double[]{1.0},
-                            new int[]{4},
-                            new int[]{0, 1, 1, 1, 1}));
-
-        } finally {
-            engine.shutdown();
+        if (matrix == null) {
+            return "QFLPNCoreEngine{"
+                    + "dimension=" + dimension
+                    + ", matrix=not-loaded"
+                    + '}';
         }
-    }
 
-    @Test
-    void shouldRejectNullCSRArrays() {
-
-        QFLPNCoreEngine engine =
-                new QFLPNCoreEngine(4);
-
-        try {
-            assertThrows(
-                    NullPointerException.class,
-                    () -> engine.loadCSR(
-                            null,
-                            columns(),
-                            rowPointers()));
-
-            assertThrows(
-                    NullPointerException.class,
-                    () -> engine.loadCSR(
-                            values(),
-                            null,
-                            rowPointers()));
-
-            assertThrows(
-                    NullPointerException.class,
-                    () -> engine.loadCSR(
-                            values(),
-                            columns(),
-                            null));
-
-        } finally {
-            engine.shutdown();
-        }
-    }
-
-    @Test
-    void shouldRejectCSRDimensionMismatch() {
-
-        QFLPNCoreEngine engine =
-                new QFLPNCoreEngine(4);
-
-        try {
-            assertThrows(
-                    IllegalArgumentException.class,
-                    () -> engine.loadCSR(
-                            new double[]{1.0},
-                            new int[]{0},
-                            new int[]{0, 1, 1, 1}));
-
-        } finally {
-            engine.shutdown();
-        }
-    }
-
-    @Test
-    void shouldExposeLoadedMatrix() {
-
-        QFLPNCoreEngine engine =
-                new QFLPNCoreEngine(4);
-
-        try {
-            engine.loadCSR(
-                    values(),
-                    columns(),
-                    rowPointers());
-
-            assertEquals(
-                    4,
-                    engine.getMatrix().getRows());
-
-            assertEquals(
-                    4,
-                    engine.getMatrix().getColumns());
-
-            assertEquals(
-                    8,
-                    engine.getMatrix().getNonZeroCount());
-
-        } finally {
-            engine.shutdown();
-        }
-    }
-
-    @Test
-    void shouldSupportParallelismAndThresholdConfiguration() {
-
-        QFLPNCoreEngine engine =
-                new QFLPNCoreEngine(4);
-
-        try {
-            engine.loadCSR(
-                    values(),
-                    columns(),
-                    rowPointers());
-
-            double[] result =
-                    engine.multiplyParallel(
-                            input(),
-                            2,
-                            1);
-
-            assertArrayEquals(
-                    expected(),
-                    result,
-                    TOLERANCE);
-
-        } finally {
-            engine.shutdown();
-        }
-    }
-
-    @Test
-    void shouldRejectInvalidParallelConfiguration() {
-
-        QFLPNCoreEngine engine =
-                new QFLPNCoreEngine(4);
-
-        try {
-            engine.loadCSR(
-                    values(),
-                    columns(),
-                    rowPointers());
-
-            assertThrows(
-                    IllegalArgumentException.class,
-                    () -> engine.multiplyParallel(
-                            input(),
-                            0,
-                            2));
-
-            assertThrows(
-                    IllegalArgumentException.class,
-                    () -> engine.multiplyParallel(
-                            input(),
-                            1,
-                            0));
-
-        } finally {
-            engine.shutdown();
-        }
-    }
-
-    @Test
-    void shouldShutdownWithoutFailure() {
-
-        QFLPNCoreEngine engine =
-                new QFLPNCoreEngine(4);
-
-        engine.shutdown();
+        return "QFLPNCoreEngine{"
+                + "dimension=" + dimension
+                + ", nonZeroCount="
+                + matrix.getNonZeroCount()
+                + ", density="
+                + matrix.getDensity()
+                + '}';
     }
 }
