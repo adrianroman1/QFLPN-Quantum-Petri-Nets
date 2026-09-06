@@ -13,7 +13,7 @@ import java.util.Objects;
  *  2. validarea dimensiunilor;
  *  3. execuția multiplicării secvențiale;
  *  4. execuția multiplicării paralele;
- *  5. expunerea metadatelor structurii computational;
+ *  5. expunerea metadatelor structurii computaționale.
  *
  * Separarea dintre engine și SparseMatrixCSR permite ca:
  *  - reprezentarea datelor să rămână izolată în SparseMatrixCSR;
@@ -27,9 +27,10 @@ public final class QFLPNCoreEngine {
     private SparseMatrixCSR matrix;
 
     /**
-     * Construiește un engine pentru o problemă pătratică de dimensiune n.
+     * Creează un engine QFLPN pentru o matrice pătratică
+     * de dimensiune n x n.
      *
-     * @param n dimensiunea matricei și a vectorului de stare
+     * @param n dimensiunea matricei
      */
     public QFLPNCoreEngine(int n) {
         if (n <= 0) {
@@ -43,13 +44,9 @@ public final class QFLPNCoreEngine {
     /**
      * Încarcă o matrice CSR pătratică.
      *
-     * Datele sunt validate și copiate de SparseMatrixCSR,
-     * astfel încât engine-ul să nu depindă de modificări externe
-     * ale tablourilor primite.
-     *
-     * @param values valorile elementelor nenule
-     * @param columns indicii coloanelor
-     * @param rowPointers pointerii CSR
+     * @param values valorile nenule
+     * @param columns indicii de coloană
+     * @param rowPointers pointerii de început/sfârșit ai rândurilor
      */
     public void loadCSR(
             double[] values,
@@ -69,12 +66,11 @@ public final class QFLPNCoreEngine {
     }
 
     /**
-     * Încarcă direct o instanță SparseMatrixCSR.
+     * Încarcă direct o structură SparseMatrixCSR.
      *
      * @param matrix matricea CSR
      */
     public void loadMatrix(SparseMatrixCSR matrix) {
-
         Objects.requireNonNull(matrix, "matrix cannot be null");
 
         if (matrix.getRows() != dimension
@@ -92,51 +88,38 @@ public final class QFLPNCoreEngine {
     }
 
     /**
-     * Execută multiplicarea secvențială:
-     *
-     *          y = A * x
+     * Multiplicare matrice-vector secvențială.
      *
      * @param x vectorul de intrare
      * @return vectorul rezultat
      */
     public double[] multiply(double[] x) {
-
         ensureMatrixLoaded();
-
         validateVector(x);
 
         return matrix.multiply(x);
     }
 
     /**
-     * Execută multiplicarea paralelă:
-     *
-     *          y = A * x
-     *
-     * utilizând implementarea paralelă definită în SparseMatrixCSR.
+     * Multiplicare matrice-vector paralelă.
      *
      * @param x vectorul de intrare
      * @return vectorul rezultat
      */
     public double[] multiplyParallel(double[] x) {
-
         ensureMatrixLoaded();
-
         validateVector(x);
 
         return matrix.multiplyParallel(x);
     }
 
     /**
-     * Execută multiplicarea paralelă cu parametri experimentali
-     * controlați explicit.
-     *
-     * Această variantă este utilă pentru benchmarking și pentru
-     * studiul influenței pragului de divizare și a paralelismului.
+     * Multiplicare matrice-vector paralelă cu parametri expliciți
+     * pentru granularitatea task-urilor și nivelul de paralelism.
      *
      * @param x vectorul de intrare
-     * @param threshold pragul de divizare Fork/Join
-     * @param parallelism numărul de fire utilizate
+     * @param threshold numărul de rânduri procesate direct de un task
+     * @param parallelism numărul de worker threads
      * @return vectorul rezultat
      */
     public double[] multiplyParallel(
@@ -145,7 +128,6 @@ public final class QFLPNCoreEngine {
             int parallelism) {
 
         ensureMatrixLoaded();
-
         validateVector(x);
 
         return matrix.multiplyParallel(
@@ -158,7 +140,6 @@ public final class QFLPNCoreEngine {
      * Verifică dacă matricea CSR a fost încărcată.
      */
     private void ensureMatrixLoaded() {
-
         if (matrix == null) {
             throw new IllegalStateException(
                     "CSR matrix has not been loaded.");
@@ -167,9 +148,10 @@ public final class QFLPNCoreEngine {
 
     /**
      * Validează vectorul de intrare.
+     *
+     * @param x vectorul care urmează să fie multiplicat
      */
     private void validateVector(double[] x) {
-
         Objects.requireNonNull(
                 x,
                 "Input vector cannot be null.");
@@ -183,49 +165,50 @@ public final class QFLPNCoreEngine {
     }
 
     /**
-     * @return dimensiunea problemei
+     * Returnează dimensiunea matricei.
+     *
+     * @return dimensiunea matricei
      */
     public int getDimension() {
         return dimension;
     }
 
     /**
-     * @return matricea CSR încărcată
+     * Returnează matricea CSR încărcată.
+     *
+     * @return matricea CSR
      */
     public SparseMatrixCSR getMatrix() {
-
         ensureMatrixLoaded();
 
         return matrix;
     }
 
     /**
+     * Returnează numărul de elemente nenule.
+     *
      * @return numărul de elemente nenule
      */
     public int getNonZeroCount() {
-
         ensureMatrixLoaded();
 
         return matrix.getNonZeroCount();
     }
 
     /**
+     * Returnează densitatea matricei.
+     *
      * @return densitatea matricei
      */
     public double getMatrixDensity() {
-
         ensureMatrixLoaded();
 
         return matrix.getDensity();
     }
 
     /**
-     * Nu există resurse native persistente de închis în această
-     * versiune a engine-ului.
-     *
-     * Metoda este păstrată pentru compatibilitate arhitecturală
-     * și poate fi extinsă ulterior când managementul pool-ului
-     * va fi mutat la nivelul engine-ului.
+     * În versiunea actuală engine-ul nu deține resurse persistente
+     * care necesită eliberare explicită.
      */
     public void shutdown() {
         // No persistent resources to release in the current design.
@@ -233,7 +216,6 @@ public final class QFLPNCoreEngine {
 
     @Override
     public String toString() {
-
         if (matrix == null) {
             return "QFLPNCoreEngine{"
                     + "dimension=" + dimension
@@ -247,4 +229,4 @@ public final class QFLPNCoreEngine {
                 + ", density=" + matrix.getDensity()
                 + '}';
     }
-          }
+}
