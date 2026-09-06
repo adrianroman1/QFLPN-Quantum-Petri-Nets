@@ -19,7 +19,6 @@ REPETITIONS = 1000
 TARGET_MS = 15.0
 ERROR_TOLERANCE = 1e-12
 
-
 BASE_DIR = Path(__file__).resolve().parent
 RESULTS_DIR = BASE_DIR / "results"
 
@@ -34,8 +33,7 @@ OUTPUT_FILE = (
 )
 
 
-def build_qflpn_operator(n, mu):
-
+def build_operator(n: int, mu: float) -> csr_matrix:
     theta = 2.0 * math.asin(
         math.sqrt(mu)
     )
@@ -74,7 +72,7 @@ def build_qflpn_operator(n, mu):
     )
 
 
-def build_initial_state(n):
+def build_initial_state(n: int) -> np.ndarray:
 
     index = np.arange(
         n,
@@ -92,14 +90,17 @@ def build_initial_state(n):
     norm = np.linalg.norm(x)
 
     if norm == 0.0:
-        raise RuntimeError(
+        raise ValueError(
             "Initial state has zero norm."
         )
 
     return x / norm
 
 
-def analytical_reference(x, mu):
+def analytical_reference(
+    x: np.ndarray,
+    mu: float
+) -> np.ndarray:
 
     theta = 2.0 * math.asin(
         math.sqrt(mu)
@@ -125,14 +126,20 @@ def analytical_reference(x, mu):
     return y
 
 
-def benchmark(operator, x):
+def measure_spmv(
+    operator: csr_matrix,
+    x: np.ndarray
+) -> np.ndarray:
 
     for _ in range(WARMUP):
         operator @ x
 
-    measurements = []
+    times_ms = np.empty(
+        REPETITIONS,
+        dtype=np.float64
+    )
 
-    for _ in range(REPETITIONS):
+    for repetition in range(REPETITIONS):
 
         start = time.perf_counter_ns()
 
@@ -140,27 +147,22 @@ def benchmark(operator, x):
 
         end = time.perf_counter_ns()
 
-        elapsed_ms = (
+        times_ms[repetition] = (
             end - start
         ) / 1_000_000.0
 
-        measurements.append(
-            elapsed_ms
-        )
-
-    return np.asarray(
-        measurements,
-        dtype=np.float64
-    )
+    return times_ms
 
 
-def run_dimension(n):
+def benchmark_dimension(
+    n: int
+) -> dict:
 
     construction_start = (
         time.perf_counter_ns()
     )
 
-    operator = build_qflpn_operator(
+    operator = build_operator(
         n,
         MU
     )
@@ -184,12 +186,12 @@ def run_dimension(n):
 
     computed = operator @ x
 
+    absolute_error = np.abs(
+        computed - reference
+    )
+
     max_absolute_error = float(
-        np.max(
-            np.abs(
-                computed - reference
-            )
-        )
+        np.max(absolute_error)
     )
 
     input_norm = float(
@@ -205,7 +207,7 @@ def run_dimension(n):
         input_norm
     )
 
-    measurements = benchmark(
+    measurements = measure_spmv(
         operator,
         x
     )
@@ -278,29 +280,23 @@ def run_dimension(n):
     }
 
 
-def get_environment():
+def environment_information() -> dict:
 
     return {
         "python_version":
             sys.version.split()[0],
-
         "numpy_version":
             np.__version__,
-
-        "scipy_version":
-            __import__(
-                "scipy"
-            ).__version__,
-
         "platform":
             platform.platform(),
-
         "processor":
             platform.processor()
     }
 
 
-def save_results(results):
+def save_results(
+    results: list[dict]
+) -> None:
 
     fieldnames = list(
         results[0].keys()
@@ -327,7 +323,7 @@ def save_results(results):
 def main():
 
     print(
-        "QFLPN Scaling Benchmark"
+        "QFLPN scaling benchmark"
     )
 
     print(
@@ -345,26 +341,23 @@ def main():
 
     print()
 
-    environment = get_environment()
-
-    print(
-        f"Python: "
-        f"{environment['python_version']}"
+    environment = (
+        environment_information()
     )
 
     print(
-        f"NumPy: "
-        f"{environment['numpy_version']}"
+        "Python:",
+        environment["python_version"]
     )
 
     print(
-        f"SciPy: "
-        f"{environment['scipy_version']}"
+        "NumPy:",
+        environment["numpy_version"]
     )
 
     print(
-        f"Platform: "
-        f"{environment['platform']}"
+        "Platform:",
+        environment["platform"]
     )
 
     print()
@@ -377,7 +370,9 @@ def main():
             f"Running N={n:,}"
         )
 
-        result = run_dimension(n)
+        result = benchmark_dimension(
+            n
+        )
 
         results.append(result)
 
@@ -402,16 +397,6 @@ def main():
         )
 
         print(
-            f"  Min: "
-            f"{result['min_ms']:.6f} ms"
-        )
-
-        print(
-            f"  Max: "
-            f"{result['max_ms']:.6f} ms"
-        )
-
-        print(
             f"  Maximum error: "
             f"{result['max_absolute_error']:.3e}"
         )
@@ -433,14 +418,13 @@ def main():
 
         print()
 
-    save_results(results)
-
-    print(
-        "Results saved to:"
+    save_results(
+        results
     )
 
     print(
-        OUTPUT_FILE
+        f"Results saved to:\n"
+        f"{OUTPUT_FILE}"
     )
 
 
