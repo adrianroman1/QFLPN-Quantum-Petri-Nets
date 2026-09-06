@@ -55,7 +55,7 @@ class BenchmarkResultWriterTest {
 
         assertTrue(
                 lines.get(1).contains(
-                        "12.500000000000e+00"));
+                        "1.250000000000e+01"));
     }
 
     @Test
