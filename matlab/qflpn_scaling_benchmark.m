@@ -1,454 +1,246 @@
-clear;
-clc;
 
-% ============================================================
-% QFLPN SCALING BENCHMARK
-% MATLAB / GNU Octave compatible
-%
-% Deterministic sparse operator benchmark
-% Dimensions: 1024, 10000, 100000
-% No random numbers
-% No Monte Carlo
-% ============================================================
+function qflpn_scaling_benchmark()
 
-dimensions = [1024, 10000, 100000];
+    clc;
 
-% QFLPN fuzzy membership parameter
-mu = 0.70;
+    dimensions = [1024, 10000, 100000];
 
-% Benchmark parameters
-warmup = 20;
-repetitions = 1000;
+    warmup_repetitions = 20;
+    benchmark_repetitions = 1000;
 
-% Timing acceptance threshold
-target_ms = 15.0;
+    target_ms = 15.0;
 
-% Numerical validation tolerance
-error_tolerance = 1e-12;
+    mu = 0.70;
 
-% Output directory
-results_dir = 'results';
+    theta = 2.0 * asin(sqrt(mu));
 
-if ~exist(results_dir, 'dir')
-    mkdir(results_dir);
-end
+    c = cos(theta);
+    s = sin(theta);
 
-% Output CSV
-output_file = fullfile(
-    results_dir,
-    'qflpn_scaling_matlab.csv'
-);
+    fprintf('QFLPN deterministic sparse scaling benchmark\n');
+    fprintf('mu = %.12f\n', mu);
+    fprintf('theta = %.12f rad\n', theta);
+    fprintf('Warmup repetitions = %d\n', warmup_repetitions);
+    fprintf('Benchmark repetitions = %d\n', benchmark_repetitions);
+    fprintf('Target = %.3f ms\n\n', target_ms);
 
-% ============================================================
-% QFLPN fuzzy-to-operator mapping
-%
-% theta = 2 asin(sqrt(mu))
-% R(theta) =
-% [ cos(theta)  -sin(theta) ]
-% [ sin(theta)   cos(theta) ]
-%
-% Each 2x2 block is unitary/orthogonal.
-% ============================================================
+    output_directory = 'results';
 
-theta = 2 * asin(sqrt(mu));
-
-c = cos(theta);
-s = sin(theta);
-
-% Results columns:
-%
-% 1  dimension
-% 2  nnz
-% 3  mu
-% 4  warmup
-% 5  repetitions
-% 6  construction_ms
-% 7  mean_ms
-% 8  median_ms
-% 9  min_ms
-% 10 max_ms
-% 11 max_absolute_error
-% 12 input_norm
-% 13 output_norm
-% 14 norm_error
-% 15 target_ms
-% 16 error_tolerance
-% 17 numerical_status
-% 18 timing_status
-
-results = zeros(length(dimensions), 18);
-
-% ============================================================
-% MAIN BENCHMARK LOOP
-% ============================================================
-
-for d = 1:length(dimensions)
-
-    n = dimensions(d);
-
-    fprintf('Running N=%d\n', n);
-
-    % --------------------------------------------------------
-    % Validate dimension
-    % --------------------------------------------------------
-
-    if mod(n, 2) ~= 0
-        error('Dimension N must be even for the 2x2 block operator.');
+    if exist(output_directory, 'dir') ~= 7
+        mkdir(output_directory);
     end
 
-    % --------------------------------------------------------
-    % Sparse matrix construction
-    % --------------------------------------------------------
+    output_file = fullfile( ...
+        output_directory, ...
+        'qflpn_scaling_matlab.csv');
 
-    construction_start = tic;
+    fid = fopen(output_file, 'w');
 
-    % 2 nonzero entries per row
-    rows = zeros(2 * n, 1);
-    cols = zeros(2 * n, 1);
-    values = zeros(2 * n, 1);
+    if fid == -1
+        error('Cannot open output file: %s', output_file);
+    end
 
-    p = 1;
+    fprintf(fid, ...
+        ['language,dimension,nnz,warmup,repetitions,' ...
+         'construction_ms,mean_ms,median_ms,min_ms,max_ms,' ...
+         'maximum_error,norm_error,numerical_status,timing_status\n']);
 
-    for k = 1:2:n
+    for d = 1:length(dimensions)
 
-        i = k;
-        j = k + 1;
+        N = dimensions(d);
 
-        % Row i
-        rows(p) = i;
-        cols(p) = i;
-        values(p) = c;
-        p = p + 1;
+        fprintf('Running N=%d\n', N);
 
-        rows(p) = i;
-        cols(p) = j;
-        values(p) = -s;
-        p = p + 1;
+        index = (0:(N - 1))';
 
-        % Row j
-        rows(p) = j;
-        cols(p) = i;
-        values(p) = s;
-        p = p + 1;
+        x = sin(index) + 0.5 .* cos(0.37 .* index);
 
-        rows(p) = j;
-        cols(p) = j;
-        values(p) = c;
-        p = p + 1;
+        x_norm = norm(x, 2);
+
+        if x_norm == 0
+            fclose(fid);
+            error('Input vector has zero norm for N=%d.', N);
+        end
+
+        x = x ./ x_norm;
+
+        number_of_blocks = floor(N / 2);
+
+        rows = zeros(4 * number_of_blocks, 1);
+        cols = zeros(4 * number_of_blocks, 1);
+        values = zeros(4 * number_of_blocks, 1);
+
+        position = 1;
+
+        for k = 1:number_of_blocks
+
+            i = 2 * k - 1;
+            j = 2 * k;
+
+            rows(position) = i;
+            cols(position) = i;
+            values(position) = c;
+            position = position + 1;
+
+            rows(position) = i;
+            cols(position) = j;
+            values(position) = -s;
+            position = position + 1;
+
+            rows(position) = j;
+            cols(position) = i;
+            values(position) = s;
+            position = position + 1;
+
+            rows(position) = j;
+            cols(position) = j;
+            values(position) = c;
+            position = position + 1;
+
+        end
+
+        if mod(N, 2) == 1
+
+            rows(position) = N;
+            cols(position) = N;
+            values(position) = 1.0;
+
+            position = position + 1;
+
+        end
+
+        rows = rows(1:(position - 1));
+        cols = cols(1:(position - 1));
+        values = values(1:(position - 1));
+
+        construction_start = tic;
+
+        A = sparse(rows, cols, values, N, N);
+
+        construction_ms = toc(construction_start) * 1000.0;
+
+        nnz_value = nnz(A);
+
+        fprintf('  NNZ: %d\n', nnz_value);
+        fprintf('  Construction: %.6f ms\n', construction_ms);
+
+        y_reference = zeros(N, 1);
+
+        for k = 1:number_of_blocks
+
+            i = 2 * k - 1;
+            j = 2 * k;
+
+            y_reference(i) = ...
+                c * x(i) - s * x(j);
+
+            y_reference(j) = ...
+                s * x(i) + c * x(j);
+
+        end
+
+        if mod(N, 2) == 1
+            y_reference(N) = x(N);
+        end
+
+        y = zeros(N, 1);
+
+        for r = 1:warmup_repetitions
+            y = A * x;
+        end
+
+        times_ms = zeros(benchmark_repetitions, 1);
+
+        for r = 1:benchmark_repetitions
+
+            start_time = tic;
+
+            y = A * x;
+
+            elapsed_ms = toc(start_time) * 1000.0;
+
+            times_ms(r) = elapsed_ms;
+
+        end
+
+        maximum_error = max(abs(y - y_reference));
+
+        norm_error = abs(norm(y, 2) - norm(x, 2));
+
+        numerical_tolerance = 1.0e-12;
+
+        numerical_status = 'FAIL';
+
+        if maximum_error <= numerical_tolerance && ...
+           norm_error <= numerical_tolerance
+
+            numerical_status = 'PASS';
+
+        end
+
+        mean_ms = mean(times_ms);
+
+        sorted_times = sort(times_ms);
+
+        if mod(benchmark_repetitions, 2) == 0
+
+            middle_left = benchmark_repetitions / 2;
+            middle_right = middle_left + 1;
+
+            median_ms = ...
+                (sorted_times(middle_left) + ...
+                 sorted_times(middle_right)) / 2.0;
+
+        else
+
+            middle = ...
+                (benchmark_repetitions + 1) / 2;
+
+            median_ms = sorted_times(middle);
+
+        end
+
+        min_ms = min(times_ms);
+        max_ms = max(times_ms);
+
+        timing_status = 'FAIL';
+
+        if mean_ms <= target_ms
+            timing_status = 'PASS';
+        end
+
+        fprintf('  Mean: %.6f ms\n', mean_ms);
+        fprintf('  Median: %.6f ms\n', median_ms);
+        fprintf('  Minimum: %.6f ms\n', min_ms);
+        fprintf('  Maximum: %.6f ms\n', max_ms);
+        fprintf('  Maximum error: %.3e\n', maximum_error);
+        fprintf('  Norm error: %.3e\n', norm_error);
+        fprintf('  Numerical status: %s\n', numerical_status);
+        fprintf('  Timing status: %s\n\n', timing_status);
+
+        fprintf(fid, ...
+            ['MATLAB,%d,%d,%d,%d,%.12f,%.12f,%.12f,' ...
+             '%.12f,%.12f,%.12e,%.12e,%s,%s\n'], ...
+            N, ...
+            nnz_value, ...
+            warmup_repetitions, ...
+            benchmark_repetitions, ...
+            construction_ms, ...
+            mean_ms, ...
+            median_ms, ...
+            min_ms, ...
+            max_ms, ...
+            maximum_error, ...
+            norm_error, ...
+            numerical_status, ...
+            timing_status);
 
     end
 
-    A = sparse(
-        rows,
-        cols,
-        values,
-        n,
-        n
-    );
+    fclose(fid);
 
-    construction_ms = toc(construction_start) * 1000.0;
-
-    % --------------------------------------------------------
-    % Deterministic input vector
-    %
-    % No random numbers.
-    % No Monte Carlo.
-    % --------------------------------------------------------
-
-    index = (0:n-1)';
-
-    x = ...
-        sin(index) + ...
-        0.5 * cos(0.37 * index);
-
-    % Normalize input vector
-    x = x / norm(x);
-
-    % --------------------------------------------------------
-    % Independent analytical reference
-    %
-    % This is NOT calculated with A*x.
-    % It provides an independent validation of the
-    % sparse matrix-vector multiplication.
-    % --------------------------------------------------------
-
-    reference = zeros(n, 1);
-
-    reference(1:2:end) = ...
-        c * x(1:2:end) - ...
-        s * x(2:2:end);
-
-    reference(2:2:end) = ...
-        s * x(1:2:end) + ...
-        c * x(2:2:end);
-
-    % --------------------------------------------------------
-    % Numerical validation
-    % --------------------------------------------------------
-
-    computed = A * x;
-
-    max_absolute_error = ...
-        max(abs(computed - reference));
-
-    input_norm = norm(x);
-
-    output_norm = norm(computed);
-
-    norm_error = ...
-        abs(output_norm - input_norm);
-
-    % --------------------------------------------------------
-    % Numerical status
-    % --------------------------------------------------------
-
-    numerical_status = 1;
-
-    if max_absolute_error > error_tolerance
-        numerical_status = 0;
-    end
-
-    if norm_error > error_tolerance
-        numerical_status = 0;
-    end
-
-    % --------------------------------------------------------
-    % Warm-up
-    % --------------------------------------------------------
-
-    for k = 1:warmup
-        A * x;
-    end
-
-    % --------------------------------------------------------
-    % Timed sparse matrix-vector multiplication
-    % --------------------------------------------------------
-
-    times_ms = zeros(repetitions, 1);
-
-    for k = 1:repetitions
-
-        timer_start = tic;
-
-        A * x;
-
-        times_ms(k) = ...
-            toc(timer_start) * 1000.0;
-
-    end
-
-    % --------------------------------------------------------
-    % Timing statistics
-    % --------------------------------------------------------
-
-    mean_ms = mean(times_ms);
-    median_ms = median(times_ms);
-    min_ms = min(times_ms);
-    max_ms = max(times_ms);
-
-    % --------------------------------------------------------
-    % Timing status
-    % --------------------------------------------------------
-
-    timing_status = 1;
-
-    if mean_ms > target_ms
-        timing_status = 0;
-    end
-
-    % --------------------------------------------------------
-    % Store results
-    % --------------------------------------------------------
-
-    results(d, :) = [
-        n, ...
-        nnz(A), ...
-        mu, ...
-        warmup, ...
-        repetitions, ...
-        construction_ms, ...
-        mean_ms, ...
-        median_ms, ...
-        min_ms, ...
-        max_ms, ...
-        max_absolute_error, ...
-        input_norm, ...
-        output_norm, ...
-        norm_error, ...
-        target_ms, ...
-        error_tolerance, ...
-        numerical_status, ...
-        timing_status
-    ];
-
-    % --------------------------------------------------------
-    % Console output
-    % --------------------------------------------------------
-
-    fprintf(
-        '  NNZ: %d\n',
-        nnz(A)
-    );
-
-    fprintf(
-        '  Construction: %.6f ms\n',
-        construction_ms
-    );
-
-    fprintf(
-        '  Mean: %.6f ms\n',
-        mean_ms
-    );
-
-    fprintf(
-        '  Median: %.6f ms\n',
-        median_ms
-    );
-
-    fprintf(
-        '  Min: %.6f ms\n',
-        min_ms
-    );
-
-    fprintf(
-        '  Max: %.6f ms\n',
-        max_ms
-    );
-
-    fprintf(
-        '  Maximum error: %.3e\n',
-        max_absolute_error
-    );
-
-    fprintf(
-        '  Input norm: %.17g\n',
-        input_norm
-    );
-
-    fprintf(
-        '  Output norm: %.17g\n',
-        output_norm
-    );
-
-    fprintf(
-        '  Norm error: %.3e\n',
-        norm_error
-    );
-
-    if numerical_status == 1
-        fprintf('  Numerical status: PASS\n');
-    else
-        fprintf('  Numerical status: FAIL\n');
-    end
-
-    if timing_status == 1
-        fprintf('  Timing status: PASS\n');
-    else
-        fprintf('  Timing status: FAIL\n');
-    end
-
-    fprintf('\n');
+    fprintf('Benchmark completed successfully.\n');
+    fprintf('Results written to:\n');
+    fprintf('%s\n', output_file);
 
 end
-
-% ============================================================
-% CSV EXPORT
-%
-% IMPORTANT:
-% We intentionally do NOT use table() or writetable().
-% GNU Octave used by GitHub Actions does not provide table().
-% ============================================================
-
-file_id = fopen(output_file, 'w');
-
-if file_id == -1
-    error('Could not open output CSV file for writing.');
-end
-
-% ------------------------------------------------------------
-% CSV header
-% ------------------------------------------------------------
-
-fprintf(
-    file_id,
-    'language,dimension,nnz,mu,warmup,repetitions,construction_ms,mean_ms,median_ms,min_ms,max_ms,max_absolute_error,input_norm,output_norm,norm_error,target_ms,error_tolerance,numerical_status,timing_status\n'
-);
-
-% ------------------------------------------------------------
-% CSV data
-% ------------------------------------------------------------
-
-for d = 1:length(dimensions)
-
-    n = results(d, 1);
-    nnz_value = results(d, 2);
-    mu_value = results(d, 3);
-    warmup_value = results(d, 4);
-    repetitions_value = results(d, 5);
-
-    construction_ms = results(d, 6);
-    mean_ms = results(d, 7);
-    median_ms = results(d, 8);
-    min_ms = results(d, 9);
-    max_ms = results(d, 10);
-
-    max_absolute_error = results(d, 11);
-
-    input_norm = results(d, 12);
-    output_norm = results(d, 13);
-
-    norm_error = results(d, 14);
-
-    target_value = results(d, 15);
-    tolerance_value = results(d, 16);
-
-    numerical_value = results(d, 17);
-    timing_value = results(d, 18);
-
-    if numerical_value == 1
-        numerical_text = 'PASS';
-    else
-        numerical_text = 'FAIL';
-    end
-
-    if timing_value == 1
-        timing_text = 'PASS';
-    else
-        timing_text = 'FAIL';
-    end
-
-    fprintf(
-        file_id,
-        'MATLAB,%d,%d,%.17g,%d,%d,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%s,%s\n',
-        n,
-        nnz_value,
-        mu_value,
-        warmup_value,
-        repetitions_value,
-        construction_ms,
-        mean_ms,
-        median_ms,
-        min_ms,
-        max_ms,
-        max_absolute_error,
-        input_norm,
-        output_norm,
-        norm_error,
-        target_value,
-        tolerance_value,
-        numerical_text,
-        timing_text
-    );
-
-end
-
-fclose(file_id);
-
-% ============================================================
-% FINAL MESSAGE
-% ============================================================
-
-fprintf(
-    'Results saved to:\n%s\n',
-    output_file
-);
