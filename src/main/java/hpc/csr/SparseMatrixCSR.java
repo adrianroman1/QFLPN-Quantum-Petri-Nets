@@ -17,17 +17,25 @@ import java.util.concurrent.ForkJoinPool;
  * rowPointers     - delimitarea fiecărui rând.
  *
  * Clasa oferă:
+ *
  * 1. validarea structurii CSR;
  * 2. multiplicare secvențială A*x;
- * 3. multiplicare paralelă A*x cu ForkJoinPool;
- * 4. metadatele matricei;
- * 5. acces controlat la datele CSR.
+ * 3. multiplicare paralelă A*x cu ForkJoin;
+ * 4. variante Into pentru reutilizarea bufferului de output;
+ * 5. metadatele matricei;
+ * 6. acces controlat la datele CSR;
+ * 7. verificarea integrității structurii CSR.
  *
- * Notă:
+ * Notă HPC:
+ *
  * Implementarea actuală utilizează tablouri Java pe heap.
- * Memoria off-heap va fi tratată într-o etapă separată a proiectului HPC.
+ * Memoria off-heap, maparea GPU și optimizările specifice
+ * acceleratorului vor fi introduse separat și validate
+ * prin benchmark-uri dedicate.
  */
 public final class SparseMatrixCSR {
+
+    private static final int DEFAULT_PARALLEL_THRESHOLD = 4096;
 
     private final int rows;
     private final int columns;
@@ -36,8 +44,15 @@ public final class SparseMatrixCSR {
     private final int[] columnIndices;
     private final int[] rowPointers;
 
-    private static final int DEFAULT_PARALLEL_THRESHOLD = 4096;
-
+    /**
+     * Construiește o matrice CSR.
+     *
+     * @param values valorile elementelor nenule
+     * @param columnIndices indicii coloanelor
+     * @param rowPointers pointerii CSR ai rândurilor
+     * @param rows numărul de rânduri
+     * @param columns numărul de coloane
+     */
     public SparseMatrixCSR(
             double[] values,
             int[] columnIndices,
@@ -47,10 +62,14 @@ public final class SparseMatrixCSR {
 
         validateDimensions(rows, columns);
 
-        Objects.requireNonNull(values, "values cannot be null");
+        Objects.requireNonNull(
+                values,
+                "values cannot be null");
+
         Objects.requireNonNull(
                 columnIndices,
                 "columnIndices cannot be null");
+
         Objects.requireNonNull(
                 rowPointers,
                 "rowPointers cannot be null");
@@ -62,6 +81,12 @@ public final class SparseMatrixCSR {
                 rows,
                 columns);
 
+        /*
+         * Defensive copies:
+         *
+         * matricea devine immutable din punct de vedere
+         * structural după construcție.
+         */
         this.values = Arrays.copyOf(
                 values,
                 values.length);
@@ -78,6 +103,9 @@ public final class SparseMatrixCSR {
         this.columns = columns;
     }
 
+    /**
+     * Validează dimensiunile matricei.
+     */
     private static void validateDimensions(
             int rows,
             int columns) {
@@ -93,6 +121,9 @@ public final class SparseMatrixCSR {
         }
     }
 
+    /**
+     * Validează integral structura CSR.
+     */
     private static void validateCSRStructure(
             double[] values,
             int[] columnIndices,
@@ -128,7 +159,8 @@ public final class SparseMatrixCSR {
 
             if (current < previous) {
                 throw new IllegalArgumentException(
-                        "rowPointers must be monotonically non-decreasing.");
+                        "rowPointers must be monotonically "
+                                + "non-decreasing.");
             }
 
             if (current > values.length) {
@@ -142,7 +174,8 @@ public final class SparseMatrixCSR {
 
         if (rowPointers[rows] != values.length) {
             throw new IllegalArgumentException(
-                    "rowPointers[last] must equal number of non-zero elements.");
+                    "rowPointers[last] must equal number "
+                            + "of non-zero elements.");
         }
 
         for (int i = 0; i < columnIndices.length; i++) {
@@ -157,6 +190,14 @@ public final class SparseMatrixCSR {
         }
     }
 
+    /**
+     * Multiplicare secvențială:
+     *
+     * y = A * x
+     *
+     * @param x vectorul de intrare
+     * @return vectorul rezultat
+     */
     public double[] multiply(double[] x) {
 
         validateInputVector(x);
@@ -168,6 +209,15 @@ public final class SparseMatrixCSR {
         return y;
     }
 
+    /**
+     * Multiplicare secvențială în buffer extern.
+     *
+     * Permite reutilizarea bufferului de output și evită
+     * alocarea unui nou vector la fiecare apel.
+     *
+     * @param x vectorul de intrare
+     * @param y vectorul de ieșire
+     */
     public void multiplyInto(
             double[] x,
             double[] y) {
@@ -204,6 +254,12 @@ public final class SparseMatrixCSR {
         }
     }
 
+    /**
+     * Multiplicare paralelă cu configurația implicită.
+     *
+     * @param x vectorul de intrare
+     * @return vectorul rezultat
+     */
     public double[] multiplyParallel(
             double[] x) {
 
@@ -214,49 +270,46 @@ public final class SparseMatrixCSR {
                         .availableProcessors());
     }
 
+    /**
+     * Multiplicare paralelă cu ForkJoinPool.
+     *
+     * @param x vectorul de intrare
+     * @param threshold pragul de divizare pe rânduri
+     * @param parallelism nivelul de paralelism
+     * @return vectorul rezultat
+     */
     public double[] multiplyParallel(
             double[] x,
             int threshold,
             int parallelism) {
 
         validateInputVector(x);
-
-        if (threshold <= 0) {
-            throw new IllegalArgumentException(
-                    "Parallel threshold must be greater than zero.");
-        }
-
-        if (parallelism <= 0) {
-            throw new IllegalArgumentException(
-                    "Parallelism must be greater than zero.");
-        }
+        validateParallelConfiguration(
+                threshold,
+                parallelism);
 
         double[] y = new double[rows];
 
-        ForkJoinPool pool =
-                new ForkJoinPool(parallelism);
-
-        try {
-
-            pool.invoke(
-                    new MultiplyTask(
-                            values,
-                            columnIndices,
-                            rowPointers,
-                            x,
-                            y,
-                            0,
-                            rows,
-                            threshold));
-
-        } finally {
-
-            pool.shutdown();
-        }
+        multiplyParallelInto(
+                x,
+                y,
+                threshold,
+                parallelism);
 
         return y;
     }
 
+    /**
+     * Multiplicare paralelă în buffer extern.
+     *
+     * Această metodă este importantă pentru benchmark-uri HPC,
+     * deoarece permite reutilizarea vectorului de output.
+     *
+     * @param x vectorul de intrare
+     * @param y vectorul de ieșire
+     * @param threshold pragul de divizare
+     * @param parallelism nivelul de paralelism
+     */
     public void multiplyParallelInto(
             double[] x,
             double[] y,
@@ -276,16 +329,18 @@ public final class SparseMatrixCSR {
                             + rows + ").");
         }
 
-        if (threshold <= 0) {
-            throw new IllegalArgumentException(
-                    "Parallel threshold must be greater than zero.");
-        }
+        validateParallelConfiguration(
+                threshold,
+                parallelism);
 
-        if (parallelism <= 0) {
-            throw new IllegalArgumentException(
-                    "Parallelism must be greater than zero.");
-        }
-
+        /*
+         * Pool-ul este local apelului și este închis garantat.
+         *
+         * Reutilizarea unui pool persistent este o optimizare
+         * ulterioară care trebuie introdusă împreună cu
+         * QFLPNCoreEngine și benchmark-urile, pentru a nu
+         * modifica prematur contractul actual.
+         */
         ForkJoinPool pool =
                 new ForkJoinPool(parallelism);
 
@@ -308,6 +363,27 @@ public final class SparseMatrixCSR {
         }
     }
 
+    /**
+     * Validează configurația execuției paralele.
+     */
+    private static void validateParallelConfiguration(
+            int threshold,
+            int parallelism) {
+
+        if (threshold <= 0) {
+            throw new IllegalArgumentException(
+                    "Parallel threshold must be greater than zero.");
+        }
+
+        if (parallelism <= 0) {
+            throw new IllegalArgumentException(
+                    "Parallelism must be greater than zero.");
+        }
+    }
+
+    /**
+     * Validează vectorul de intrare.
+     */
     private void validateInputVector(
             double[] x) {
 
@@ -323,22 +399,39 @@ public final class SparseMatrixCSR {
         }
     }
 
+    /**
+     * @return numărul de rânduri
+     */
     public int getRows() {
         return rows;
     }
 
+    /**
+     * @return numărul de coloane
+     */
     public int getColumns() {
         return columns;
     }
 
+    /**
+     * @return numărul de elemente nenule
+     */
     public int getNonZeroCount() {
         return values.length;
     }
 
+    /**
+     * Alias pentru getNonZeroCount().
+     *
+     * @return NNZ
+     */
     public int getNnz() {
         return values.length;
     }
 
+    /**
+     * Returnează o copie defensivă a valorilor CSR.
+     */
     public double[] getValues() {
 
         return Arrays.copyOf(
@@ -346,6 +439,9 @@ public final class SparseMatrixCSR {
                 values.length);
     }
 
+    /**
+     * Returnează o copie defensivă a indicilor de coloane.
+     */
     public int[] getColumnIndices() {
 
         return Arrays.copyOf(
@@ -353,6 +449,9 @@ public final class SparseMatrixCSR {
                 columnIndices.length);
     }
 
+    /**
+     * Returnează o copie defensivă a pointerilor de rând.
+     */
     public int[] getRowPointers() {
 
         return Arrays.copyOf(
@@ -360,6 +459,13 @@ public final class SparseMatrixCSR {
                 rowPointers.length);
     }
 
+    /**
+     * Calculează densitatea matricei:
+     *
+     * density = NNZ / (rows * columns)
+     *
+     * @return densitatea matricei
+     */
     public double getDensity() {
 
         long totalElements =
@@ -373,6 +479,16 @@ public final class SparseMatrixCSR {
                 / (double) totalElements;
     }
 
+    /**
+     * Returnează elementul A[row][column].
+     *
+     * Dacă elementul nu este stocat în CSR,
+     * rezultatul este zero.
+     *
+     * @param row indexul rândului
+     * @param column indexul coloanei
+     * @return valoarea elementului
+     */
     public double get(
             int row,
             int column) {
@@ -402,6 +518,11 @@ public final class SparseMatrixCSR {
         return 0.0;
     }
 
+    /**
+     * Verifică dacă structura CSR este validă.
+     *
+     * @return true dacă structura este validă
+     */
     public boolean isValid() {
 
         try {
@@ -421,6 +542,9 @@ public final class SparseMatrixCSR {
         }
     }
 
+    /**
+     * Reprezentare textuală compactă.
+     */
     @Override
     public String toString() {
 
