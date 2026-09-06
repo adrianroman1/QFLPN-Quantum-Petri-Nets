@@ -1,634 +1,436 @@
 package hpc.csr;
 
-import org.junit.jupiter.api.Test;
-
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import java.util.Arrays;
+import java.util.Objects;
+import java.util.concurrent.ForkJoinPool;
 
 /**
- * Teste unitare pentru SparseMatrixCSR.
+ * SparseMatrixCSR
  *
- * Verifică:
+ * Reprezentare a unei matrice rare în format
+ * Compressed Sparse Row (CSR).
+ *
+ * Structura CSR utilizează trei tablouri:
+ *
+ * values          - valorile elementelor nenule;
+ * columnIndices   - indicii coloanelor;
+ * rowPointers     - delimitarea fiecărui rând.
+ *
+ * Clasa oferă:
  * 1. validarea structurii CSR;
- * 2. multiplicarea secvențială;
- * 3. multiplicarea paralelă;
- * 4. variantele Into fără alocarea rezultatului;
- * 5. validarea vectorilor;
- * 6. metadatele matricei;
- * 7. accesul la elemente;
- * 8. consistența rezultatelor secvențial/paralel.
+ * 2. multiplicare secvențială A*x;
+ * 3. multiplicare paralelă A*x cu ForkJoinPool;
+ * 4. metadatele matricei;
+ * 5. acces controlat la datele CSR.
+ *
+ * Notă:
+ * Implementarea actuală utilizează tablouri Java pe heap.
+ * Memoria off-heap va fi tratată într-o etapă separată a proiectului HPC.
  */
-class SparseMatrixCSRTest {
+public final class SparseMatrixCSR {
 
-    private static final double TOLERANCE = 1.0e-12;
+    private final int rows;
+    private final int columns;
 
-    /**
-     * Matricea de referință:
-     *
-     * A =
-     *
-     * [ 1  0  2  0 ]
-     * [ 0  3  0  4 ]
-     * [ 5  0  6  0 ]
-     * [ 0  7  0  8 ]
-     *
-     * x = [1, 2, 3, 4]^T
-     *
-     * A*x = [7, 22, 23, 46]^T
-     */
-    private SparseMatrixCSR createReferenceMatrix() {
+    private final double[] values;
+    private final int[] columnIndices;
+    private final int[] rowPointers;
 
-        double[] values = {
-                1.0, 2.0,
-                3.0, 4.0,
-                5.0, 6.0,
-                7.0, 8.0
-        };
+    private static final int DEFAULT_PARALLEL_THRESHOLD = 4096;
 
-        int[] columns = {
-                0, 2,
-                1, 3,
-                0, 2,
-                1, 3
-        };
+    public SparseMatrixCSR(
+            double[] values,
+            int[] columnIndices,
+            int[] rowPointers,
+            int rows,
+            int columns) {
 
-        int[] rowPointers = {
-                0, 2, 4, 6, 8
-        };
+        validateDimensions(rows, columns);
 
-        return new SparseMatrixCSR(
-                values,
-                columns,
+        Objects.requireNonNull(values, "values cannot be null");
+        Objects.requireNonNull(
+                columnIndices,
+                "columnIndices cannot be null");
+        Objects.requireNonNull(
                 rowPointers,
-                4,
-                4);
+                "rowPointers cannot be null");
+
+        validateCSRStructure(
+                values,
+                columnIndices,
+                rowPointers,
+                rows,
+                columns);
+
+        this.values = Arrays.copyOf(
+                values,
+                values.length);
+
+        this.columnIndices = Arrays.copyOf(
+                columnIndices,
+                columnIndices.length);
+
+        this.rowPointers = Arrays.copyOf(
+                rowPointers,
+                rowPointers.length);
+
+        this.rows = rows;
+        this.columns = columns;
     }
 
-    @Test
-    void shouldValidateReferenceCSRStructure() {
+    private static void validateDimensions(
+            int rows,
+            int columns) {
 
-        SparseMatrixCSR matrix =
-                createReferenceMatrix();
+        if (rows < 0) {
+            throw new IllegalArgumentException(
+                    "Number of rows cannot be negative.");
+        }
 
-        assertTrue(matrix.isValid());
+        if (columns < 0) {
+            throw new IllegalArgumentException(
+                    "Number of columns cannot be negative.");
+        }
     }
 
-    @Test
-    void shouldRejectDifferentValuesAndColumnLengths() {
+    private static void validateCSRStructure(
+            double[] values,
+            int[] columnIndices,
+            int[] rowPointers,
+            int rows,
+            int columns) {
 
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new SparseMatrixCSR(
-                        new double[]{1.0, 2.0},
-                        new int[]{0},
-                        new int[]{0, 1},
-                        1,
-                        1));
+        if (values.length != columnIndices.length) {
+            throw new IllegalArgumentException(
+                    "values and columnIndices must have the same length.");
+        }
+
+        if (rowPointers.length != rows + 1) {
+            throw new IllegalArgumentException(
+                    "rowPointers length must be rows + 1.");
+        }
+
+        if (rowPointers[0] != 0) {
+            throw new IllegalArgumentException(
+                    "rowPointers[0] must be 0.");
+        }
+
+        int previous = 0;
+
+        for (int i = 0; i < rowPointers.length; i++) {
+
+            int current = rowPointers[i];
+
+            if (current < 0) {
+                throw new IllegalArgumentException(
+                        "rowPointers cannot contain negative values.");
+            }
+
+            if (current < previous) {
+                throw new IllegalArgumentException(
+                        "rowPointers must be monotonically non-decreasing.");
+            }
+
+            if (current > values.length) {
+                throw new IllegalArgumentException(
+                        "rowPointers value exceeds NNZ at index "
+                                + i + ".");
+            }
+
+            previous = current;
+        }
+
+        if (rowPointers[rows] != values.length) {
+            throw new IllegalArgumentException(
+                    "rowPointers[last] must equal number of non-zero elements.");
+        }
+
+        for (int i = 0; i < columnIndices.length; i++) {
+
+            int column = columnIndices[i];
+
+            if (column < 0 || column >= columns) {
+                throw new IllegalArgumentException(
+                        "Column index out of bounds at position "
+                                + i + ": " + column);
+            }
+        }
     }
 
-    @Test
-    void shouldRejectInvalidRowPointerLength() {
+    public double[] multiply(double[] x) {
 
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new SparseMatrixCSR(
-                        new double[]{1.0},
-                        new int[]{0},
-                        new int[]{0},
-                        1,
-                        1));
+        validateInputVector(x);
+
+        double[] y = new double[rows];
+
+        multiplyInto(x, y);
+
+        return y;
     }
 
-    @Test
-    void shouldRejectFirstRowPointerDifferentFromZero() {
+    public void multiplyInto(
+            double[] x,
+            double[] y) {
 
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new SparseMatrixCSR(
-                        new double[]{1.0},
-                        new int[]{0},
-                        new int[]{1, 1},
-                        1,
-                        1));
+        validateInputVector(x);
+
+        Objects.requireNonNull(
+                y,
+                "Output vector cannot be null.");
+
+        if (y.length != rows) {
+            throw new IllegalArgumentException(
+                    "Output vector length (" + y.length
+                            + ") must equal matrix row count ("
+                            + rows + ").");
+        }
+
+        for (int row = 0; row < rows; row++) {
+
+            double sum = 0.0;
+
+            int start = rowPointers[row];
+            int end = rowPointers[row + 1];
+
+            for (int index = start;
+                 index < end;
+                 index++) {
+
+                sum += values[index]
+                        * x[columnIndices[index]];
+            }
+
+            y[row] = sum;
+        }
     }
 
-    @Test
-    void shouldRejectNonMonotonicRowPointers() {
+    public double[] multiplyParallel(
+            double[] x) {
 
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new SparseMatrixCSR(
-                        new double[]{1.0, 2.0},
-                        new int[]{0, 1},
-                        new int[]{0, 2, 1},
-                        2,
-                        2));
+        return multiplyParallel(
+                x,
+                DEFAULT_PARALLEL_THRESHOLD,
+                Runtime.getRuntime()
+                        .availableProcessors());
     }
 
-    @Test
-    void shouldRejectRowPointerGreaterThanNNZ() {
+    public double[] multiplyParallel(
+            double[] x,
+            int threshold,
+            int parallelism) {
 
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new SparseMatrixCSR(
-                        new double[]{1.0},
-                        new int[]{0},
-                        new int[]{0, 2},
-                        1,
-                        1));
+        validateInputVector(x);
+
+        if (threshold <= 0) {
+            throw new IllegalArgumentException(
+                    "Parallel threshold must be greater than zero.");
+        }
+
+        if (parallelism <= 0) {
+            throw new IllegalArgumentException(
+                    "Parallelism must be greater than zero.");
+        }
+
+        double[] y = new double[rows];
+
+        ForkJoinPool pool =
+                new ForkJoinPool(parallelism);
+
+        try {
+
+            pool.invoke(
+                    new MultiplyTask(
+                            values,
+                            columnIndices,
+                            rowPointers,
+                            x,
+                            y,
+                            0,
+                            rows,
+                            threshold));
+
+        } finally {
+
+            pool.shutdown();
+        }
+
+        return y;
     }
 
-    @Test
-    void shouldRejectLastRowPointerDifferentFromNNZ() {
+    public void multiplyParallelInto(
+            double[] x,
+            double[] y,
+            int threshold,
+            int parallelism) {
 
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new SparseMatrixCSR(
-                        new double[]{1.0},
-                        new int[]{0},
-                        new int[]{0, 0},
-                        1,
-                        1));
+        validateInputVector(x);
+
+        Objects.requireNonNull(
+                y,
+                "Output vector cannot be null.");
+
+        if (y.length != rows) {
+            throw new IllegalArgumentException(
+                    "Output vector length (" + y.length
+                            + ") must equal matrix row count ("
+                            + rows + ").");
+        }
+
+        if (threshold <= 0) {
+            throw new IllegalArgumentException(
+                    "Parallel threshold must be greater than zero.");
+        }
+
+        if (parallelism <= 0) {
+            throw new IllegalArgumentException(
+                    "Parallelism must be greater than zero.");
+        }
+
+        ForkJoinPool pool =
+                new ForkJoinPool(parallelism);
+
+        try {
+
+            pool.invoke(
+                    new MultiplyTask(
+                            values,
+                            columnIndices,
+                            rowPointers,
+                            x,
+                            y,
+                            0,
+                            rows,
+                            threshold));
+
+        } finally {
+
+            pool.shutdown();
+        }
     }
 
-    @Test
-    void shouldRejectNegativeRowPointer() {
+    private void validateInputVector(
+            double[] x) {
 
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new SparseMatrixCSR(
-                        new double[]{1.0},
-                        new int[]{0},
-                        new int[]{0, -1},
-                        1,
-                        1));
+        Objects.requireNonNull(
+                x,
+                "Input vector cannot be null.");
+
+        if (x.length != columns) {
+            throw new IllegalArgumentException(
+                    "Input vector length (" + x.length
+                            + ") must equal matrix column count ("
+                            + columns + ").");
+        }
     }
 
-    @Test
-    void shouldRejectColumnIndexOutOfBounds() {
-
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new SparseMatrixCSR(
-                        new double[]{1.0},
-                        new int[]{4},
-                        new int[]{0, 1},
-                        1,
-                        4));
+    public int getRows() {
+        return rows;
     }
 
-    @Test
-    void shouldRejectNegativeColumnIndex() {
-
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new SparseMatrixCSR(
-                        new double[]{1.0},
-                        new int[]{-1},
-                        new int[]{0, 1},
-                        1,
-                        1));
+    public int getColumns() {
+        return columns;
     }
 
-    @Test
-    void shouldRejectNegativeDimensions() {
-
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new SparseMatrixCSR(
-                        new double[]{},
-                        new int[]{},
-                        new int[]{0},
-                        -1,
-                        0));
-
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new SparseMatrixCSR(
-                        new double[]{},
-                        new int[]{},
-                        new int[]{0},
-                        0,
-                        -1));
+    public int getNonZeroCount() {
+        return values.length;
     }
 
-    @Test
-    void shouldRejectNullArrays() {
-
-        assertThrows(
-                NullPointerException.class,
-                () -> new SparseMatrixCSR(
-                        null,
-                        new int[]{},
-                        new int[]{0},
-                        0,
-                        0));
-
-        assertThrows(
-                NullPointerException.class,
-                () -> new SparseMatrixCSR(
-                        new double[]{},
-                        null,
-                        new int[]{0},
-                        0,
-                        0));
-
-        assertThrows(
-                NullPointerException.class,
-                () -> new SparseMatrixCSR(
-                        new double[]{},
-                        new int[]{},
-                        null,
-                        0,
-                        0));
+    public int getNnz() {
+        return values.length;
     }
 
-    @Test
-    void shouldComputeCorrectSequentialMultiplication() {
+    public double[] getValues() {
 
-        SparseMatrixCSR matrix =
-                createReferenceMatrix();
-
-        double[] input = {
-                1.0, 2.0, 3.0, 4.0
-        };
-
-        double[] expected = {
-                7.0, 22.0, 23.0, 46.0
-        };
-
-        double[] actual =
-                matrix.multiply(input);
-
-        assertArrayEquals(
-                expected,
-                actual,
-                TOLERANCE);
+        return Arrays.copyOf(
+                values,
+                values.length);
     }
 
-    @Test
-    void shouldComputeCorrectParallelMultiplication() {
+    public int[] getColumnIndices() {
 
-        SparseMatrixCSR matrix =
-                createReferenceMatrix();
-
-        double[] input = {
-                1.0, 2.0, 3.0, 4.0
-        };
-
-        double[] expected = {
-                7.0, 22.0, 23.0, 46.0
-        };
-
-        double[] actual =
-                matrix.multiplyParallel(
-                        input,
-                        1,
-                        2);
-
-        assertArrayEquals(
-                expected,
-                actual,
-                TOLERANCE);
+        return Arrays.copyOf(
+                columnIndices,
+                columnIndices.length);
     }
 
-    @Test
-    void sequentialAndParallelResultsShouldMatch() {
+    public int[] getRowPointers() {
 
-        SparseMatrixCSR matrix =
-                createReferenceMatrix();
-
-        double[] input = {
-                1.0, 2.0, 3.0, 4.0
-        };
-
-        double[] sequential =
-                matrix.multiply(input);
-
-        double[] parallel =
-                matrix.multiplyParallel(
-                        input,
-                        1,
-                        2);
-
-        assertArrayEquals(
-                sequential,
-                parallel,
-                TOLERANCE);
+        return Arrays.copyOf(
+                rowPointers,
+                rowPointers.length);
     }
 
-    @Test
-    void shouldComputeCorrectMultiplyInto() {
+    public double getDensity() {
 
-        SparseMatrixCSR matrix =
-                createReferenceMatrix();
+        long totalElements =
+                (long) rows * columns;
 
-        double[] input = {
-                1.0, 2.0, 3.0, 4.0
-        };
+        if (totalElements == 0L) {
+            return 0.0;
+        }
 
-        double[] output =
-                new double[4];
-
-        matrix.multiplyInto(
-                input,
-                output);
-
-        assertArrayEquals(
-                new double[]{
-                        7.0, 22.0, 23.0, 46.0
-                },
-                output,
-                TOLERANCE);
+        return (double) values.length
+                / (double) totalElements;
     }
 
-    @Test
-    void shouldComputeCorrectParallelMultiplyInto() {
+    public double get(
+            int row,
+            int column) {
 
-        SparseMatrixCSR matrix =
-                createReferenceMatrix();
+        if (row < 0 || row >= rows) {
+            throw new IndexOutOfBoundsException(
+                    "Row index out of bounds: " + row);
+        }
 
-        double[] input = {
-                1.0, 2.0, 3.0, 4.0
-        };
+        if (column < 0 || column >= columns) {
+            throw new IndexOutOfBoundsException(
+                    "Column index out of bounds: " + column);
+        }
 
-        double[] output =
-                new double[4];
+        int start = rowPointers[row];
+        int end = rowPointers[row + 1];
 
-        matrix.multiplyParallelInto(
-                input,
-                output,
-                1,
-                2);
+        for (int index = start;
+             index < end;
+             index++) {
 
-        assertArrayEquals(
-                new double[]{
-                        7.0, 22.0, 23.0, 46.0
-                },
-                output,
-                TOLERANCE);
+            if (columnIndices[index] == column) {
+                return values[index];
+            }
+        }
+
+        return 0.0;
     }
 
-    @Test
-    void shouldRejectNullInputVector() {
+    public boolean isValid() {
 
-        SparseMatrixCSR matrix =
-                createReferenceMatrix();
+        try {
 
-        assertThrows(
-                NullPointerException.class,
-                () -> matrix.multiply(null));
+            validateCSRStructure(
+                    values,
+                    columnIndices,
+                    rowPointers,
+                    rows,
+                    columns);
 
-        assertThrows(
-                NullPointerException.class,
-                () -> matrix.multiplyInto(
-                        null,
-                        new double[4]));
+            return true;
 
-        assertThrows(
-                NullPointerException.class,
-                () -> matrix.multiplyParallel(
-                        null,
-                        1,
-                        2));
+        } catch (IllegalArgumentException exception) {
 
-        assertThrows(
-                NullPointerException.class,
-                () -> matrix.multiplyParallelInto(
-                        null,
-                        new double[4],
-                        1,
-                        2));
+            return false;
+        }
     }
 
-    @Test
-    void shouldRejectWrongInputVectorLength() {
+    @Override
+    public String toString() {
 
-        SparseMatrixCSR matrix =
-                createReferenceMatrix();
-
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> matrix.multiply(
-                        new double[3]));
-    }
-
-    @Test
-    void shouldRejectWrongOutputVectorLength() {
-
-        SparseMatrixCSR matrix =
-                createReferenceMatrix();
-
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> matrix.multiplyInto(
-                        new double[4],
-                        new double[3]));
-
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> matrix.multiplyParallelInto(
-                        new double[4],
-                        new double[3],
-                        1,
-                        2));
-    }
-
-    @Test
-    void shouldRejectNullOutputVector() {
-
-        SparseMatrixCSR matrix =
-                createReferenceMatrix();
-
-        assertThrows(
-                NullPointerException.class,
-                () -> matrix.multiplyInto(
-                        new double[4],
-                        null));
-
-        assertThrows(
-                NullPointerException.class,
-                () -> matrix.multiplyParallelInto(
-                        new double[4],
-                        null,
-                        1,
-                        2));
-    }
-
-    @Test
-    void shouldRejectInvalidParallelThreshold() {
-
-        SparseMatrixCSR matrix =
-                createReferenceMatrix();
-
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> matrix.multiplyParallel(
-                        new double[4],
-                        0,
-                        2));
-    }
-
-    @Test
-    void shouldRejectInvalidParallelism() {
-
-        SparseMatrixCSR matrix =
-                createReferenceMatrix();
-
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> matrix.multiplyParallel(
-                        new double[4],
-                        1,
-                        0));
-    }
-
-    @Test
-    void shouldRejectInvalidParallelIntoConfiguration() {
-
-        SparseMatrixCSR matrix =
-                createReferenceMatrix();
-
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> matrix.multiplyParallelInto(
-                        new double[4],
-                        new double[4],
-                        0,
-                        2));
-
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> matrix.multiplyParallelInto(
-                        new double[4],
-                        new double[4],
-                        1,
-                        0));
-    }
-
-    @Test
-    void shouldExposeCorrectMetadata() {
-
-        SparseMatrixCSR matrix =
-                createReferenceMatrix();
-
-        assertEquals(4, matrix.getRows());
-        assertEquals(4, matrix.getColumns());
-        assertEquals(8, matrix.getNonZeroCount());
-        assertEquals(8, matrix.getNnz());
-
-        assertEquals(
-                0.5,
-                matrix.getDensity(),
-                TOLERANCE);
-    }
-
-    @Test
-    void shouldReturnDefensiveCopiesOfCSRArrays() {
-
-        SparseMatrixCSR matrix =
-                createReferenceMatrix();
-
-        double[] values =
-                matrix.getValues();
-
-        int[] columns =
-                matrix.getColumnIndices();
-
-        int[] rowPointers =
-                matrix.getRowPointers();
-
-        values[0] = 999.0;
-        columns[0] = 999;
-        rowPointers[0] = 999;
-
-        assertEquals(
-                1.0,
-                matrix.get(0, 0),
-                TOLERANCE);
-
-        assertEquals(
-                0,
-                matrix.getRowPointers()[0]);
-
-        assertEquals(
-                0,
-                matrix.getColumnIndices()[0]);
-    }
-
-    @Test
-    void shouldReturnCorrectElementValues() {
-
-        SparseMatrixCSR matrix =
-                createReferenceMatrix();
-
-        assertEquals(
-                1.0,
-                matrix.get(0, 0),
-                TOLERANCE);
-
-        assertEquals(
-                2.0,
-                matrix.get(0, 2),
-                TOLERANCE);
-
-        assertEquals(
-                0.0,
-                matrix.get(0, 1),
-                TOLERANCE);
-
-        assertEquals(
-                8.0,
-                matrix.get(3, 3),
-                TOLERANCE);
-    }
-
-    @Test
-    void shouldRejectOutOfBoundsElementAccess() {
-
-        SparseMatrixCSR matrix =
-                createReferenceMatrix();
-
-        assertThrows(
-                IndexOutOfBoundsException.class,
-                () -> matrix.get(-1, 0));
-
-        assertThrows(
-                IndexOutOfBoundsException.class,
-                () -> matrix.get(4, 0));
-
-        assertThrows(
-                IndexOutOfBoundsException.class,
-                () -> matrix.get(0, -1));
-
-        assertThrows(
-                IndexOutOfBoundsException.class,
-                () -> matrix.get(0, 4));
-    }
-
-    @Test
-    void shouldSupportZeroSizeMatrix() {
-
-        SparseMatrixCSR matrix =
-                new SparseMatrixCSR(
-                        new double[]{},
-                        new int[]{},
-                        new int[]{0},
-                        0,
-                        0);
-
-        assertTrue(matrix.isValid());
-        assertEquals(0, matrix.getRows());
-        assertEquals(0, matrix.getColumns());
-        assertEquals(0, matrix.getNonZeroCount());
-        assertFalse(matrix.getDensity() > 0.0);
-
-        assertArrayEquals(
-                new double[]{},
-                matrix.multiply(new double[]{}),
-                TOLERANCE);
+        return "SparseMatrixCSR{"
+                + "rows=" + rows
+                + ", columns=" + columns
+                + ", nonZeroCount="
+                + values.length
+                + ", density="
+                + getDensity()
+                + '}';
     }
 }
