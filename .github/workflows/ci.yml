@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - main
+
   pull_request:
     branches:
       - main
+
   workflow_dispatch:
 
 jobs:
@@ -24,5 +26,5 @@ jobs:
           java-version: '21'
           cache: maven
 
-        name: Compile and run MainApp
+      - name: Compile and run MainApp
         run: mvn -B -DskipTests compile exec:java
