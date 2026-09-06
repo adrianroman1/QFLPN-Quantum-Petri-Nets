@@ -75,50 +75,41 @@ public record BenchmarkResult(
                     "measuredIterations must be > 0");
         }
 
-        if (sequentialMs < 0.0) {
-            throw new IllegalArgumentException(
-                    "sequentialMs must be >= 0");
-        }
+        requireFiniteNonNegative(
+                sequentialMs,
+                "sequentialMs");
 
-        if (parallelMs < 0.0) {
-            throw new IllegalArgumentException(
-                    "parallelMs must be >= 0");
-        }
+        requireFiniteNonNegative(
+                parallelMs,
+                "parallelMs");
 
-        if (speedup < 0.0) {
-            throw new IllegalArgumentException(
-                    "speedup must be >= 0");
-        }
+        requireFiniteNonNegative(
+                speedup,
+                "speedup");
 
-        if (sequentialThroughput < 0.0) {
-            throw new IllegalArgumentException(
-                    "sequentialThroughput must be >= 0");
-        }
+        requireFiniteNonNegative(
+                sequentialThroughput,
+                "sequentialThroughput");
 
-        if (parallelThroughput < 0.0) {
-            throw new IllegalArgumentException(
-                    "parallelThroughput must be >= 0");
-        }
+        requireFiniteNonNegative(
+                parallelThroughput,
+                "parallelThroughput");
 
-        if (sequentialExpectedError < 0.0) {
-            throw new IllegalArgumentException(
-                    "sequentialExpectedError must be >= 0");
-        }
+        requireFiniteNonNegative(
+                sequentialExpectedError,
+                "sequentialExpectedError");
 
-        if (parallelExpectedError < 0.0) {
-            throw new IllegalArgumentException(
-                    "parallelExpectedError must be >= 0");
-        }
+        requireFiniteNonNegative(
+                parallelExpectedError,
+                "parallelExpectedError");
 
-        if (maxAbsoluteError < 0.0) {
-            throw new IllegalArgumentException(
-                    "maxAbsoluteError must be >= 0");
-        }
+        requireFiniteNonNegative(
+                maxAbsoluteError,
+                "maxAbsoluteError");
 
-        if (setupTimeMs < 0.0) {
-            throw new IllegalArgumentException(
-                    "setupTimeMs must be >= 0");
-        }
+        requireFiniteNonNegative(
+                setupTimeMs,
+                "setupTimeMs");
 
         if (cpu == null || cpu.isBlank()) {
             throw new IllegalArgumentException(
@@ -145,6 +136,19 @@ public record BenchmarkResult(
         if (notes == null) {
             throw new IllegalArgumentException(
                     "notes must not be null");
+        }
+    }
+
+    private static void requireFiniteNonNegative(
+            double value,
+            String fieldName) {
+
+        if (!Double.isFinite(value)
+                || value < 0.0) {
+
+            throw new IllegalArgumentException(
+                    fieldName
+                            + " must be finite and >= 0");
         }
     }
 }
