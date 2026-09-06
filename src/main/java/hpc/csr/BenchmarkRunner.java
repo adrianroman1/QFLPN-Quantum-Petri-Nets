@@ -1,5 +1,7 @@
 package hpc.csr;
 
+import java.io.IOException;
+import java.time.Instant;
 import java.util.Locale;
 import java.util.concurrent.ForkJoinPool;
 
@@ -10,9 +12,10 @@ import java.util.concurrent.ForkJoinPool;
  *
  *                         y = A * x
  *
- * Acest program este separat de CI și de testele JUnit.
+ * Rezultatul benchmark-ului este afișat în consolă și persistat
+ * în benchmarks/benchmark_results.csv.
  *
- * Obiectiv:
+ * Obiective:
  *
  * 1. măsurarea execuției secvențiale;
  * 2. măsurarea execuției paralele;
@@ -20,11 +23,12 @@ import java.util.concurrent.ForkJoinPool;
  * 4. calculul throughput-ului;
  * 5. verificarea numerică a rezultatului;
  * 6. estimarea memoriei;
- * 7. testarea unor dimensiuni mari, inclusiv N=30_000_000.
+ * 7. persistarea rezultatului într-un fișier CSV;
+ * 8. testarea unor dimensiuni mari, inclusiv N=30_000_000.
  *
  * IMPORTANT:
  *
- * ForkJoinPool-ul este creat O SINGURĂ DATĂ înaintea secțiunii
+ * ForkJoinPool-ul este creat o singură dată înaintea secțiunii
  * măsurate și reutilizat pentru toate iterațiile paralele.
  *
  * Astfel, timpul raportat pentru multiplicarea paralelă reprezintă
@@ -102,11 +106,6 @@ public final class BenchmarkRunner {
         printMemoryEstimate(
                 config.n());
 
-        /*
-         * Pool persistent:
-         *
-         * NU este inclus în timpul măsurat.
-         */
         ForkJoinPool pool =
                 new ForkJoinPool(
                         config.parallelism());
@@ -154,8 +153,9 @@ public final class BenchmarkRunner {
                                     / config.iterations());
 
             double speedup =
-                    sequentialAverageMs
-                            / parallelAverageMs;
+                    calculateSpeedup(
+                            sequentialAverageMs,
+                            parallelAverageMs);
 
             double sequentialThroughput =
                     calculateThroughput(
@@ -213,6 +213,22 @@ public final class BenchmarkRunner {
                     parallelCorrect,
                     resultsMatch);
 
+            BenchmarkResult result =
+                    createBenchmarkResult(
+                            config,
+                            matrix,
+                            setupTimeMs,
+                            sequentialAverageMs,
+                            parallelAverageMs,
+                            speedup,
+                            sequentialThroughput,
+                            parallelThroughput,
+                            sequentialExpectedError,
+                            parallelExpectedError,
+                            maxAbsoluteError);
+
+            persistResult(result);
+
             if (!sequentialCorrect
                     || !parallelCorrect
                     || !resultsMatch) {
@@ -225,6 +241,123 @@ public final class BenchmarkRunner {
 
             pool.shutdown();
         }
+    }
+
+    /**
+     * Creează rezultatul persistent al benchmark-ului.
+     */
+    private static BenchmarkResult createBenchmarkResult(
+            BenchmarkConfig config,
+            SparseMatrixCSR matrix,
+            double setupTimeMs,
+            double sequentialAverageMs,
+            double parallelAverageMs,
+            double speedup,
+            double sequentialThroughput,
+            double parallelThroughput,
+            double sequentialExpectedError,
+            double parallelExpectedError,
+            double maxAbsoluteError) {
+
+        Runtime runtime =
+                Runtime.getRuntime();
+
+        String cpu =
+                System.getProperty(
+                        "os.arch",
+                        "unknown")
+                        + "; processors="
+                        + runtime.availableProcessors();
+
+        String javaVersion =
+                System.getProperty(
+                        "java.version",
+                        "unknown");
+
+        String operatingSystem =
+                System.getProperty(
+                        "os.name",
+                        "unknown")
+                        + " "
+                        + System.getProperty(
+                                "os.version",
+                                "unknown");
+
+        long availableMemoryBytes =
+                runtime.maxMemory();
+
+        return new BenchmarkResult(
+                Instant.now().toString(),
+                benchmarkId(config.n()),
+                config.n(),
+                matrix.getNnz(),
+                config.parallelism(),
+                config.threshold(),
+                config.warmup(),
+                config.iterations(),
+                sequentialAverageMs,
+                parallelAverageMs,
+                speedup,
+                sequentialThroughput,
+                parallelThroughput,
+                sequentialExpectedError,
+                parallelExpectedError,
+                maxAbsoluteError,
+                setupTimeMs,
+                cpu,
+                availableMemoryBytes,
+                javaVersion,
+                operatingSystem,
+                "Exploratory benchmark using System.nanoTime()");
+    }
+
+    /**
+     * Persistă rezultatul în fișierul CSV.
+     */
+    private static void persistResult(
+            BenchmarkResult result) {
+
+        try {
+
+            BenchmarkResultWriter.append(result);
+
+            System.out.println();
+
+            System.out.println(
+                    "[RESULT PERSISTED]");
+
+            System.out.println(
+                    "CSV file        : "
+                            + BenchmarkResultWriter
+                            .defaultOutputPath());
+
+        } catch (IOException exception) {
+
+            throw new IllegalStateException(
+                    "Unable to persist benchmark result.",
+                    exception);
+        }
+    }
+
+    /**
+     * Identifică scala benchmark-ului.
+     */
+    private static String benchmarkId(
+            int n) {
+
+        if (n == 12) {
+            return "QFLPN-12";
+        }
+
+        if (n == 1_000_000) {
+            return "QFLPN-1M";
+        }
+
+        if (n == 30_000_000) {
+            return "QFLPN-30M";
+        }
+
+        return "QFLPN-" + n;
     }
 
     /**
@@ -248,6 +381,11 @@ public final class BenchmarkRunner {
     private static SparseMatrixCSR createBenchmarkMatrix(
             int n) {
 
+        if (n <= 0) {
+            throw new IllegalArgumentException(
+                    "N must be greater than zero.");
+        }
+
         long nnzLong =
                 2L * n;
 
@@ -255,11 +393,6 @@ public final class BenchmarkRunner {
             throw new IllegalArgumentException(
                     "NNZ exceeds Java array limits: "
                             + nnzLong);
-        }
-
-        if (n <= 0) {
-            throw new IllegalArgumentException(
-                    "N must be greater than zero.");
         }
 
         int nnz =
@@ -312,7 +445,7 @@ public final class BenchmarkRunner {
      *
      * x[i] = 1.0
      *
-     * Pentru matricea de benchmark rezultatul așteptat este:
+     * Pentru matricea de benchmark:
      *
      * y[i] = 1.5
      */
@@ -433,15 +566,22 @@ public final class BenchmarkRunner {
         return totalNs;
     }
 
-    /**
-     * Conversie nanosecunde -> milisecunde.
-     *
-     * Aceasta este metoda care lipsea în commit-ul #29.
-     */
     private static double nanosToMillis(
             long nanos) {
 
         return nanos / 1_000_000.0;
+    }
+
+    private static double calculateSpeedup(
+            double sequentialMs,
+            double parallelMs) {
+
+        if (parallelMs <= 0.0) {
+            return Double.POSITIVE_INFINITY;
+        }
+
+        return sequentialMs
+                / parallelMs;
     }
 
     private static double calculateThroughput(
@@ -526,6 +666,11 @@ public final class BenchmarkRunner {
                 Locale.ROOT,
                 "N               : %,d%n",
                 config.n());
+
+        System.out.printf(
+                Locale.ROOT,
+                "Benchmark ID    : %s%n",
+                benchmarkId(config.n()));
 
         System.out.printf(
                 Locale.ROOT,
@@ -685,9 +830,6 @@ public final class BenchmarkRunner {
         long outputBytes =
                 n * (long) Double.BYTES;
 
-        /*
-         * Memoria pentru tablourile originale.
-         */
         long originalArrays =
                 valuesBytes
                         + columnsBytes
@@ -695,13 +837,6 @@ public final class BenchmarkRunner {
                         + inputBytes
                         + outputBytes;
 
-        /*
-         * SparseMatrixCSR face copii defensive ale celor
-         * trei tablouri CSR în constructor.
-         *
-         * Prin urmare, în etapa actuală trebuie considerată
-         * și această memorie suplimentară.
-         */
         long csrDefensiveCopies =
                 valuesBytes
                         + columnsBytes
