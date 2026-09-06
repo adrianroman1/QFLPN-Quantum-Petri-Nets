@@ -1,4 +1,4 @@
-function [psi, rho, theta] = qflpn_quantum_core(mu)
+function [psi, rho, theta] = qflpn_quantum_core(mu, verbose)
 % QFLPN_QUANTUM_CORE
 %
 % Core 4-qubit QFLPN reference model.
@@ -7,7 +7,7 @@ function [psi, rho, theta] = qflpn_quantum_core(mu)
 %
 %     theta(mu) = 2*asin(sqrt(mu))
 %
-% so that:
+% and therefore:
 %
 %     RY(theta(mu))*|0>
 %
@@ -15,15 +15,27 @@ function [psi, rho, theta] = qflpn_quantum_core(mu)
 %
 %     P(|1>) = mu.
 %
-% The four qubit state is constructed using the
-% tensor product of the individual states.
+% The four-qubit state is constructed using
+% the tensor product of the individual qubit states.
+%
+% Inputs:
+%   mu      - four fuzzy memberships in [0,1]
+%   verbose - optional logical flag controlling console output
 %
 % Outputs:
-%   psi   - 16x1 state vector
-%   rho   - 16x16 density matrix
-%   theta - four RY rotation angles
+%   psi     - 16x1 state vector
+%   rho     - 16x16 density matrix
+%   theta   - four RY rotation angles
 %
 % No Monte Carlo.
+
+    % --------------------------------------------------------
+    % Default display mode
+    % --------------------------------------------------------
+
+    if nargin < 2
+        verbose = true;
+    end
 
     % --------------------------------------------------------
     % Input validation
@@ -91,65 +103,73 @@ function [psi, rho, theta] = qflpn_quantum_core(mu)
     rho = psi * psi';
 
     % --------------------------------------------------------
-    % Display
+    % Optional display
+    %
+    % IMPORTANT:
+    % Benchmark mode uses verbose=false so console I/O does
+    % not contaminate the measured execution time.
     % --------------------------------------------------------
 
-    fprintf('\n');
-    fprintf('============================================\n');
-    fprintf('QFLPN QUANTUM CORE — MATLAB\n');
-    fprintf('============================================\n');
+    if verbose
 
-    fprintf('\nFuzzy memberships:\n');
+        fprintf('\n');
+        fprintf('============================================\n');
+        fprintf('QFLPN QUANTUM CORE - MATLAB\n');
+        fprintf('============================================\n');
 
-    for k = 1:4
-        fprintf( ...
-            'mu(%d) = %.6f\n', ...
-            k, ...
-            mu(k));
-    end
+        fprintf('\nFuzzy memberships:\n');
 
-    fprintf('\nRY angles:\n');
-
-    for k = 1:4
-        fprintf( ...
-            'theta(%d) = %.12f rad\n', ...
-            k, ...
-            theta(k));
-    end
-
-    fprintf('\nState dimension: %d\n', length(psi));
-
-    fprintf( ...
-        'State norm: %.15f\n', ...
-        norm(psi));
-
-    fprintf( ...
-        'Probability sum: %.15f\n', ...
-        sum(abs(psi).^2));
-
-    fprintf( ...
-        'Density matrix: %d x %d\n', ...
-        size(rho,1), ...
-        size(rho,2));
-
-    fprintf('\nComputational-basis probabilities:\n');
-
-    probabilities = abs(psi).^2;
-
-    for k = 1:length(probabilities)
-
-        if probabilities(k) > 1e-14
-
-            basis = dec2bin(k-1,4);
-
+        for k = 1:4
             fprintf( ...
-                '|%s> : %.12f\n', ...
-                basis, ...
-                probabilities(k));
-
+                'mu(%d) = %.6f\n', ...
+                k, ...
+                mu(k));
         end
-    end
 
-    fprintf('\nQFLPN quantum core completed.\n');
+        fprintf('\nRY angles:\n');
+
+        for k = 1:4
+            fprintf( ...
+                'theta(%d) = %.12f rad\n', ...
+                k, ...
+                theta(k));
+        end
+
+        fprintf('\nState dimension: %d\n', length(psi));
+
+        fprintf( ...
+            'State norm: %.15f\n', ...
+            norm(psi));
+
+        fprintf( ...
+            'Probability sum: %.15f\n', ...
+            sum(abs(psi).^2));
+
+        fprintf( ...
+            'Density matrix: %d x %d\n', ...
+            size(rho,1), ...
+            size(rho,2));
+
+        fprintf('\nComputational-basis probabilities:\n');
+
+        probabilities = abs(psi).^2;
+
+        for k = 1:length(probabilities)
+
+            if probabilities(k) > 1e-14
+
+                basis = dec2bin(k-1,4);
+
+                fprintf( ...
+                    '|%s> : %.12f\n', ...
+                    basis, ...
+                    probabilities(k));
+
+            end
+        end
+
+        fprintf('\nQFLPN quantum core completed.\n');
+
+    end
 
 end
