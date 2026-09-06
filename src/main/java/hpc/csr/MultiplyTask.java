@@ -1,19 +1,22 @@
 package hpc.csr;
 
+import java.util.Objects;
 import java.util.concurrent.RecursiveAction;
 
 /**
  * MultiplyTask
  *
- * Task Fork/Join pentru multiplicarea unei matrice CSR cu un vector:
+ * Fork/Join task pentru multiplicarea unei matrice CSR cu un vector:
  *
- *                  y = A * x
+ *                         y = A * x
  *
  * Task-ul împarte intervalul de rânduri al matricei în subintervale
  * independente. Fiecare subtask calculează rezultatul pentru propriile
  * rânduri, fără modificarea rezultatelor celorlalte task-uri.
  *
- * Această structură permite execuția paralelă pe procesoare multi-core.
+ * Implementarea este orientată către execuție deterministică și
+ * thread-safe la nivelul partiționării pe rânduri: fiecare task scrie
+ * exclusiv în pozițiile de output aferente intervalului său.
  */
 public final class MultiplyTask extends RecursiveAction {
 
@@ -33,13 +36,13 @@ public final class MultiplyTask extends RecursiveAction {
      * Constructor principal.
      *
      * @param values valorile nenule ale matricei CSR
-     * @param columns indicii coloanelor
-     * @param rowPointers pointerii de început/sfârșit ai rândurilor
-     * @param input vectorul x
-     * @param output vectorul y
-     * @param startRow primul rând inclus
-     * @param endRow ultimul rând exclus
-     * @param threshold dimensiunea maximă a unui task înainte de calcul direct
+     * @param columns indicii coloanelor pentru valorile CSR
+     * @param rowPointers pointerii de început și sfârșit ai fiecărui rând
+     * @param input vectorul de intrare x
+     * @param output vectorul de ieșire y
+     * @param startRow primul rând inclus în interval
+     * @param endRow ultimul rând exclus din interval
+     * @param threshold numărul maxim de rânduri procesate direct de un task
      */
     public MultiplyTask(
             double[] values,
@@ -51,30 +54,49 @@ public final class MultiplyTask extends RecursiveAction {
             int endRow,
             int threshold) {
 
-        if (values == null) {
-            throw new NullPointerException("values cannot be null");
-        }
+        this.values = Objects.requireNonNull(
+                values,
+                "values cannot be null");
 
-        if (columns == null) {
-            throw new NullPointerException("columns cannot be null");
-        }
+        this.columns = Objects.requireNonNull(
+                columns,
+                "columns cannot be null");
 
-        if (rowPointers == null) {
-            throw new NullPointerException("rowPointers cannot be null");
-        }
+        this.rowPointers = Objects.requireNonNull(
+                rowPointers,
+                "rowPointers cannot be null");
 
-        if (input == null) {
-            throw new NullPointerException("input cannot be null");
-        }
+        this.input = Objects.requireNonNull(
+                input,
+                "input cannot be null");
 
-        if (output == null) {
-            throw new NullPointerException("output cannot be null");
-        }
+        this.output = Objects.requireNonNull(
+                output,
+                "output cannot be null");
 
-        if (startRow < 0 || endRow < startRow) {
+        if (values.length != columns.length) {
             throw new IllegalArgumentException(
-                    "Invalid row interval: "
-                            + startRow + " .. " + endRow);
+                    "values and columns must have the same length");
+        }
+
+        if (rowPointers.length == 0) {
+            throw new IllegalArgumentException(
+                    "rowPointers cannot be empty");
+        }
+
+        if (startRow < 0) {
+            throw new IllegalArgumentException(
+                    "startRow cannot be negative");
+        }
+
+        if (endRow < startRow) {
+            throw new IllegalArgumentException(
+                    "endRow cannot be smaller than startRow");
+        }
+
+        if (endRow >= rowPointers.length) {
+            throw new IllegalArgumentException(
+                    "endRow exceeds the CSR row range");
         }
 
         if (threshold <= 0) {
@@ -82,24 +104,27 @@ public final class MultiplyTask extends RecursiveAction {
                     "threshold must be greater than zero");
         }
 
-        this.values = values;
-        this.columns = columns;
-        this.rowPointers = rowPointers;
+        if (startRow > input.length) {
+            throw new IllegalArgumentException(
+                    "startRow exceeds input vector length");
+        }
 
-        this.input = input;
-        this.output = output;
+        if (endRow > output.length) {
+            throw new IllegalArgumentException(
+                    "endRow exceeds output vector length");
+        }
 
         this.startRow = startRow;
         this.endRow = endRow;
-
         this.threshold = threshold;
     }
 
     /**
      * Execută task-ul Fork/Join.
      *
-     * Dacă intervalul este suficient de mic, calculul este executat
-     * direct. Altfel, intervalul este împărțit în două subtask-uri.
+     * Dacă intervalul este suficient de mic, calculul este efectuat
+     * direct. În caz contrar, intervalul este împărțit în două
+     * subtask-uri independente.
      */
     @Override
     protected void compute() {
@@ -140,7 +165,7 @@ public final class MultiplyTask extends RecursiveAction {
 
     /**
      * Calculează secvențial rezultatul pentru intervalul de rânduri
-     * alocat task-ului.
+     * alocat acestui task.
      */
     private void computeSequentially() {
 
@@ -154,6 +179,12 @@ public final class MultiplyTask extends RecursiveAction {
             for (int index = begin; index < end; index++) {
 
                 int column = columns[index];
+
+                if (column < 0 || column >= input.length) {
+                    throw new IllegalArgumentException(
+                            "CSR column index out of input vector bounds: "
+                                    + column);
+                }
 
                 sum += values[index] * input[column];
             }
@@ -177,7 +208,7 @@ public final class MultiplyTask extends RecursiveAction {
     }
 
     /**
-     * @return pragul de divizare
+     * @return pragul de divizare Fork/Join
      */
     public int getThreshold() {
         return threshold;
