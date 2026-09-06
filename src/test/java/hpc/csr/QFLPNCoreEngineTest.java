@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -15,16 +16,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * 1. construcția motorului;
  * 2. validarea dimensiunii;
- * 3. încărcarea CSR;
- * 4. încărcarea unei matrice SparseMatrixCSR;
- * 5. validarea dimensională;
- * 6. multiplicarea secvențială;
- * 7. multiplicarea paralelă;
- * 8. echivalența numerică secvențial/paralel;
- * 9. validarea vectorilor;
- * 10. metadatele;
- * 11. starea motorului înainte și după încărcarea matricei;
- * 12. comportamentul shutdown().
+ * 3. configurarea paralelismului;
+ * 4. încărcarea CSR;
+ * 5. încărcarea unei matrice SparseMatrixCSR;
+ * 6. validarea dimensională;
+ * 7. multiplicarea secvențială;
+ * 8. multiplicarea paralelă;
+ * 9. echivalența numerică secvențial/paralel;
+ * 10. reutilizarea pool-ului persistent;
+ * 11. validarea vectorilor;
+ * 12. metadatele;
+ * 13. ciclul de viață shutdown;
+ * 14. starea textuală a motorului.
  */
 class QFLPNCoreEngineTest {
 
@@ -32,20 +35,8 @@ class QFLPNCoreEngineTest {
 
     private static final double TOLERANCE = 1.0e-12;
 
-    /*
-     * Matrice de referință:
-     *
-     * [ 1  0  2  0 ]
-     * [ 0  3  0  4 ]
-     * [ 5  0  6  0 ]
-     * [ 0  7  0  8 ]
-     *
-     * x = [1, 2, 3, 4]^T
-     *
-     * A*x = [7, 22, 23, 46]^T
-     */
-
     private static double[] values() {
+
         return new double[] {
                 1.0, 2.0,
                 3.0, 4.0,
@@ -55,6 +46,7 @@ class QFLPNCoreEngineTest {
     }
 
     private static int[] columns() {
+
         return new int[] {
                 0, 2,
                 1, 3,
@@ -64,18 +56,21 @@ class QFLPNCoreEngineTest {
     }
 
     private static int[] rowPointers() {
+
         return new int[] {
                 0, 2, 4, 6, 8
         };
     }
 
     private static double[] input() {
+
         return new double[] {
                 1.0, 2.0, 3.0, 4.0
         };
     }
 
     private static double[] expected() {
+
         return new double[] {
                 7.0, 22.0, 23.0, 46.0
         };
@@ -84,7 +79,9 @@ class QFLPNCoreEngineTest {
     private static QFLPNCoreEngine createLoadedEngine() {
 
         QFLPNCoreEngine engine =
-                new QFLPNCoreEngine(N);
+                new QFLPNCoreEngine(
+                        N,
+                        2);
 
         engine.loadCSR(
                 values(),
@@ -94,7 +91,7 @@ class QFLPNCoreEngineTest {
         return engine;
     }
 
-    private static SparseMatrixCSR createReferenceMatrix() {
+    private static SparseMatrixCSR createMatrix() {
 
         return new SparseMatrixCSR(
                 values(),
@@ -108,7 +105,9 @@ class QFLPNCoreEngineTest {
     void shouldStoreDimension() {
 
         QFLPNCoreEngine engine =
-                new QFLPNCoreEngine(N);
+                new QFLPNCoreEngine(
+                        N,
+                        2);
 
         try {
             assertEquals(
@@ -121,11 +120,31 @@ class QFLPNCoreEngineTest {
     }
 
     @Test
+    void shouldStoreParallelism() {
+
+        QFLPNCoreEngine engine =
+                new QFLPNCoreEngine(
+                        N,
+                        2);
+
+        try {
+            assertEquals(
+                    2,
+                    engine.getParallelism());
+
+        } finally {
+            engine.shutdown();
+        }
+    }
+
+    @Test
     void shouldRejectZeroDimension() {
 
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new QFLPNCoreEngine(0));
+                () -> new QFLPNCoreEngine(
+                        0,
+                        2));
     }
 
     @Test
@@ -133,19 +152,44 @@ class QFLPNCoreEngineTest {
 
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new QFLPNCoreEngine(-1));
+                () -> new QFLPNCoreEngine(
+                        -1,
+                        2));
+    }
+
+    @Test
+    void shouldRejectZeroParallelism() {
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new QFLPNCoreEngine(
+                        N,
+                        0));
+    }
+
+    @Test
+    void shouldRejectNegativeParallelism() {
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new QFLPNCoreEngine(
+                        N,
+                        -1));
     }
 
     @Test
     void shouldRejectMultiplyBeforeMatrixIsLoaded() {
 
         QFLPNCoreEngine engine =
-                new QFLPNCoreEngine(N);
+                new QFLPNCoreEngine(
+                        N,
+                        2);
 
         try {
             assertThrows(
                     IllegalStateException.class,
-                    () -> engine.multiply(input()));
+                    () -> engine.multiply(
+                            input()));
 
         } finally {
             engine.shutdown();
@@ -156,12 +200,15 @@ class QFLPNCoreEngineTest {
     void shouldRejectParallelMultiplyBeforeMatrixIsLoaded() {
 
         QFLPNCoreEngine engine =
-                new QFLPNCoreEngine(N);
+                new QFLPNCoreEngine(
+                        N,
+                        2);
 
         try {
             assertThrows(
                     IllegalStateException.class,
-                    () -> engine.multiplyParallel(input()));
+                    () -> engine.multiplyParallel(
+                            input()));
 
         } finally {
             engine.shutdown();
@@ -172,7 +219,9 @@ class QFLPNCoreEngineTest {
     void shouldLoadCSRMatrix() {
 
         QFLPNCoreEngine engine =
-                new QFLPNCoreEngine(N);
+                new QFLPNCoreEngine(
+                        N,
+                        2);
 
         try {
             engine.loadCSR(
@@ -206,11 +255,13 @@ class QFLPNCoreEngineTest {
     void shouldLoadSparseMatrixCSR() {
 
         QFLPNCoreEngine engine =
-                new QFLPNCoreEngine(N);
+                new QFLPNCoreEngine(
+                        N,
+                        2);
 
         try {
             SparseMatrixCSR matrix =
-                    createReferenceMatrix();
+                    createMatrix();
 
             engine.loadMatrix(matrix);
 
@@ -227,7 +278,9 @@ class QFLPNCoreEngineTest {
     void shouldRejectNullCSRValues() {
 
         QFLPNCoreEngine engine =
-                new QFLPNCoreEngine(N);
+                new QFLPNCoreEngine(
+                        N,
+                        2);
 
         try {
             assertThrows(
@@ -246,7 +299,9 @@ class QFLPNCoreEngineTest {
     void shouldRejectNullCSRColumns() {
 
         QFLPNCoreEngine engine =
-                new QFLPNCoreEngine(N);
+                new QFLPNCoreEngine(
+                        N,
+                        2);
 
         try {
             assertThrows(
@@ -265,7 +320,9 @@ class QFLPNCoreEngineTest {
     void shouldRejectNullCSRRowPointers() {
 
         QFLPNCoreEngine engine =
-                new QFLPNCoreEngine(N);
+                new QFLPNCoreEngine(
+                        N,
+                        2);
 
         try {
             assertThrows(
@@ -284,7 +341,9 @@ class QFLPNCoreEngineTest {
     void shouldRejectInvalidCSRStructure() {
 
         QFLPNCoreEngine engine =
-                new QFLPNCoreEngine(N);
+                new QFLPNCoreEngine(
+                        N,
+                        2);
 
         try {
             int[] invalidRowPointers = {
@@ -307,12 +366,15 @@ class QFLPNCoreEngineTest {
     void shouldRejectNullSparseMatrix() {
 
         QFLPNCoreEngine engine =
-                new QFLPNCoreEngine(N);
+                new QFLPNCoreEngine(
+                        N,
+                        2);
 
         try {
             assertThrows(
                     NullPointerException.class,
-                    () -> engine.loadMatrix(null));
+                    () -> engine.loadMatrix(
+                            null));
 
         } finally {
             engine.shutdown();
@@ -323,7 +385,9 @@ class QFLPNCoreEngineTest {
     void shouldRejectSparseMatrixDimensionMismatch() {
 
         QFLPNCoreEngine engine =
-                new QFLPNCoreEngine(N);
+                new QFLPNCoreEngine(
+                        N,
+                        2);
 
         try {
             SparseMatrixCSR matrix =
@@ -336,7 +400,8 @@ class QFLPNCoreEngineTest {
 
             assertThrows(
                     IllegalArgumentException.class,
-                    () -> engine.loadMatrix(matrix));
+                    () -> engine.loadMatrix(
+                            matrix));
 
         } finally {
             engine.shutdown();
@@ -350,12 +415,10 @@ class QFLPNCoreEngineTest {
                 createLoadedEngine();
 
         try {
-            double[] result =
-                    engine.multiply(input());
-
             assertArrayEquals(
                     expected(),
-                    result,
+                    engine.multiply(
+                            input()),
                     TOLERANCE);
 
         } finally {
@@ -370,15 +433,30 @@ class QFLPNCoreEngineTest {
                 createLoadedEngine();
 
         try {
-            double[] result =
+            assertArrayEquals(
+                    expected(),
+                    engine.multiplyParallel(
+                            input()),
+                    TOLERANCE);
+
+        } finally {
+            engine.shutdown();
+        }
+    }
+
+    @Test
+    void shouldComputeCorrectParallelResultWithExplicitConfiguration() {
+
+        QFLPNCoreEngine engine =
+                createLoadedEngine();
+
+        try {
+            assertArrayEquals(
+                    expected(),
                     engine.multiplyParallel(
                             input(),
                             1,
-                            2);
-
-            assertArrayEquals(
-                    expected(),
-                    result,
+                            2),
                     TOLERANCE);
 
         } finally {
@@ -397,15 +475,40 @@ class QFLPNCoreEngineTest {
                     engine.multiply(input());
 
             double[] parallel =
-                    engine.multiplyParallel(
-                            input(),
-                            1,
-                            2);
+                    engine.multiplyParallel(input());
 
             assertArrayEquals(
                     sequential,
                     parallel,
                     TOLERANCE);
+
+        } finally {
+            engine.shutdown();
+        }
+    }
+
+    @Test
+    void parallelPoolShouldBeReusable() {
+
+        QFLPNCoreEngine engine =
+                createLoadedEngine();
+
+        try {
+            double[] first =
+                    engine.multiplyParallel(
+                            input());
+
+            double[] second =
+                    engine.multiplyParallel(
+                            input());
+
+            assertArrayEquals(
+                    first,
+                    second,
+                    TOLERANCE);
+
+            assertFalse(
+                    engine.isShutdown());
 
         } finally {
             engine.shutdown();
@@ -421,7 +524,8 @@ class QFLPNCoreEngineTest {
         try {
             assertThrows(
                     NullPointerException.class,
-                    () -> engine.multiply(null));
+                    () -> engine.multiply(
+                            null));
 
         } finally {
             engine.shutdown();
@@ -437,7 +541,8 @@ class QFLPNCoreEngineTest {
         try {
             assertThrows(
                     NullPointerException.class,
-                    () -> engine.multiplyParallel(null));
+                    () -> engine.multiplyParallel(
+                            null));
 
         } finally {
             engine.shutdown();
@@ -445,39 +550,25 @@ class QFLPNCoreEngineTest {
     }
 
     @Test
-    void shouldRejectWrongInputDimensionForSequentialMultiply() {
+    void shouldRejectWrongInputDimension() {
 
         QFLPNCoreEngine engine =
                 createLoadedEngine();
 
         try {
+            double[] wrongInput = {
+                    1.0, 2.0, 3.0
+            };
+
             assertThrows(
                     IllegalArgumentException.class,
                     () -> engine.multiply(
-                            new double[] {
-                                    1.0, 2.0, 3.0
-                            }));
+                            wrongInput));
 
-        } finally {
-            engine.shutdown();
-        }
-    }
-
-    @Test
-    void shouldRejectWrongInputDimensionForParallelMultiply() {
-
-        QFLPNCoreEngine engine =
-                createLoadedEngine();
-
-        try {
             assertThrows(
                     IllegalArgumentException.class,
                     () -> engine.multiplyParallel(
-                            new double[] {
-                                    1.0, 2.0, 3.0
-                            },
-                            1,
-                            2));
+                            wrongInput));
 
         } finally {
             engine.shutdown();
@@ -485,7 +576,7 @@ class QFLPNCoreEngineTest {
     }
 
     @Test
-    void shouldRejectInvalidParallelThreshold() {
+    void shouldRejectInvalidThreshold() {
 
         QFLPNCoreEngine engine =
                 createLoadedEngine();
@@ -504,7 +595,7 @@ class QFLPNCoreEngineTest {
     }
 
     @Test
-    void shouldRejectInvalidParallelism() {
+    void shouldRejectInvalidExplicitParallelism() {
 
         QFLPNCoreEngine engine =
                 createLoadedEngine();
@@ -532,6 +623,10 @@ class QFLPNCoreEngineTest {
             assertEquals(
                     N,
                     engine.getDimension());
+
+            assertEquals(
+                    2,
+                    engine.getParallelism());
 
             assertEquals(
                     8,
@@ -562,34 +657,34 @@ class QFLPNCoreEngineTest {
             assertTrue(
                     matrix.isValid());
 
-            assertEquals(
-                    N,
-                    matrix.getRows());
-
-            assertEquals(
-                    N,
-                    matrix.getColumns());
-
         } finally {
             engine.shutdown();
         }
     }
 
     @Test
-    void shouldReportNotLoadedStateInToString() {
+    void shouldReportCorrectInitialState() {
 
         QFLPNCoreEngine engine =
-                new QFLPNCoreEngine(N);
+                new QFLPNCoreEngine(
+                        N,
+                        2);
 
         try {
             String text =
                     engine.toString();
 
             assertTrue(
-                    text.contains("dimension=4"));
+                    text.contains(
+                            "dimension=4"));
 
             assertTrue(
-                    text.contains("matrix=not-loaded"));
+                    text.contains(
+                            "parallelism=2"));
+
+            assertTrue(
+                    text.contains(
+                            "matrix=not-loaded"));
 
         } finally {
             engine.shutdown();
@@ -597,7 +692,7 @@ class QFLPNCoreEngineTest {
     }
 
     @Test
-    void shouldReportLoadedStateInToString() {
+    void shouldReportCorrectLoadedState() {
 
         QFLPNCoreEngine engine =
                 createLoadedEngine();
@@ -607,13 +702,20 @@ class QFLPNCoreEngineTest {
                     engine.toString();
 
             assertTrue(
-                    text.contains("dimension=4"));
+                    text.contains(
+                            "dimension=4"));
 
             assertTrue(
-                    text.contains("nonZeroCount=8"));
+                    text.contains(
+                            "parallelism=2"));
 
             assertTrue(
-                    text.contains("density="));
+                    text.contains(
+                            "nonZeroCount=8"));
+
+            assertTrue(
+                    text.contains(
+                            "density="));
 
         } finally {
             engine.shutdown();
@@ -621,12 +723,57 @@ class QFLPNCoreEngineTest {
     }
 
     @Test
-    void shutdownShouldBeSafe() {
+    void shutdownShouldBeIdempotent() {
 
         QFLPNCoreEngine engine =
                 createLoadedEngine();
 
         engine.shutdown();
         engine.shutdown();
+
+        assertTrue(
+                engine.isShutdown());
+    }
+
+    @Test
+    void operationsAfterShutdownShouldBeRejected() {
+
+        QFLPNCoreEngine engine =
+                createLoadedEngine();
+
+        engine.shutdown();
+
+        assertTrue(
+                engine.isShutdown());
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> engine.getMatrix());
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> engine.multiply(
+                        input()));
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> engine.multiplyParallel(
+                        input()));
+    }
+
+    @Test
+    void toStringShouldReportShutdownState() {
+
+        QFLPNCoreEngine engine =
+                createLoadedEngine();
+
+        engine.shutdown();
+
+        String text =
+                engine.toString();
+
+        assertTrue(
+                text.contains(
+                        "shutdown=true"));
     }
 }
