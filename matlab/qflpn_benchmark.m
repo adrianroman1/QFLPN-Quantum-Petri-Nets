@@ -4,17 +4,20 @@ function qflpn_benchmark()
 % Deterministic MATLAB benchmark for the 4-qubit
 % QFLPN reference model.
 %
-% Outputs:
-%   qflpn_matlab_results.csv
-%
 % Measures:
 %   - state construction time
 %   - total execution time
-%   - normalization error
-%   - probability error
-%   - fidelity error
+%   - numerical validation error
+%
+% Exports:
+%   qflpn_matlab_results.csv
 %
 % No Monte Carlo.
+%
+% IMPORTANT:
+% qflpn_quantum_core is executed with verbose=false
+% during timing so console output is not included
+% in the measured execution time.
 
 clc;
 
@@ -33,17 +36,16 @@ nQubits = 4;
 nStates = 2^nQubits;
 
 repetitions = 1000;
+warmup = 20;
 targetMs = 15.0;
 
 % ------------------------------------------------------------
 % Warm-up
 % ------------------------------------------------------------
 
-for k = 1:20
+for k = 1:warmup
 
-    [psi, ~, ~] = qflpn_quantum_core(mu);
-
-    rho = psi * psi'; %#ok<NASGU>
+    [psi, ~, ~] = qflpn_quantum_core(mu, false);
 
 end
 
@@ -60,10 +62,11 @@ for k = 1:repetitions
 
     stateTimer = tic;
 
-    [psi, ~, ~] = qflpn_quantum_core(mu);
+    [psi, ~, ~] = qflpn_quantum_core(mu, false);
 
     stateTimes(k) = toc(stateTimer) * 1000.0;
 
+    % Density matrix construction is part of total execution.
     rho = psi * psi';
 
     totalTimes(k) = toc(totalTimer) * 1000.0;
@@ -100,29 +103,41 @@ hermiticityError = norm( ...
     rho - rho', ...
     'fro');
 
+traceError = abs( ...
+    trace(rho) - 1.0);
+
 maximumError = max([ ...
     normalizationError, ...
     probabilityError, ...
     fidelityError, ...
-    hermiticityError]);
+    hermiticityError, ...
+    traceError]);
 
 % ------------------------------------------------------------
 % Status
 % ------------------------------------------------------------
 
-if meanTotalMs <= targetMs
-    status = "PASS";
+if maximumError <= 1e-12
+    numericalStatus = "PASS";
 else
-    status = "TARGET NOT MET";
+    numericalStatus = "REVIEW REQUIRED";
+end
+
+if meanTotalMs <= targetMs
+    timingStatus = "PASS";
+else
+    timingStatus = "TARGET NOT MET";
 end
 
 % ------------------------------------------------------------
 % Console output
 % ------------------------------------------------------------
 
-fprintf('\nQubits              : %d\n', nQubits);
-fprintf('States              : %d\n', nStates);
-fprintf('Repetitions         : %d\n', repetitions);
+fprintf('\nReference model:\n');
+fprintf('  qubits            : %d\n', nQubits);
+fprintf('  states            : %d\n', nStates);
+fprintf('  repetitions       : %d\n', repetitions);
+fprintf('  warm-up           : %d\n', warmup);
 
 fprintf('\nState construction:\n');
 fprintf('  mean              : %.6f ms\n', meanStateMs);
@@ -138,19 +153,38 @@ fprintf('  max               : %.6f ms\n', maxTotalMs);
 
 fprintf('\nNumerical validation:\n');
 fprintf('  maximum error     : %.3e\n', maximumError);
+fprintf('  status            : %s\n', numericalStatus);
 
 fprintf('\n15 ms target:\n');
-fprintf('  STATUS            : %s\n', status);
+fprintf('  status            : %s\n', timingStatus);
 
 % ------------------------------------------------------------
 % CSV export
 % ------------------------------------------------------------
 
-T = table( ...
-    "MATLAB", ...
+fid = fopen( ...
+    'qflpn_matlab_results.csv', ...
+    'w');
+
+if fid == -1
+    error('Unable to create qflpn_matlab_results.csv');
+end
+
+fprintf(fid, ...
+    ['language,qubits,states,repetitions,warmup,' ...
+     'mean_state_ms,median_state_ms,min_state_ms,max_state_ms,' ...
+     'mean_total_ms,median_total_ms,min_total_ms,max_total_ms,' ...
+     'target_ms,maximum_error,numerical_status,timing_status\n']);
+
+fprintf(fid, ...
+    ['MATLAB,%d,%d,%d,%d,' ...
+     '%.12f,%.12f,%.12f,%.12f,' ...
+     '%.12f,%.12f,%.12f,%.12f,' ...
+     '%.6f,%.12e,%s,%s\n'], ...
     nQubits, ...
     nStates, ...
     repetitions, ...
+    warmup, ...
     meanStateMs, ...
     medianStateMs, ...
     minStateMs, ...
@@ -161,31 +195,13 @@ T = table( ...
     maxTotalMs, ...
     targetMs, ...
     maximumError, ...
-    status, ...
-    'VariableNames', { ...
-        'language', ...
-        'qubits', ...
-        'states', ...
-        'repetitions', ...
-        'mean_state_ms', ...
-        'median_state_ms', ...
-        'min_state_ms', ...
-        'max_state_ms', ...
-        'mean_total_ms', ...
-        'median_total_ms', ...
-        'min_total_ms', ...
-        'max_total_ms', ...
-        'target_ms', ...
-        'maximum_error', ...
-        'status' ...
-    });
+    numericalStatus, ...
+    timingStatus);
 
-outputFile = 'qflpn_matlab_results.csv';
+fclose(fid);
 
-writetable(T, outputFile);
-
-fprintf('\nCSV exported: %s\n', ...
-    fullfile(pwd, outputFile));
+fprintf('\nCSV exported:\n');
+fprintf('  qflpn_matlab_results.csv\n');
 
 fprintf('\nQFLPN MATLAB benchmark completed.\n\n');
 
