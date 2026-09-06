@@ -22,9 +22,10 @@ import java.util.concurrent.ForkJoinPool;
  * 2. multiplicare secvențială A*x;
  * 3. multiplicare paralelă A*x cu ForkJoin;
  * 4. variante Into pentru reutilizarea bufferului de output;
- * 5. metadatele matricei;
- * 6. acces controlat la datele CSR;
- * 7. verificarea integrității structurii CSR.
+ * 5. execuție paralelă cu ForkJoinPool furnizat extern;
+ * 6. metadatele matricei;
+ * 7. acces controlat la datele CSR;
+ * 8. verificarea integrității structurii CSR.
  *
  * Notă HPC:
  *
@@ -302,8 +303,14 @@ public final class SparseMatrixCSR {
     /**
      * Multiplicare paralelă în buffer extern.
      *
-     * Această metodă este importantă pentru benchmark-uri HPC,
-     * deoarece permite reutilizarea vectorului de output.
+     * Varianta standard creează și închide un pool pentru apel.
+     * Este potrivită pentru API-ul general și pentru testele
+     * funcționale.
+     *
+     * Pentru benchmark-uri HPC se recomandă metoda
+     * multiplyParallelInto(..., ForkJoinPool), care permite
+     * reutilizarea unui pool persistent în afara secțiunii
+     * măsurate.
      *
      * @param x vectorul de intrare
      * @param y vectorul de ieșire
@@ -333,34 +340,83 @@ public final class SparseMatrixCSR {
                 threshold,
                 parallelism);
 
-        /*
-         * Pool-ul este local apelului și este închis garantat.
-         *
-         * Reutilizarea unui pool persistent este o optimizare
-         * ulterioară care trebuie introdusă împreună cu
-         * QFLPNCoreEngine și benchmark-urile, pentru a nu
-         * modifica prematur contractul actual.
-         */
         ForkJoinPool pool =
                 new ForkJoinPool(parallelism);
 
         try {
 
-            pool.invoke(
-                    new MultiplyTask(
-                            values,
-                            columnIndices,
-                            rowPointers,
-                            x,
-                            y,
-                            0,
-                            rows,
-                            threshold));
+            multiplyParallelInto(
+                    x,
+                    y,
+                    threshold,
+                    pool);
 
         } finally {
 
             pool.shutdown();
         }
+    }
+
+    /**
+     * Multiplicare paralelă în buffer extern utilizând
+     * un ForkJoinPool furnizat de apelant.
+     *
+     * Această variantă este destinată în special benchmark-urilor
+     * și execuțiilor repetate, deoarece pool-ul poate fi creat o
+     * singură dată și reutilizat.
+     *
+     * Crearea și închiderea pool-ului NU fac parte din această
+     * metodă și, prin urmare, pot fi excluse din intervalul
+     * măsurat al operației CSR.
+     *
+     * @param x vectorul de intrare
+     * @param y vectorul de ieșire
+     * @param threshold pragul de divizare
+     * @param pool ForkJoinPool reutilizabil
+     */
+    public void multiplyParallelInto(
+            double[] x,
+            double[] y,
+            int threshold,
+            ForkJoinPool pool) {
+
+        validateInputVector(x);
+
+        Objects.requireNonNull(
+                y,
+                "Output vector cannot be null.");
+
+        if (y.length != rows) {
+            throw new IllegalArgumentException(
+                    "Output vector length (" + y.length
+                            + ") must equal matrix row count ("
+                            + rows + ").");
+        }
+
+        Objects.requireNonNull(
+                pool,
+                "ForkJoinPool cannot be null.");
+
+        if (threshold <= 0) {
+            throw new IllegalArgumentException(
+                    "Parallel threshold must be greater than zero.");
+        }
+
+        if (pool.isShutdown()) {
+            throw new IllegalStateException(
+                    "ForkJoinPool is already shut down.");
+        }
+
+        pool.invoke(
+                new MultiplyTask(
+                        values,
+                        columnIndices,
+                        rowPointers,
+                        x,
+                        y,
+                        0,
+                        rows,
+                        threshold));
     }
 
     /**
