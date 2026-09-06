@@ -191,7 +191,7 @@ public final class MainApp {
 
         if (allPassed) {
             System.out.println(
-                    " STATUS: PASS - CSR CORE VALIDAT");
+                    " STATUS: PASS - CSR CORE VALIDATED");
         } else {
             System.out.println(
                     " STATUS: FAIL - VERIFICARE NECESARA");
