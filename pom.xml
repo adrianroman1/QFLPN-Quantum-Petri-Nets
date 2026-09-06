@@ -12,8 +12,11 @@
     <properties>
         <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
         <jmh.version>1.37</jmh.version>
         <junit.version>5.10.2</junit.version>
+
+        <exec.mainClass>hpc.csr.MainApp</exec.mainClass>
     </properties>
 
     <dependencies>
@@ -78,14 +81,14 @@
                 <version>3.2.5</version>
             </plugin>
 
-            <!-- Rulează MainApp -->
+            <!-- Exec Maven -->
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>exec-maven-plugin</artifactId>
                 <version>3.3.0</version>
 
                 <configuration>
-                    <mainClass>hpc.csr.MainApp</mainClass>
+                    <mainClass>${exec.mainClass}</mainClass>
                 </configuration>
             </plugin>
 
