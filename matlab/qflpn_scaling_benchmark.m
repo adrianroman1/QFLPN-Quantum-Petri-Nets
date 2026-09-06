@@ -1,470 +1,246 @@
-function qflpn_scaling_benchmark()
-% QFLPN_SCALING_BENCHMARK
-%
-% Deterministic MATLAB scaling benchmark for QFLPN.
-%
-% Tested state-vector dimensions:
-%
-%     1024
-%     10000
-%     100000
-%
-% Interpretation:
-%
-%     1024 = 2^10
-%
-% Therefore 1024 corresponds exactly to a 10-qubit
-% state space.
-%
-% 10000 and 100000 are numerical state-vector dimensions
-% and are NOT interpreted as exact 2^n qubit spaces.
-%
-% The transition operator is sparse and unitary.
-%
-% Declared QFLPN fuzzy-to-quantum mapping:
-%
-%     theta(mu) = 2*asin(sqrt(mu))
-%
-% No Monte Carlo.
-% No random sampling.
-%
-% Output:
-%
-%     results/scaling/qflpn_matlab_scaling_results.csv
-
-
+clear;
 clc;
 
-
-% ============================================================
-% Configuration
-% ============================================================
-
-dimensions = [
-    1024
-    10000
-    100000
-];
+dimensions = [1024, 10000, 100000];
 
 mu = 0.70;
 
+warmup = 20;
 repetitions = 1000;
 
-warmup = 20;
+target_ms = 15.0;
+error_tolerance = 1e-12;
 
-targetMs = 15.0;
+results_dir = "results";
 
-tolerance = 1e-12;
-
-outputFile = ...
-    fullfile( ...
-        'results', ...
-        'scaling', ...
-        'qflpn_matlab_scaling_results.csv');
-
-
-% ============================================================
-% Header
-% ============================================================
-
-fprintf('\n');
-fprintf('================================================================\n');
-fprintf('QFLPN SCALING BENCHMARK - MATLAB\n');
-fprintf('================================================================\n');
-
-fprintf('\n');
-fprintf('Deterministic sparse unitary transition.\n');
-fprintf('Monte Carlo: NOT USED.\n');
-fprintf('Target: %.1f ms\n', targetMs);
-
-
-% ============================================================
-% Prepare output directory
-% ============================================================
-
-outputDirectory = ...
-    fileparts(outputFile);
-
-if ~exist(outputDirectory, 'dir')
-
-    mkdir(outputDirectory);
-
+if ~exist(results_dir, "dir")
+    mkdir(results_dir);
 end
 
+output_file = fullfile(
+    results_dir,
+    "qflpn_scaling_matlab.csv"
+);
 
-% ============================================================
-% Fuzzy -> quantum angle
-% ============================================================
+theta = 2 * asin(sqrt(mu));
 
-if mu < 0 || mu > 1
+c = cos(theta);
+s = sin(theta);
 
-    error( ...
-        'Fuzzy membership must belong to [0,1].');
-
-end
-
-theta = ...
-    2 * asin(sqrt(mu));
-
-
-% ============================================================
-% Rotation coefficients
-% ============================================================
-
-c = cos(theta / 2);
-
-s = sin(theta / 2);
-
-
-% ============================================================
-% Open CSV
-% ============================================================
-
-fid = fopen( ...
-    outputFile, ...
-    'w');
-
-if fid == -1
-
-    error( ...
-        'Unable to create MATLAB scaling CSV.');
-
-end
-
-
-fprintf( ...
-    fid, ...
-    ['language,dimension,qubits_if_power_of_two,' ...
-     'nnz,repetitions,warmup,' ...
-     'mean_ms,median_ms,min_ms,max_ms,' ...
-     'target_ms,norm_error,maximum_error,' ...
-     'numerical_status,timing_status\n']);
-
-
-% ============================================================
-% Each state dimension
-% ============================================================
+results = zeros(
+    length(dimensions),
+    10
+);
 
 for d = 1:length(dimensions)
 
-    dimension = dimensions(d);
+    n = dimensions(d);
 
-    fprintf('\n');
-    fprintf( ...
-        'Dimension: %d\n', ...
-        dimension);
+    fprintf("Running N=%d\n", n);
 
+    construction_start = tic;
 
-    % --------------------------------------------------------
-    % Sparse unitary operator
-    % --------------------------------------------------------
+    rows = zeros(2*n, 1);
+    cols = zeros(2*n, 1);
+    values = zeros(2*n, 1);
 
-    numberOfBlocks = ...
-        floor(dimension / 2);
+    p = 1;
 
-    nnzOperator = ...
-        4 * numberOfBlocks;
+    for k = 1:2:n
 
-    if mod(dimension, 2) == 1
+        i = k;
+        j = k + 1;
 
-        nnzOperator = ...
-            nnzOperator + 1;
+        rows(p) = i;
+        cols(p) = i;
+        values(p) = c;
+        p = p + 1;
 
-    end
+        rows(p) = i;
+        cols(p) = j;
+        values(p) = -s;
+        p = p + 1;
 
+        rows(p) = j;
+        cols(p) = i;
+        values(p) = s;
+        p = p + 1;
 
-    rows = zeros(
-        nnzOperator,
-        1);
-
-    columns = zeros(
-        nnzOperator,
-        1);
-
-    values = zeros(
-        nnzOperator,
-        1);
-
-
-    position = 1;
-
-
-    for i = 1:2:(dimension - 1)
-
-        rows(position) = i;
-        columns(position) = i;
-        values(position) = c;
-
-        position = position + 1;
-
-
-        rows(position) = i;
-        columns(position) = i + 1;
-        values(position) = -s;
-
-        position = position + 1;
-
-
-        rows(position) = i + 1;
-        columns(position) = i;
-        values(position) = s;
-
-        position = position + 1;
-
-
-        rows(position) = i + 1;
-        columns(position) = i + 1;
-        values(position) = c;
-
-        position = position + 1;
+        rows(p) = j;
+        cols(p) = j;
+        values(p) = c;
+        p = p + 1;
 
     end
 
+    A = sparse(
+        rows,
+        cols,
+        values,
+        n,
+        n
+    );
 
-    if mod(dimension, 2) == 1
+    construction_ms = ...
+        toc(construction_start) * 1000.0;
 
-        rows(position) = dimension;
-        columns(position) = dimension;
-        values(position) = 1.0;
+    index = (0:n-1)';
 
-    end
+    x = ...
+        sin(index) + ...
+        0.5 * cos(0.37 * index);
 
+    x = x / norm(x);
 
-    U = sparse( ...
-        rows, ...
-        columns, ...
-        values, ...
-        dimension, ...
-        dimension);
+    reference = zeros(n, 1);
 
+    reference(1:2:end) = ...
+        c * x(1:2:end) - ...
+        s * x(2:2:end);
 
-    % --------------------------------------------------------
-    % Deterministic normalized state
-    % --------------------------------------------------------
+    reference(2:2:end) = ...
+        s * x(1:2:end) + ...
+        c * x(2:2:end);
 
-    indices = ...
-        (1:dimension).';
+    computed = A * x;
 
-    psi = ...
-        1 ./ sqrt(double(indices));
+    max_absolute_error = ...
+        max(abs(computed - reference));
 
-    psi = ...
-        psi / norm(psi);
+    input_norm = norm(x);
 
+    output_norm = norm(computed);
 
-    % --------------------------------------------------------
-    % Warm-up
-    % --------------------------------------------------------
+    norm_error = ...
+        abs(output_norm - input_norm);
 
     for k = 1:warmup
-
-        U * psi;
-
+        A * x;
     end
 
-
-    % --------------------------------------------------------
-    % Timed benchmark
-    % --------------------------------------------------------
-
-    timings = ...
-        zeros(repetitions, 1);
-
-    output = [];
-
+    times_ms = zeros(
+        repetitions,
+        1
+    );
 
     for k = 1:repetitions
 
-        timer = tic;
+        timer_start = tic;
 
-        output = U * psi;
+        A * x;
 
-        timings(k) = ...
-            toc(timer) * 1000.0;
-
-    end
-
-
-    % --------------------------------------------------------
-    % Timing statistics
-    % --------------------------------------------------------
-
-    meanMs = ...
-        mean(timings);
-
-    medianMs = ...
-        median(timings);
-
-    minMs = ...
-        min(timings);
-
-    maxMs = ...
-        max(timings);
-
-
-    % --------------------------------------------------------
-    % Numerical validation
-    % --------------------------------------------------------
-
-    inputNorm = ...
-        norm(psi);
-
-    outputNorm = ...
-        norm(output);
-
-    normError = ...
-        abs(outputNorm - inputNorm);
-
-
-    reference = ...
-        U * psi;
-
-    maximumError = ...
-        max(abs(output - reference));
-
-
-    numericalError = ...
-        max( ...
-            normError, ...
-            maximumError);
-
-
-    if numericalError <= tolerance
-
-        numericalStatus = ...
-            'PASS';
-
-    else
-
-        numericalStatus = ...
-            'REVIEW REQUIRED';
+        times_ms(k) = ...
+            toc(timer_start) * 1000.0;
 
     end
 
+    mean_ms = mean(times_ms);
+    median_ms = median(times_ms);
+    min_ms = min(times_ms);
+    max_ms = max(times_ms);
 
-    % --------------------------------------------------------
-    % Timing status
-    % --------------------------------------------------------
+    numerical_status = "PASS";
 
-    if meanMs <= targetMs
+    if ...
+        max_absolute_error > error_tolerance ...
+        || norm_error > error_tolerance
 
-        timingStatus = ...
-            'PASS';
-
-    else
-
-        timingStatus = ...
-            'TARGET NOT MET';
+        numerical_status = "FAIL";
 
     end
 
+    timing_status = "PASS";
 
-    % --------------------------------------------------------
-    % Qubit interpretation
-    % --------------------------------------------------------
-
-    if dimension > 0 && ...
-            bitand( ...
-                dimension, ...
-                dimension - 1) == 0
-
-        qubits = ...
-            round(log2(dimension));
-
-        qubitText = ...
-            sprintf('%d', qubits);
-
-    else
-
-        qubitText = ...
-            'NA';
-
+    if mean_ms > target_ms
+        timing_status = "FAIL";
     end
 
+    results(d, :) = [
+        n, ...
+        nnz(A), ...
+        construction_ms, ...
+        mean_ms, ...
+        median_ms, ...
+        min_ms, ...
+        max_ms, ...
+        max_absolute_error, ...
+        norm_error, ...
+        target_ms
+    ];
 
-    % --------------------------------------------------------
-    % Console
-    % --------------------------------------------------------
+    fprintf(
+        "  NNZ: %d\n",
+        nnz(A)
+    );
 
-    fprintf( ...
-        '  NNZ               : %d\n', ...
-        nnzOperator);
+    fprintf(
+        "  Construction: %.6f ms\n",
+        construction_ms
+    );
 
-    fprintf( ...
-        '  mean              : %.6f ms\n', ...
-        meanMs);
+    fprintf(
+        "  Mean: %.6f ms\n",
+        mean_ms
+    );
 
-    fprintf( ...
-        '  median            : %.6f ms\n', ...
-        medianMs);
+    fprintf(
+        "  Median: %.6f ms\n",
+        median_ms
+    );
 
-    fprintf( ...
-        '  min               : %.6f ms\n', ...
-        minMs);
+    fprintf(
+        "  Maximum error: %.3e\n",
+        max_absolute_error
+    );
 
-    fprintf( ...
-        '  max               : %.6f ms\n', ...
-        maxMs);
+    fprintf(
+        "  Norm error: %.3e\n",
+        norm_error
+    );
 
-    fprintf( ...
-        '  norm error        : %.3e\n', ...
-        normError);
+    fprintf(
+        "  Numerical status: %s\n",
+        numerical_status
+    );
 
-    fprintf( ...
-        '  maximum error     : %.3e\n', ...
-        maximumError);
-
-    fprintf( ...
-        '  numerical status  : %s\n', ...
-        numericalStatus);
-
-    fprintf( ...
-        '  15 ms status      : %s\n', ...
-        timingStatus);
-
-
-    % --------------------------------------------------------
-    % CSV
-    % --------------------------------------------------------
-
-    fprintf( ...
-        fid, ...
-        ['MATLAB,%d,%s,%d,%d,%d,' ...
-         '%.12f,%.12f,%.12f,%.12f,' ...
-         '%.6f,%.12e,%.12e,%s,%s\n'], ...
-        dimension, ...
-        qubitText, ...
-        nnzOperator, ...
-        repetitions, ...
-        warmup, ...
-        meanMs, ...
-        medianMs, ...
-        minMs, ...
-        maxMs, ...
-        targetMs, ...
-        normError, ...
-        maximumError, ...
-        numericalStatus, ...
-        timingStatus);
+    fprintf(
+        "  Timing status: %s\n\n",
+        timing_status
+    );
 
 end
 
+T = table( ...
+    results(:,1), ...
+    results(:,2), ...
+    results(:,3), ...
+    results(:,4), ...
+    results(:,5), ...
+    results(:,6), ...
+    results(:,7), ...
+    results(:,8), ...
+    results(:,9), ...
+    results(:,10), ...
+    'VariableNames', { ...
+        'dimension', ...
+        'nnz', ...
+        'construction_ms', ...
+        'mean_ms', ...
+        'median_ms', ...
+        'min_ms', ...
+        'max_ms', ...
+        'max_absolute_error', ...
+        'norm_error', ...
+        'target_ms' ...
+    } ...
+);
 
-% ============================================================
-% Close CSV
-% ============================================================
+writetable(
+    T,
+    output_file
+);
 
-fclose(fid);
-
-
-fprintf('\n');
-fprintf( ...
-    'CSV exported:\n  %s\n', ...
-    outputFile);
-
-fprintf('\n');
-fprintf( ...
-    'QFLPN MATLAB scaling benchmark completed.\n');
-
-
-end
+fprintf(
+    "Results saved to:\n%s\n",
+    output_file
+);
