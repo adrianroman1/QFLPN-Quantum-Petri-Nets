@@ -1,0 +1,148 @@
+name: QFLPN Scaling Results
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'python/qflpn_scaling_benchmark.py'
+      - 'python/plot_qflpn_scaling.py'
+      - 'matlab/qflpn_scaling_benchmark.m'
+      - '.github/workflows/qflpn-scaling-results.yml'
+
+jobs:
+
+  python-scaling:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install numpy scipy matplotlib
+
+      - name: Run Python scaling benchmark
+        working-directory: python
+        run: |
+          python qflpn_scaling_benchmark.py
+
+      - name: Display Python scaling results
+        working-directory: python
+        run: |
+          echo "======================================"
+          echo "QFLPN PYTHON SCALING RESULTS"
+          echo "======================================"
+          cat results/qflpn_scaling_python.csv
+
+      - name: Upload Python scaling results
+        uses: actions/upload-artifact@v4
+        with:
+          name: qflpn-scaling-python-results
+          path: |
+            python/results/qflpn_scaling_python.csv
+          if-no-files-found: error
+
+
+  matlab-compatible-scaling:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install GNU Octave
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y octave
+
+      - name: Run MATLAB-compatible scaling benchmark
+        run: |
+          octave --quiet --eval \
+            "cd('matlab'); qflpn_scaling_benchmark;"
+
+      - name: Display MATLAB-compatible scaling results
+        working-directory: matlab
+        run: |
+          echo "======================================"
+          echo "QFLPN MATLAB-COMPATIBLE SCALING RESULTS"
+          echo "======================================"
+          cat results/qflpn_scaling_matlab.csv
+
+      - name: Upload MATLAB-compatible scaling results
+        uses: actions/upload-artifact@v4
+        with:
+          name: qflpn-scaling-matlab-results
+          path: |
+            matlab/results/qflpn_scaling_matlab.csv
+          if-no-files-found: error
+
+
+  comparison-figure:
+
+    needs:
+      - python-scaling
+      - matlab-compatible-scaling
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install numpy matplotlib
+
+      - name: Run Python scaling benchmark
+        working-directory: python
+        run: |
+          python qflpn_scaling_benchmark.py
+
+      - name: Run MATLAB-compatible scaling benchmark
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y octave
+          octave --quiet --eval \
+            "cd('matlab'); qflpn_scaling_benchmark;"
+
+      - name: Generate scaling comparison figure
+        working-directory: python
+        run: |
+          python plot_qflpn_scaling.py
+
+      - name: Display scaling figure information
+        run: |
+          echo "======================================"
+          echo "QFLPN SCALING COMPARISON"
+          echo "======================================"
+          ls -lh python/results/
+
+      - name: Upload complete scaling package
+        uses: actions/upload-artifact@v4
+        with:
+          name: qflpn-scaling-complete
+          path: |
+            python/results/qflpn_scaling_python.csv
+            matlab/results/qflpn_scaling_matlab.csv
+            python/results/qflpn_scaling_comparison.png
+          if-no-files-found: error
