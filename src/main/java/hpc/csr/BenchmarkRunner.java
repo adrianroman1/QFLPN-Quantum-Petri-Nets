@@ -433,6 +433,17 @@ public final class BenchmarkRunner {
         return totalNs;
     }
 
+    /**
+     * Conversie nanosecunde -> milisecunde.
+     *
+     * Aceasta este metoda care lipsea în commit-ul #29.
+     */
+    private static double nanosToMillis(
+            long nanos) {
+
+        return nanos / 1_000_000.0;
+    }
+
     private static double calculateThroughput(
             int n,
             double averageMs) {
