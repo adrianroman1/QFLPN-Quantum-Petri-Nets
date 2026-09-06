@@ -21,5 +21,8 @@ jobs:
           java-version: '21'
           cache: maven
 
-      - name: Compile and run CSR validation
+      - name: Compile and run JUnit tests
+        run: mvn -B test
+
+      - name: Run CSR smoke validation
         run: mvn -B -DskipTests compile exec:java
