@@ -19,15 +19,7 @@ Teza dezvoltă **Quantum-Fuzzy Logical Petri Nets (QFLPN)** ca formalism stratif
 în care cele trei niveluri sunt păstrate distinct și apoi conectate prin interfețe
 matematice explicite:
 
-$$
-\text{Petri}
-+
-\text{Fuzzy}
-+
-\text{Quantum}
-\longrightarrow
-\text{QFLPN}.
-$$
+> **Petri + Fuzzy + Quantum → QFLPN**
 
 Principiul central este **separarea semantică urmată de compoziție controlată**.
 Un loc Petri, un marcaj, o valoare fuzzy, un qubit și o stare cuantică nu sunt
@@ -51,19 +43,15 @@ Problema este descompusă în:
 6. tratarea separată a dinamicii ideale și a modelelor de zgomot/degradare;
 7. analiza matematică a proprietăților relevante;
 8. implementarea numerică reproductibilă;
-9. validarea pe scala cuantică $N=2^q$;
+9. validarea pe scala cuantică `N = 2^q`;
 10. evaluarea performanței pentru reprezentări sparse și operații SpMV.
 
 ## 1.4. Întrebarea principală și ipoteza de lucru
 
 Întrebarea principală este:
 
-$$
-\boxed{
-\text{Cum poate QFLPN să ofere o interfață verificabilă între logică discretă,
-informație fuzzy și evoluție cuantică?}
-}
-$$
+> **Cum poate QFLPN să ofere o interfață verificabilă între logică discretă,
+> informație fuzzy și evoluție cuantică?**
 
 Ipoteza de lucru este că o arhitectură stratificată, cu interfețe matematice
 explicit definite și cu protocoale de calcul reproductibile, permite validarea
@@ -95,7 +83,7 @@ Ipoteza nu afirmă că QFLPN este universal superior altor formalisme.
 | C3 | Construcția locală–globală prin Kronecker | contribuție în cadrul QFLPN |
 | C4 | Integrarea operatorilor controlați | contribuție în cadrul QFLPN |
 | C5 | Separarea semantică a firing-ului de transformarea cuantică | contribuție de modelare |
-| C6 | Lanțul numeric pentru acțiunea $etAv$ | contribuție algoritmică/implementare |
+| C6 | Lanțul numeric pentru acțiunea `e^(tA)v` | contribuție algoritmică/implementare |
 | C7 | Reprezentarea sparse și execuția SpMV | contribuție software/HPC |
 | C8 | Protocolul multi-limbaj reproductibil | contribuție metodologică |
 | C9 | Matricea de trasabilitate model–cod–rezultat | contribuție metodologică |
@@ -105,100 +93,65 @@ Ipoteza nu afirmă că QFLPN este universal superior altor formalisme.
 
 Pentru o familie QFLPN poate fi utilizată structura:
 
-$$
-\mathcal{N}QFLPN
-=
-(P,T,E,M,μ,ℋ,ρ,\mathcal{U},\mathcal{R}),
-$$
+`𝒩_QFLPN = (P, T, E, M, μ, ℋ, ρ, 𝒰, ℛ)`
 
-unde $P$ reprezintă locurile, $T$ tranzițiile, $E$ relația de conectivitate,
-$M$ marcajul, $μ$ componenta fuzzy, $ℋ$ spațiul Hilbert,
-$ρ$ reprezentarea stării, $\mathcal{U}$ familia de operatori, iar
-$\mathcal{R}$ regulile de evoluție.
+unde `P` reprezintă locurile, `T` tranzițiile, `E` relația de conectivitate,
+`M` marcajul, `μ` componenta fuzzy, `ℋ` spațiul Hilbert,
+`ρ` reprezentarea stării, `𝒰` familia de operatori, iar
+`ℛ` regulile de evoluție.
 
-Pentru $q$ qubiți:
+Pentru `q` qubiți:
 
-$$
-ℋ_q=(ℂ²)⊗ q,
-\qquad
-N_q=\dim(ℋ_q)=2^q.
-$$
+`ℋ_q = (ℂ²)⊗q`, `N_q = dim(ℋ_q) = 2^q`.
 
 O stare pură satisface:
 
-$$
-|ψ\rangle∈ℋ_q,
-\qquad
-\langleψ|ψ\rangle=1.
-$$
+`|ψ⟩ ∈ ℋ_q`, `⟨ψ|ψ⟩ = 1`.
 
 O matrice densitate satisface:
 
-$$
-ρ\succeq0,
-\qquad
-ρ^†=ρ,
-\qquad
-Tr(ρ)=1.
-$$
+`ρ ⪰ 0`, `ρ† = ρ`, `Tr(ρ) = 1`.
 
 Evoluția unitară este:
 
-$$
-|ψ'\rangle=U|ψ\rangle,
-\qquad
-U^† U=I.
-$$
+`|ψ′⟩ = U|ψ⟩`, `U†U = I`.
 
 Pentru dinamica generală:
 
-$$
-ρ'
-=
-\mathcal{E}(ρ)
-=
-\sum_kK_kρ K_k^†,
-\qquad
-\sum_kK_k^† K_k=I.
-$$
+`ρ′ = 𝓔(ρ) = Σₖ KₖρKₖ†`, `Σₖ Kₖ†Kₖ = I`.
 
 Pentru acțiunea exponențialei asupra unui vector:
 
-$$
-y=etAv.
-$$
+`y = e^(tA)v`.
 
-Această problemă este distinctă de formarea explicită a matricei $etA$.
+Această problemă este distinctă de formarea explicită a matricei `e^(tA)`.
 
 ## 1.8. Convenții de notație
 
 | Simbol | Semnificație |
 | --- | --- |
-| $P$ | mulțimea locurilor |
-| $T$ | mulțimea tranzițiilor |
-| $M$ | marcaj Petri |
-| $μ$ | grad fuzzy |
-| $ℋ_q$ | spațiul Hilbert pentru $q$ qubiți |
-| $N=2^q$ | dimensiunea spațiului de stare |
-| $|ψ\rangle$ | stare pură |
-| $ρ$ | matrice densitate |
-| $U$ | operator unitar |
-| $A$ | operator/generator numeric |
-| $K_k$ | operator Kraus |
-| $\operatorname{NNZ}$ | numărul de elemente nenule |
-| CSR | Compressed Sparse Row |
-| SpMV | sparse matrix–vector multiplication |
+| `P` | mulțimea locurilor |
+| `T` | mulțimea tranzițiilor |
+| `M` | marcaj Petri |
+| `μ` | grad fuzzy |
+| `ℋ_q` | spațiul Hilbert pentru `q` qubiți |
+| `N = 2^q` | dimensiunea spațiului de stare |
+| `|ψ⟩` | stare pură |
+| `ρ` | matrice densitate |
+| `U` | operator unitar |
+| `A` | operator/generator numeric |
+| `Kₖ` | operator Kraus |
+| `NNZ` | numărul de elemente nenule |
+| `CSR` | Compressed Sparse Row |
+| `SpMV` | sparse matrix–vector multiplication |
 
 Convenția bazei computaționale este:
 
-$$
-|q₀q₁\ldots qq-₁\rangle
-=
-|q₀\rangle⊗|q₁\rangle⊗·s
-⊗|qq-₁\rangle.
-$$
+`|q₀q₁q₂q₃⟩ = |q₀⟩⊗|q₁⟩⊗|q₂⟩⊗|q₃⟩`
 
-Orice convenție de endianitate implementată în software trebuie documentată separat.
+pentru cazul de referință cu patru qubiți. Pentru `q` qubiți, baza este
+ordonată conform aceleiași convenții, iar orice endianitate diferită introdusă
+în software trebuie documentată separat.
 
 ## 1.9. Metodologia cercetării
 
@@ -220,35 +173,17 @@ Metodologia este organizată în următoarele etape:
 
 Lanțul de trasabilitate este:
 
-$$
-\boxed{
-\text{obiectiv}
-→
-\text{ipoteză}
-→
-\text{ecuație}
-→
-\text{algoritm}
-→
-\text{cod}
-→
-\text{metrică}
-→
-\text{rezultat}
-}
-$$
+> **obiectiv → ipoteză → ecuație → algoritm → cod → metrică → rezultat**
 
 ## 1.10. Scalare și delimitarea dimensiunilor
 
 Pentru componenta cuantică:
 
-$$
-N=2^q.
-$$
+`N = 2^q`.
 
 În familia validată:
 
-| $q$ | $N$ |
+| `q` | `N` |
 | ---: | ---: |
 | 4 | 16 |
 | 5 | 32 |
@@ -281,7 +216,7 @@ definită și nu o limită universală.
 | Numeric | erori și conservarea normei documentate |
 | Software | cod și configurație trasabile |
 | HPC | CSR/SpMV și cost în funcție de NNZ |
-| Scalare | $q$ și $N=2^q$ consecvente |
+| Scalare | `q` și `N = 2^q` consecvente |
 | Reproductibilitate | protocol și parametri fixați |
 | Experimental | rezultate efectiv măsurate, fără extrapolare |
 | Științific | separarea rezultatelor proprii de literatură |
@@ -353,7 +288,7 @@ Rezultat
 - obiective și evidențe;
 - contribuții și natură;
 - notații;
-- scala $q/N$;
+- scala `q/N`;
 - obiective–metode–metrici;
 - trasabilitate model–software–experiment.
 
@@ -371,6 +306,6 @@ Capitolul este închis când:
 - O1–O10 sunt trasabile;
 - C1–C10 sunt delimitate de fundamentele bibliografice;
 - notația este identică cu cea din capitolele 2–6;
-- scala $N=2^q$ este utilizată consecvent;
+- scala `N = 2^q` este utilizată consecvent;
 - figurile și tabelele sunt definite;
 - niciun rezultat experimental nu este prezentat fără dovadă corespunzătoare.
