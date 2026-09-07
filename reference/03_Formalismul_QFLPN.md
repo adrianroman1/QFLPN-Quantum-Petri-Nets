@@ -18,9 +18,9 @@ Rezultatele bibliografice sunt distincte de:
 Definim o rețea QFLPN finită prin:
 
 $$
-\mathcal{N}_{QFLPN}
+\mathcal{N}QFLPN
 =
-(P,T,E,M,\mu,\mathcal{H},\rho,\mathcal{U},\mathcal{R}),
+(P,T,E,M,μ,ℋ,ρ,\mathcal{U},\mathcal{R}),
 $$
 
 unde:
@@ -29,39 +29,39 @@ unde:
 - $T$ este mulțimea finită a tranzițiilor;
 - $E$ este relația de intrare/ieșire;
 - $M$ este marcajul Petri;
-- $\mu$ este familia valorilor sau funcțiilor fuzzy;
-- $\mathcal{H}$ este spațiul Hilbert al stratului cuantic;
-- $\rho$ este reprezentarea stării;
+- $μ$ este familia valorilor sau funcțiilor fuzzy;
+- $ℋ$ este spațiul Hilbert al stratului cuantic;
+- $ρ$ este reprezentarea stării;
 - $\mathcal{U}$ este familia operatorilor admisibili;
 - $\mathcal{R}$ este familia regulilor de evoluție.
 
 Definiția este stratificată intenționat: locul Petri este un obiect structural,
-iar $\rho$ este un obiect informațional.
+iar $ρ$ este un obiect informațional.
 
 ## 3.3. Locuri, tranziții și marcaje
 
-Un loc $p\in P$ reprezintă o componentă structurală a rețelei.
+Un loc $p∈ P$ reprezintă o componentă structurală a rețelei.
 
-O tranziție $t\in T$ reprezintă un eveniment sau o regulă de evoluție.
+O tranziție $t∈ T$ reprezintă un eveniment sau o regulă de evoluție.
 
 Marcajul clasic poate fi:
 
 $$
-M:P\rightarrow\mathbb{N}.
+M:P→ℕ.
 $$
 
 În stratul QFLPN se poate asocia unui loc o reprezentare informațională:
 
 $$
-\rho_p\in\mathcal{D}(\mathcal{H}),
+ρ_p∈\mathcal{D}(ℋ),
 $$
 
 unde:
 
 $$
-\mathcal{D}(\mathcal{H})
+\mathcal{D}(ℋ)
 =
-\{\rho:\rho\succeq0,\operatorname{Tr}(\rho)=1\}.
+\{ρ:ρ\succeq0,Tr(ρ)=1\}.
 $$
 
 Un token cuantic este o entitate semantică a modelului; el nu este identificat
@@ -73,7 +73,7 @@ Activarea unei tranziții este determinată de structura Petri și de condițiil
 fuzzy:
 
 $$
-(M,\mu)
+(M,μ)
 \longrightarrow
 t_{\mathrm{activat}}.
 $$
@@ -85,7 +85,7 @@ t_{\mathrm{activat}}
 \longrightarrow
 \mathcal{E}_t
 \longrightarrow
-\rho'.
+ρ'.
 $$
 
 Astfel:
@@ -95,11 +95,11 @@ $$
 \text{marcaj}
 +
 \text{condiție fuzzy}
-\rightarrow
+→
 \text{firing}
-\rightarrow
+→
 \text{operator admisibil}
-\rightarrow
+→
 \text{stare nouă}
 }
 $$
@@ -111,17 +111,17 @@ Separarea împiedică confundarea logicii de activare cu evoluția cuantică.
 Pentru o variabilă fuzzy:
 
 $$
-\mu_j\in[0,1].
+μ_j∈[0,1].
 $$
 
 Pentru o tranziție $t$, o funcție de agregare poate produce:
 
 $$
-\lambda_t
+λ_t
 =
-g(\mu_1,\ldots,\mu_r),
+g(μ₁,\ldots,μ_r),
 \qquad
-0\le\lambda_t\le1.
+0\leλ_t\le1.
 $$
 
 Funcția $g$ nu este impusă universal. Poate fi aleasă dintre agregări admisibile
@@ -130,16 +130,16 @@ Funcția $g$ nu este impusă universal. Poate fi aleasă dintre agregări admisi
 Este esențial:
 
 $$
-\lambda_t
-\neq
+λ_t
+≠
 \text{automat o probabilitate}
 $$
 
 și:
 
 $$
-\lambda_t
-\neq
+λ_t
+≠
 \text{automat o amplitudine}.
 $$
 
@@ -148,9 +148,9 @@ $$
 Pentru $q$ qubiți:
 
 $$
-\mathcal{H}_q
+ℋ_q
 =
-(\mathbb{C}^2)^{\otimes q},
+(ℂ²)⊗ q,
 \qquad
 N=2^q.
 $$
@@ -161,24 +161,24 @@ $$
 \mathcal{B}_q
 =
 \{
-|q_0q_1\ldots q_{q-1}\rangle:
-q_i\in\{0,1\}
+|q₀q₁\ldots qq-₁\rangle:
+q_i∈\{0,1\}
 \}.
 $$
 
 Pentru patru qubiți:
 
 $$
-\dim(\mathcal{H}_4)=16.
+\dim(ℋ₄)=16.
 $$
 
 Convenția adoptată este:
 
 $$
-|q_0q_1q_2q_3\rangle
+|q₀q₁q₂q₃\rangle
 =
-|q_0\rangle\otimes|q_1\rangle
-\otimes|q_2\rangle\otimes|q_3\rangle.
+|q₀\rangle⊗|q₁\rangle
+⊗|q₂\rangle⊗|q₃\rangle.
 $$
 
 ## 3.7. Stări pure și mixte
@@ -186,27 +186,27 @@ $$
 O stare pură este:
 
 $$
-|\psi\rangle
+|ψ\rangle
 =
-\sum_{j=0}^{N-1}c_j|j\rangle,
+\sumj=₀N⁻¹c_j|j\rangle,
 \qquad
-\sum_{j=0}^{N-1}|c_j|^2=1.
+\sumj=₀N⁻¹|c_j|²=1.
 $$
 
 Matricea densitate asociată este:
 
 $$
-\rho_\psi
+ρ_ψ
 =
-|\psi\rangle\langle\psi|.
+|ψ\rangle\langleψ|.
 $$
 
 Pentru o stare mixtă:
 
 $$
-\rho
+ρ
 =
-\sum_i p_i|\psi_i\rangle\langle\psi_i|,
+\sum_i p_i|ψ_i\rangle\langleψ_i|,
 $$
 
 cu:
@@ -220,50 +220,50 @@ $$
 Proprietățile fundamentale sunt:
 
 $$
-\rho^\dagger=\rho,
+ρ^†=ρ,
 \qquad
-\rho\succeq0,
+ρ\succeq0,
 \qquad
-\operatorname{Tr}(\rho)=1.
+Tr(ρ)=1.
 $$
 
 ## 3.8. Maparea fuzzy → cuantică
 
-Pentru fiecare parametru fuzzy $\lambda\in[0,1]$, specificația QFLPN utilizează:
+Pentru fiecare parametru fuzzy $λ∈[0,1]$, specificația QFLPN utilizează:
 
 $$
-\theta(\lambda)
+θ(λ)
 =
-2\arcsin\sqrt{\lambda}.
+2\arcsin√{λ}.
 $$
 
 Operatorul local este:
 
 $$
-R_y(\theta)
+R_y(θ)
 =
 \begin{pmatrix}
-\cos(\theta/2)&-\sin(\theta/2)\\
-\sin(\theta/2)&\cos(\theta/2)
+\cos(θ/2)&-\sin(θ/2)\\
+\sin(θ/2)&\cos(θ/2)
 \end{pmatrix}.
 $$
 
 Aplicat lui $|0\rangle$:
 
 $$
-R_y(\theta(\lambda))|0\rangle
+R_y(θ(λ))|0\rangle
 =
-\sqrt{1-\lambda}\,|0\rangle
+√{1-λ}\,|0\rangle
 +
-\sqrt{\lambda}\,|1\rangle.
+√{λ}\,|1\rangle.
 $$
 
 Rezultă:
 
 $$
-|\langle1|R_y(\theta(\lambda))|0\rangle|^2
+|\langle1|R_y(θ(λ))|0\rangle|²
 =
-\lambda.
+λ.
 $$
 
 Această mapare este **o alegere de model QFLPN**, nu o identitate universală
@@ -276,28 +276,28 @@ Pentru qubitul $i$:
 $$
 \widetilde U_i
 =
-I_2^{\otimes i}
-\otimes U_i
-\otimes
-I_2^{\otimes(q-i-1)}.
+I₂⊗ i
+⊗ U_i
+⊗
+I₂⊗(q⁻i⁻¹).
 $$
 
 Pentru patru qubiți:
 
 $$
-\widetilde U_0=U_0\otimes I_2\otimes I_2\otimes I_2,
+\widetilde U₀=U₀⊗ I₂⊗ I₂⊗ I₂,
 $$
 
 $$
-\widetilde U_1=I_2\otimes U_1\otimes I_2\otimes I_2,
+\widetilde U₁=I₂⊗ U₁⊗ I₂⊗ I₂,
 $$
 
 $$
-\widetilde U_2=I_2\otimes I_2\otimes U_2\otimes I_2,
+\widetilde U₂=I₂⊗ I₂⊗ U₂⊗ I₂,
 $$
 
 $$
-\widetilde U_3=I_2\otimes I_2\otimes I_2\otimes U_3.
+\widetilde U₃=I₂⊗ I₂⊗ I₂⊗ U₃.
 $$
 
 Pentru operatori independenți:
@@ -305,21 +305,21 @@ Pentru operatori independenți:
 $$
 U_{\mathrm{loc}}
 =
-U_0\otimes U_1\otimes U_2\otimes U_3.
+U₀⊗ U₁⊗ U₂⊗ U₃.
 $$
 
 Orice implementare little-endian trebuie să introducă explicit permutarea de indici;
 ea nu modifică definiția matematică a bazei.
 
-## 3.10. Operatorul controlat $C^3X$
+## 3.10. Operatorul controlat $C³X$
 
-Operatorul $C^3X$ are trei qubiți de control și un qubit țintă. În ordinea
+Operatorul $C³X$ are trei qubiți de control și un qubit țintă. În ordinea
 corespunzătoare bazei, forma bloc este:
 
 $$
-C^3X
+C³X
 =
-I_8\oplus X,
+I₈\oplus X,
 $$
 
 unde:
@@ -352,16 +352,16 @@ Dacă evoluția este împărțită în faze:
 $$
 U_{\mathrm{QFLPN}}
 =
-U_mU_{m-1}\cdots U_2U_1.
+U_mUm-₁·s U₂U₁.
 $$
 
 Starea finală este:
 
 $$
-|\psi_{\mathrm{final}}\rangle
+|ψ_{\mathrm{final}}\rangle
 =
 U_{\mathrm{QFLPN}}
-|\psi_{\mathrm{initial}}\rangle.
+|ψ_{\mathrm{initial}}\rangle.
 $$
 
 Pentru instanța de referință se poate utiliza forma:
@@ -370,9 +370,9 @@ $$
 U_{\mathrm{QFLPN}}
 =
 U_{\mathrm{final}}
-C^3X
+C³X
 U_{\mathrm{mid}}
-C^3X
+C³X
 U_{\mathrm{prep}},
 $$
 
@@ -387,28 +387,28 @@ succesiunea temporală a evoluției.
 **Propoziție.** Dacă:
 
 $$
-U^\dagger U=I,
+U^† U=I,
 $$
 
-atunci pentru orice $|\psi\rangle$:
+atunci pentru orice $|ψ\rangle$:
 
 $$
-\|U|\psi\rangle\|_2
+\|U|ψ\rangle\|₂
 =
-\||\psi\rangle\|_2.
+\||ψ\rangle\|₂.
 $$
 
 **Demonstrație.**
 
 $$
 \begin{aligned}
-\|U|\psi\rangle\|_2^2
+\|U|ψ\rangle\|₂²
 &=
-\langle\psi|U^\dagger U|\psi\rangle\\
+\langleψ|U^† U|ψ\rangle\\
 &=
-\langle\psi|I|\psi\rangle\\
+\langleψ|I|ψ\rangle\\
 &=
-\langle\psi|\psi\rangle.
+\langleψ|ψ\rangle.
 \end{aligned}
 $$
 
@@ -419,28 +419,28 @@ Prin extragerea rădăcinii pătrate rezultă egalitatea normelor.
 Pentru:
 
 $$
-\mathcal{E}(\rho)
+\mathcal{E}(ρ)
 =
-\sum_kK_k\rho K_k^\dagger,
+\sum_kK_kρ K_k^†,
 $$
 
 condiția de conservare a urmei este:
 
 $$
-\sum_kK_k^\dagger K_k=I.
+\sum_kK_k^† K_k=I.
 $$
 
 Atunci:
 
 $$
 \begin{aligned}
-\operatorname{Tr}(\mathcal{E}(\rho))
+Tr(\mathcal{E}(ρ))
 &=
-\sum_k\operatorname{Tr}(K_k\rho K_k^\dagger)\\
+\sum_kTr(K_kρ K_k^†)\\
 &=
-\sum_k\operatorname{Tr}(K_k^\dagger K_k\rho)\\
+\sum_kTr(K_k^† K_kρ)\\
 &=
-\operatorname{Tr}(\rho).
+Tr(ρ).
 \end{aligned}
 $$
 
@@ -452,30 +452,30 @@ inclusă în construcția canalului.
 Pentru un sistem deschis:
 
 $$
-\frac{d\rho}{dt}
+\frac{dρ}{dt}
 =
--i[H,\rho]
+-i[H,ρ]
 +
 \sum_k
-\left(
-L_k\rho L_k^\dagger
+(
+L_kρ L_k^†
 -
 \frac12
-\{L_k^\dagger L_k,\rho\}
-\right).
+\{L_k^† L_k,ρ\}
+).
 $$
 
 Dacă se vectorizează matricea densitate, operatorul Liouvillian acționează
 într-un spațiu de dimensiune:
 
 $$
-N^2\times N^2.
+N²× N².
 $$
 
 Pentru $q=4$, $N=16$, deci dimensiunea operatorului vectorizat este:
 
 $$
-256\times256.
+256×256.
 $$
 
 Această formulare rămâne teoretică dacă nu este însoțită de implementare și
@@ -500,20 +500,20 @@ Degradarea nu este sinonimă cu decoerența.
 Pentru două matrice densitate:
 
 $$
-F(\rho,\sigma)
+F(ρ,\sigma)
 =
-\left[
-\operatorname{Tr}
-\sqrt{\sqrt{\rho}\sigma\sqrt{\rho}}
-\right]^2.
+[
+Tr
+√{√{ρ}\sigma√{ρ}}
+]².
 $$
 
 Pentru stări pure:
 
 $$
-F(\psi,\phi)
+F(ψ,φ)
 =
-|\langle\psi|\phi\rangle|^2.
+|\langleψ|φ\rangle|².
 $$
 
 Fidelitatea este definită în formalism și utilizată ca metrică de validare în
@@ -524,7 +524,7 @@ Capitolul 6.
 Pentru operatorul $A$ și vectorul $v$:
 
 $$
-y=e^{tA}v.
+y=etAv.
 $$
 
 Aproximarea Taylor:
@@ -532,17 +532,17 @@ Aproximarea Taylor:
 $$
 y_m
 =
-\sum_{k=0}^{m}\frac{t^kA^kv}{k!}.
+\sumk=₀m\frac{t^kA^kv}{k!}.
 $$
 
 Aproximarea Krylov/Arnoldi:
 
 $$
 y_m
-\approx
-V_m e^{tH_m}(\beta e_1),
+≈
+V_m etH_m(\beta e₁),
 \qquad
-\beta=\|v\|_2.
+\beta=\|v\|₂.
 $$
 
 Aceste expresii constituie interfața formală către algoritmii din Capitolul 5.
@@ -605,14 +605,14 @@ Instanța QFLPN-4Q este punctul de referință $q=4$, $N=16$ al familiei scalabi
 
 | Proprietate | Condiție | Verificare |
 | --- | --- | --- |
-| Normalizare | $\langle\psi|\psi\rangle=1$ | eroare de normă |
-| Unitate | $U^\dagger U=I$ | abatere operatorială |
-| Pozitivitate | $\rho\succeq0$ | spectru |
-| Conservarea urmei | $\operatorname{Tr}(\rho)=1$ | eroare de urmă |
+| Normalizare | $\langleψ|ψ\rangle=1$ | eroare de normă |
+| Unitate | $U^† U=I$ | abatere operatorială |
+| Pozitivitate | $ρ\succeq0$ | spectru |
+| Conservarea urmei | $Tr(ρ)=1$ | eroare de urmă |
 | Compoziție | ordine tensorială fixată | comparație cross-platform |
-| Mapare fuzzy | $\lambda\in[0,1]$ | parametrizare |
+| Mapare fuzzy | $λ∈[0,1]$ | parametrizare |
 | Fidelitate | $0\le F\le1$ | metrică |
-| Numeric | $e^{tA}v$ | eroare față de referință |
+| Numeric | $etAv$ | eroare față de referință |
 | Sparse | structură CSR validă | NNZ și rezultat SpMV |
 
 ## 3.21. Trasabilitatea formalismului
@@ -620,13 +620,13 @@ Instanța QFLPN-4Q este punctul de referință $q=4$, $N=16$ al familiei scalabi
 | Element | Matematică | Software | Validare |
 | --- | --- | --- | --- |
 | QFLPN | definiția tuplei | nucleu model | consistență structurală |
-| fuzzy | $\lambda\in[0,1]$ | parametri | domeniu |
-| RY | $R_y(\theta)$ | Python/MATLAB | stare/probabilități |
-| Kronecker | $\otimes$ | operator global | ordinea bazei |
-| $C^3X$ | $I_8\oplus X$ | circuit 4Q | acțiune pe baze |
-| unitar | $U^\dagger U=I$ | operator | normă |
+| fuzzy | $λ∈[0,1]$ | parametri | domeniu |
+| RY | $R_y(θ)$ | Python/MATLAB | stare/probabilități |
+| Kronecker | $⊗$ | operator global | ordinea bazei |
+| $C³X$ | $I₈\oplus X$ | circuit 4Q | acțiune pe baze |
+| unitar | $U^† U=I$ | operator | normă |
 | CPTP | Kraus | canal | urmă/pozitivitate |
-| $e^{tA}v$ | exponențială | algoritmi | eroare |
+| $etAv$ | exponențială | algoritmi | eroare |
 | CSR | SpMV | engine sparse | rezultat/performance |
 
 ## 3.22. Figuri obligatorii
@@ -639,9 +639,9 @@ Instanța QFLPN-4Q este punctul de referință $q=4$, $N=16$ al familiei scalabi
    - evoluție.
 
 2. **Figura 3.2 — Interfața fuzzy–cuantică**
-   - $\lambda$;
-   - $\theta(\lambda)$;
-   - $R_y(\theta)$;
+   - $λ$;
+   - $θ(λ)$;
+   - $R_y(θ)$;
    - starea rezultată.
 
 3. **Figura 3.3 — Ordonarea celor patru qubiți**
@@ -650,21 +650,21 @@ Instanța QFLPN-4Q este punctul de referință $q=4$, $N=16$ al familiei scalabi
    - convenția software.
 
 4. **Figura 3.4 — Construcția operatorului global**
-   - $U_0,U_1,U_2,U_3$;
+   - $U₀,U₁,U₂,U₃$;
    - tensorizare;
    - operator global;
    - control.
 
-5. **Figura 3.5 — Operatorul $C^3X$**
+5. **Figura 3.5 — Operatorul $C³X$**
    - controale;
    - țintă;
    - subspațiul activ.
 
 6. **Figura 3.6 — Circuitul QFLPN-4Q**
    - $U_{\mathrm{prep}}$;
-   - $C^3X$;
+   - $C³X$;
    - $U_{\mathrm{mid}}$;
-   - $C^3X$;
+   - $C³X$;
    - $U_{\mathrm{final}}$.
 
 7. **Figura 3.7 — Ideal versus zgomot/decoerență**
@@ -690,7 +690,7 @@ Instanța QFLPN-4Q este punctul de referință $q=4$, $N=16$ al familiei scalabi
 - notații;
 - maparea fuzzy–cuantică;
 - operatori locali/globali;
-- $C^3X$;
+- $C³X$;
 - proprietăți și demonstrații;
 - scala $q/N$;
 - separarea ideal/noisy/degradare;
@@ -705,7 +705,7 @@ Formalismul este considerat închis numai când:
 - convenția bazei este unică și identică în matematică și software;
 - maparea fuzzy–cuantică este declarată ca alegere de model;
 - operatorii Kronecker sunt definiți fără ambiguitate;
-- $C^3X$ are controluri și țintă explicite;
+- $C³X$ are controluri și țintă explicite;
 - conservarea normei și conservarea urmei sunt demonstrate;
 - ideal, zgomot, decoerență, degradare și eroare numerică sunt separate;
 - relația $N=2^q$ este respectată;
