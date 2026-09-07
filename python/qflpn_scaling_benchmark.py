@@ -1,3 +1,7 @@
+#!/usr/bin/env python3
+
+from __future__ import annotations
+
 import csv
 import math
 import platform
@@ -6,713 +10,408 @@ import time
 from pathlib import Path
 
 import numpy as np
-from scipy import __version__ as SCIPY_VERSION
+import scipy
 from scipy.sparse import csr_matrix
 
 
 # ============================================================
 # QFLPN SCALING BENCHMARK
+# ============================================================
 #
 # Deterministic sparse QFLPN operator benchmark.
 #
-# State-space dimensions:
-#       N = 1,024
-#       N = 10,000
-#       N = 100,000
+# Qubit range:
+#     q = 4, ..., 17
 #
-# IMPORTANT:
-# These are STATE-SPACE DIMENSIONS, not qubit counts.
-#
-# N = 1,024 = 2^10 -> equivalent to 10 qubits.
-# N = 10,000 and N = 100,000 are general numerical
-# state-space dimensions and are not full 2^q quantum
-# state-vector simulations.
-#
-# No random numbers.
-# No Monte Carlo.
-# No dense N x N matrix.
+# State dimensions:
+#     N = 2^q
 #
 # Operator:
+#     identical 2x2 unitary rotation blocks
 #
-#     U = blockdiag(R(theta), R(theta), ..., R(theta))
+# Benchmark:
+#     CSR sparse matrix-vector multiplication
 #
-# with
+# Numerical validation:
+#     independent analytical application of the same operator
 #
-#     R(theta) =
+# Precision:
+#     float64
 #
-#       [ cos(theta)  -sin(theta) ]
-#       [ sin(theta)   cos(theta) ]
+# Timing:
+#     20 warmup repetitions
+#     1000 measured repetitions
 #
-# and
+# Output:
+#     python/results/qflpn_scaling_python.csv
 #
-#     theta = 2 asin(sqrt(mu))
-#
-#     mu = 0.70
-#
-# Each block is unitary/orthogonal in exact arithmetic.
-#
-# The benchmark measures deterministic CSR sparse
-# matrix-vector multiplication:
-#
-#     y = U x
-#
-# Numerical validation is performed against an independent
-# analytical reference, NOT against another CSR multiplication.
 # ============================================================
 
 
-# ------------------------------------------------------------
-# Experimental parameters
-# ------------------------------------------------------------
+# -----------------------------
+# Configuration
+# -----------------------------
 
-DIMENSIONS = [
-    1024,
-    10000,
-    100000,
-]
+MIN_QUBITS = 4
+MAX_QUBITS = 17
 
-MU = 0.70
-
-WARMUP_REPETITIONS = 20
-BENCHMARK_REPETITIONS = 1000
+WARMUP = 20
+REPETITIONS = 1000
 
 TARGET_MS = 15.0
 
-NUMERICAL_TOLERANCE = 1.0e-12
+# Fuzzy membership used by the declared
+# fuzzy-to-quantum angle convention.
+MU = 0.70
 
-OUTPUT_DIRECTORY = (
-    Path(__file__).resolve().parent / "results"
-)
-
-OUTPUT_FILE = (
-    OUTPUT_DIRECTORY /
-    "qflpn_scaling_python.csv"
-)
+OUTPUT_DIR = Path(__file__).resolve().parent / "results"
+OUTPUT_FILE = OUTPUT_DIR / "qflpn_scaling_python.csv"
 
 
-# ------------------------------------------------------------
-# Equivalent qubit count
-# ------------------------------------------------------------
+# -----------------------------
+# QFLPN operator definition
+# -----------------------------
 
-def equivalent_qubits_if_power_of_two(n):
+def qflpn_rotation_parameters(mu: float) -> tuple[float, float, float]:
     """
-    Return q only when N = 2^q.
+    Convert fuzzy membership mu to the rotation angle and
+    corresponding cosine/sine values.
 
-    For example:
-        N = 1024 -> q = 10
-
-    For non-powers of two:
-        N = 10000 -> ""
-        N = 100000 -> ""
+    theta(mu) = 2 * asin(sqrt(mu))
     """
+    if not (0.0 <= mu <= 1.0):
+        raise ValueError("mu must satisfy 0 <= mu <= 1.")
 
-    if n <= 0:
-        return ""
+    theta = 2.0 * math.asin(math.sqrt(mu))
+    c = math.cos(theta)
+    s = math.sin(theta)
 
-    q = int(round(math.log2(n)))
-
-    if 2 ** q == n:
-        return q
-
-    return ""
+    return theta, c, s
 
 
-# ------------------------------------------------------------
-# Deterministic initial state
-# ------------------------------------------------------------
-
-def build_deterministic_state(n):
+def build_qflpn_csr(n: int, c: float, s: float) -> csr_matrix:
     """
-    Construct a deterministic normalized state vector.
+    Construct the deterministic sparse QFLPN transition operator.
 
-    No random numbers are used.
-
-        x_i = sin(i) + 0.5 cos(0.37 i)
-
-    The vector is normalized in the Euclidean 2-norm.
-    """
-
-    index = np.arange(
-        n,
-        dtype=np.float64
-    )
-
-    x = (
-        np.sin(index)
-        +
-        0.5 * np.cos(0.37 * index)
-    )
-
-    norm = np.linalg.norm(
-        x,
-        ord=2
-    )
-
-    if norm == 0.0:
-        raise RuntimeError(
-            "Deterministic initial state has zero norm."
-        )
-
-    return x / norm
-
-
-# ------------------------------------------------------------
-# QFLPN sparse operator
-# ------------------------------------------------------------
-
-def build_qflpn_operator(n, mu):
-    """
-    Construct the deterministic QFLPN transition operator
-    in CSR format.
-
-    The matrix consists of n/2 independent 2x2 rotation
-    blocks:
+    Each pair of basis states receives the unitary block
 
         [ c  -s ]
         [ s   c ]
 
-    where:
-
-        theta = 2 asin(sqrt(mu))
-        c = cos(theta)
-        s = sin(theta)
-
-    The matrix has exactly 2 non-zero entries per row,
-    hence:
-
-        NNZ = 2N
+    Therefore every row has exactly two non-zero elements.
     """
+    if n <= 0:
+        raise ValueError("State dimension must be positive.")
 
     if n % 2 != 0:
-        raise ValueError(
-            "This benchmark requires even state-space dimensions."
-        )
+        raise ValueError("State dimension must be even.")
 
-    theta = (
-        2.0 *
-        math.asin(
-            math.sqrt(mu)
-        )
+    rows = np.repeat(np.arange(n, dtype=np.int32), 2)
+
+    cols = np.empty(2 * n, dtype=np.int32)
+    data = np.empty(2 * n, dtype=np.float64)
+
+    for k in range(0, n, 2):
+        p = 2 * k
+
+        cols[p] = k
+        data[p] = c
+
+        cols[p + 1] = k + 1
+        data[p + 1] = -s
+
+        cols[p + 2] = k
+        data[p + 2] = s
+
+        cols[p + 3] = k + 1
+        data[p + 3] = c
+
+    # The construction above uses four values per pair.
+    # Rebuild explicitly to guarantee the correct CSR layout.
+    row_index = np.arange(n, dtype=np.int32)
+
+    row_list = np.empty(2 * n, dtype=np.int32)
+    col_list = np.empty(2 * n, dtype=np.int32)
+    value_list = np.empty(2 * n, dtype=np.float64)
+
+    pos = 0
+
+    for k in range(0, n, 2):
+        row_list[pos] = k
+        col_list[pos] = k
+        value_list[pos] = c
+        pos += 1
+
+        row_list[pos] = k
+        col_list[pos] = k + 1
+        value_list[pos] = -s
+        pos += 1
+
+        row_list[pos] = k + 1
+        col_list[pos] = k
+        value_list[pos] = s
+        pos += 1
+
+        row_list[pos] = k + 1
+        col_list[pos] = k + 1
+        value_list[pos] = c
+        pos += 1
+
+    matrix = csr_matrix(
+        (value_list, (row_list, col_list)),
+        shape=(n, n),
+        dtype=np.float64,
     )
 
-    c = math.cos(theta)
-    s = math.sin(theta)
+    matrix.sum_duplicates()
+    matrix.eliminate_zeros()
 
-    number_of_blocks = n // 2
-
-    # --------------------------------------------------------
-    # Row indices
-    # --------------------------------------------------------
-
-    rows = np.repeat(
-        np.arange(n, dtype=np.int64),
-        2
-    )
-
-    # --------------------------------------------------------
-    # Column indices
-    #
-    # For every block:
-    #
-    # row 2k     -> columns 2k, 2k+1
-    # row 2k + 1 -> columns 2k, 2k+1
-    # --------------------------------------------------------
-
-    block_index = np.arange(
-        number_of_blocks,
-        dtype=np.int64
-    )
-
-    first = (
-        2 *
-        block_index
-    )
-
-    second = first + 1
-
-    cols = np.empty(
-        2 * n,
-        dtype=np.int64
-    )
-
-    cols[0::4] = first
-    cols[1::4] = second
-    cols[2::4] = first
-    cols[3::4] = second
-
-    # --------------------------------------------------------
-    # Matrix values
-    # --------------------------------------------------------
-
-    values = np.empty(
-        2 * n,
-        dtype=np.float64
-    )
-
-    values[0::4] = c
-    values[1::4] = -s
-    values[2::4] = s
-    values[3::4] = c
-
-    operator = csr_matrix(
-        (
-            values,
-            (
-                rows,
-                cols
-            )
-        ),
-        shape=(
-            n,
-            n
-        ),
-        dtype=np.float64
-    )
-
-    operator.sum_duplicates()
-
-    return operator
+    return matrix
 
 
-# ------------------------------------------------------------
-# Independent analytical reference
-# ------------------------------------------------------------
+# -----------------------------
+# Deterministic input state
+# -----------------------------
 
-def analytical_reference(x, mu):
+def deterministic_state(n: int) -> np.ndarray:
     """
-    Compute the reference result independently from CSR.
+    Generate a deterministic normalized state vector.
 
-    This implements the mathematical 2x2 transformation
-    directly on vector pairs.
-
-    It is intentionally NOT calculated as:
-
-        operator @ x
-
-    because that would make the numerical validation
-    tautological.
+    No random generator is used.
     """
+    i = np.arange(n, dtype=np.float64)
 
-    theta = (
-        2.0 *
-        math.asin(
-            math.sqrt(mu)
-        )
-    )
+    x = np.sin(i) + 0.5 * np.cos(0.37 * i)
 
-    c = math.cos(theta)
-    s = math.sin(theta)
+    norm = np.linalg.norm(x)
+
+    if norm == 0.0:
+        raise ValueError("Input state has zero norm.")
+
+    return x / norm
+
+
+# -----------------------------
+# Independent analytical action
+# -----------------------------
+
+def analytical_qflpn_action(
+    x: np.ndarray,
+    c: float,
+    s: float,
+) -> np.ndarray:
+    """
+    Apply the same QFLPN operator directly from its analytical
+    2x2 block definition.
+
+    This is independent of scipy.sparse CSR multiplication.
+    """
+    n = x.size
 
     y = np.empty_like(x)
 
-    even = slice(
-        0,
-        None,
-        2
-    )
+    even = np.arange(0, n, 2)
+    odd = even + 1
 
-    odd = slice(
-        1,
-        None,
-        2
-    )
+    x_even = x[even]
+    x_odd = x[odd]
 
-    y[even] = (
-        c * x[even]
-        -
-        s * x[odd]
-    )
-
-    y[odd] = (
-        s * x[even]
-        +
-        c * x[odd]
-    )
+    y[even] = c * x_even - s * x_odd
+    y[odd] = s * x_even + c * x_odd
 
     return y
 
 
-# ------------------------------------------------------------
-# Benchmark one dimension
-# ------------------------------------------------------------
+# -----------------------------
+# Validation
+# -----------------------------
 
-def benchmark_dimension(n):
-    print(
-        f"Running N = {n:,}"
-    )
+def validate_operator(
+    matrix: csr_matrix,
+    x: np.ndarray,
+    reference: np.ndarray,
+) -> tuple[float, float]:
+    """
+    Validate sparse operator action against the analytical result.
 
-    # --------------------------------------------------------
-    # Deterministic input
-    # --------------------------------------------------------
-
-    x = build_deterministic_state(
-        n
-    )
-
-    input_norm = np.linalg.norm(
-        x,
-        ord=2
-    )
-
-    # --------------------------------------------------------
-    # Operator construction
-    # --------------------------------------------------------
-
-    construction_start = (
-        time.perf_counter_ns()
-    )
-
-    operator = build_qflpn_operator(
-        n,
-        MU
-    )
-
-    construction_end = (
-        time.perf_counter_ns()
-    )
-
-    construction_ms = (
-        construction_end -
-        construction_start
-    ) / 1_000_000.0
-
-    # --------------------------------------------------------
-    # Structural validation
-    # --------------------------------------------------------
-
-    expected_nnz = 2 * n
-
-    if operator.nnz != expected_nnz:
-        raise RuntimeError(
-            "CSR structural validation failed: "
-            f"expected NNZ={expected_nnz}, "
-            f"obtained NNZ={operator.nnz}."
-        )
-
-    # --------------------------------------------------------
-    # Independent analytical reference
-    # --------------------------------------------------------
-
-    reference = analytical_reference(
-        x,
-        MU
-    )
-
-    # --------------------------------------------------------
-    # Warm-up
-    # --------------------------------------------------------
-
-    y = None
-
-    for _ in range(
-        WARMUP_REPETITIONS
-    ):
-        y = operator @ x
-
-    # --------------------------------------------------------
-    # Timed deterministic CSR SpMV
-    # --------------------------------------------------------
-
-    timings_ms = np.empty(
-        BENCHMARK_REPETITIONS,
-        dtype=np.float64
-    )
-
-    for repetition in range(
-        BENCHMARK_REPETITIONS
-    ):
-
-        start = (
-            time.perf_counter_ns()
-        )
-
-        y = operator @ x
-
-        end = (
-            time.perf_counter_ns()
-        )
-
-        timings_ms[repetition] = (
-            end - start
-        ) / 1_000_000.0
-
-    # --------------------------------------------------------
-    # Numerical validation
-    # --------------------------------------------------------
+    Returns:
+        maximum absolute error
+        norm preservation error
+    """
+    result = matrix @ x
 
     maximum_error = float(
-        np.max(
-            np.abs(
-                y -
-                reference
-            )
-        )
+        np.max(np.abs(result - reference))
     )
 
-    output_norm = float(
-        np.linalg.norm(
-            y,
-            ord=2
-        )
-    )
+    input_norm = float(np.linalg.norm(x))
+    output_norm = float(np.linalg.norm(result))
 
-    norm_error = abs(
-        output_norm -
-        input_norm
-    )
+    norm_error = abs(output_norm - input_norm)
 
-    numerical_status = (
-        "PASS"
-        if (
-            maximum_error <=
-            NUMERICAL_TOLERANCE
-            and
-            norm_error <=
-            NUMERICAL_TOLERANCE
-        )
-        else
-        "FAIL"
-    )
-
-    # --------------------------------------------------------
-    # Timing statistics
-    # --------------------------------------------------------
-
-    mean_ms = float(
-        np.mean(
-            timings_ms
-        )
-    )
-
-    median_ms = float(
-        np.median(
-            timings_ms
-        )
-    )
-
-    min_ms = float(
-        np.min(
-            timings_ms
-        )
-    )
-
-    max_ms = float(
-        np.max(
-            timings_ms
-        )
-    )
-
-    timing_status = (
-        "PASS"
-        if mean_ms <= TARGET_MS
-        else
-        "FAIL"
-    )
-
-    # --------------------------------------------------------
-    # Console output
-    # --------------------------------------------------------
-
-    print(
-        f"  NNZ             = {operator.nnz:,}"
-    )
-
-    print(
-        f"  Construction    = "
-        f"{construction_ms:.6f} ms"
-    )
-
-    print(
-        f"  Mean SpMV       = "
-        f"{mean_ms:.6f} ms"
-    )
-
-    print(
-        f"  Median SpMV     = "
-        f"{median_ms:.6f} ms"
-    )
-
-    print(
-        f"  Minimum SpMV    = "
-        f"{min_ms:.6f} ms"
-    )
-
-    print(
-        f"  Maximum SpMV    = "
-        f"{max_ms:.6f} ms"
-    )
-
-    print(
-        f"  Maximum error   = "
-        f"{maximum_error:.3e}"
-    )
-
-    print(
-        f"  Norm error      = "
-        f"{norm_error:.3e}"
-    )
-
-    print(
-        f"  Numerical       = "
-        f"{numerical_status}"
-    )
-
-    print(
-        f"  Timing          = "
-        f"{timing_status}"
-    )
-
-    print()
-
-    return {
-        "language": "Python",
-        "dimension_type": "state_space",
-        "states": n,
-        "equivalent_qubits": (
-            equivalent_qubits_if_power_of_two(n)
-        ),
-        "nnz": operator.nnz,
-        "mu": MU,
-        "warmup": WARMUP_REPETITIONS,
-        "repetitions": BENCHMARK_REPETITIONS,
-        "construction_ms": construction_ms,
-        "mean_ms": mean_ms,
-        "median_ms": median_ms,
-        "min_ms": min_ms,
-        "max_ms": max_ms,
-        "maximum_error": maximum_error,
-        "input_norm": float(input_norm),
-        "output_norm": output_norm,
-        "norm_error": norm_error,
-        "target_ms": TARGET_MS,
-        "numerical_tolerance": NUMERICAL_TOLERANCE,
-        "numerical_status": numerical_status,
-        "timing_status": timing_status,
-        "python_version": (
-            platform.python_version()
-        ),
-        "numpy_version": np.__version__,
-        "scipy_version": SCIPY_VERSION,
-        "platform": platform.platform(),
-        "processor": platform.processor(),
-    }
+    return maximum_error, norm_error
 
 
-# ------------------------------------------------------------
-# Main
-# ------------------------------------------------------------
+# -----------------------------
+# Timing
+# -----------------------------
 
-def main():
+def benchmark_spmv(
+    matrix: csr_matrix,
+    x: np.ndarray,
+) -> np.ndarray:
+    """
+    Measure only the repeated CSR SpMV operation.
+    """
+    for _ in range(WARMUP):
+        matrix @ x
 
-    OUTPUT_DIRECTORY.mkdir(
-        parents=True,
-        exist_ok=True
-    )
+    timings_ms = np.empty(REPETITIONS, dtype=np.float64)
 
-    results = []
+    for repetition in range(REPETITIONS):
+        start = time.perf_counter_ns()
+        matrix @ x
+        end = time.perf_counter_ns()
 
-    print(
-        "============================================================"
-    )
-    print(
-        "QFLPN DETERMINISTIC CSR SCALING BENCHMARK"
-    )
-    print(
-        "============================================================"
-    )
+        timings_ms[repetition] = (end - start) / 1_000_000.0
 
-    print(
-        f"Dimensions: {DIMENSIONS}"
-    )
+    return timings_ms
 
-    print(
-        f"mu = {MU}"
-    )
 
-    print(
-        f"Warm-up repetitions = "
-        f"{WARMUP_REPETITIONS}"
-    )
+# -----------------------------
+# Main benchmark
+# -----------------------------
 
-    print(
-        f"Benchmark repetitions = "
-        f"{BENCHMARK_REPETITIONS}"
-    )
+def main() -> None:
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    print(
-        f"Target = {TARGET_MS:.3f} ms"
-    )
+    theta, c, s = qflpn_rotation_parameters(MU)
 
-    print(
-        "Monte Carlo = NOT USED"
-    )
+    print("=" * 72)
+    print("QFLPN SCALING BENCHMARK — PYTHON")
+    print("=" * 72)
+    print(f"Qubit range       : {MIN_QUBITS} ... {MAX_QUBITS}")
+    print(f"Warmup repetitions: {WARMUP}")
+    print(f"Measured repetitions: {REPETITIONS}")
+    print(f"Fuzzy membership  : {MU:.12f}")
+    print(f"Rotation angle    : {theta:.12f} rad")
+    print(f"Target time       : {TARGET_MS:.6f} ms")
+    print(f"Python            : {sys.version.split()[0]}")
+    print(f"NumPy             : {np.__version__}")
+    print(f"SciPy             : {scipy.__version__}")
+    print(f"Platform          : {platform.platform()}")
+    print("=" * 72)
 
-    print()
+    fieldnames = [
+        "language",
+        "qubits",
+        "states",
+        "nnz",
+        "repetitions",
+        "warmup",
+        "mean_spmv_ms",
+        "median_spmv_ms",
+        "min_spmv_ms",
+        "max_spmv_ms",
+        "maximum_error",
+        "norm_error",
+        "target_ms",
+        "numerical_status",
+        "timing_status",
+    ]
 
-    for n in DIMENSIONS:
+    rows = []
 
-        results.append(
-            benchmark_dimension(n)
+    for qubits in range(MIN_QUBITS, MAX_QUBITS + 1):
+        states = 2 ** qubits
+
+        print(
+            f"\nq={qubits:2d} | "
+            f"N={states:7d} | "
+            f"constructing CSR operator..."
         )
 
-    # --------------------------------------------------------
-    # CSV
-    # --------------------------------------------------------
+        matrix = build_qflpn_csr(states, c, s)
+        x = deterministic_state(states)
 
-    fieldnames = list(
-        results[0].keys()
-    )
+        reference = analytical_qflpn_action(
+            x,
+            c,
+            s,
+        )
+
+        maximum_error, norm_error = validate_operator(
+            matrix,
+            x,
+            reference,
+        )
+
+        timings = benchmark_spmv(matrix, x)
+
+        mean_ms = float(np.mean(timings))
+        median_ms = float(np.median(timings))
+        min_ms = float(np.min(timings))
+        max_ms = float(np.max(timings))
+
+        numerical_status = (
+            "PASS"
+            if maximum_error <= 1e-12
+            and norm_error <= 1e-12
+            else "FAIL"
+        )
+
+        timing_status = (
+            "PASS"
+            if mean_ms <= TARGET_MS
+            else "FAIL"
+        )
+
+        row = {
+            "language": "Python",
+            "qubits": qubits,
+            "states": states,
+            "nnz": int(matrix.nnz),
+            "repetitions": REPETITIONS,
+            "warmup": WARMUP,
+            "mean_spmv_ms": f"{mean_ms:.12f}",
+            "median_spmv_ms": f"{median_ms:.12f}",
+            "min_spmv_ms": f"{min_ms:.12f}",
+            "max_spmv_ms": f"{max_ms:.12f}",
+            "maximum_error": f"{maximum_error:.16e}",
+            "norm_error": f"{norm_error:.16e}",
+            "target_ms": f"{TARGET_MS:.6f}",
+            "numerical_status": numerical_status,
+            "timing_status": timing_status,
+        }
+
+        rows.append(row)
+
+        print(
+            f"       nnz={matrix.nnz:7d} | "
+            f"mean={mean_ms:.6f} ms | "
+            f"median={median_ms:.6f} ms | "
+            f"max_error={maximum_error:.3e} | "
+            f"norm_error={norm_error:.3e} | "
+            f"{numerical_status}/{timing_status}"
+        )
 
     with OUTPUT_FILE.open(
         "w",
         newline="",
-        encoding="utf-8"
-    ) as file:
-
+        encoding="utf-8",
+    ) as csv_file:
         writer = csv.DictWriter(
-            file,
-            fieldnames=fieldnames
+            csv_file,
+            fieldnames=fieldnames,
         )
-
         writer.writeheader()
+        writer.writerows(rows)
 
-        writer.writerows(
-            results
-        )
-
-    # --------------------------------------------------------
-    # Final summary
-    # --------------------------------------------------------
-
-    print(
-        "============================================================"
-    )
-
-    print(
-        "QFLPN scaling benchmark completed."
-    )
-
-    print(
-        f"Results: {OUTPUT_FILE}"
-    )
-
-    print(
-        "============================================================"
-    )
-
-    for result in results:
-
-        print(
-            f"N={result['states']:,} | "
-            f"NNZ={result['nnz']:,} | "
-            f"mean={result['mean_ms']:.6f} ms | "
-            f"max_error="
-            f"{result['maximum_error']:.3e} | "
-            f"numerical="
-            f"{result['numerical_status']} | "
-            f"timing="
-            f"{result['timing_status']}"
-        )
+    print("\n" + "=" * 72)
+    print("RESULTS WRITTEN")
+    print("=" * 72)
+    print(OUTPUT_FILE)
+    print("=" * 72)
 
 
 if __name__ == "__main__":
