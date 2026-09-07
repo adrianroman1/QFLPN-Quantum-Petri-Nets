@@ -8,48 +8,28 @@ alegerile de model și de contribuțiile originale dezvoltate ulterior.
 
 Lanțul conceptual este:
 
-$$
-\text{Petri}
-→
-\text{Fuzzy}
-→
-\text{Quantum}
-→
-\text{Operatori}
-→
-etAv
-→
-\text{HPC}.
-$$
+> **Petri → Fuzzy → Quantum → Operatori → e^(tA)v → HPC**
 
 ## 2.2. Rețele Petri
 
 O rețea Petri clasică poate fi reprezentată prin:
 
-$$
-\mathcal{P}=(P,T,F),
-$$
+`𝒫 = (P, T, F)`
 
-unde $P$ este mulțimea locurilor, $T$ mulțimea tranzițiilor, iar $F$ relația
+unde `P` este mulțimea locurilor, `T` mulțimea tranzițiilor, iar `F` relația
 de flux.
 
 Marcajul este o aplicație:
 
-$$
-M:P→ℕ.
-$$
+`M : P → ℕ`
 
 Pentru reprezentarea matricială, matricea de incidență poate fi scrisă:
 
-$$
-C=C^+-C^-,
-$$
+`C = C⁺ − C⁻`
 
 iar o dinamică discretă poate avea forma:
 
-$$
-Mk+₁=M_k+C\sigma_k.
-$$
+`Mₖ₊₁ = Mₖ + Cσₖ`
 
 Noțiunile de activare și firing constituie fundamentul semantic al stratului Petri.
 Ele nu trebuie confundate cu transformarea operatorială a unei stări cuantice.
@@ -58,9 +38,7 @@ Ele nu trebuie confundate cu transformarea operatorială a unei stări cuantice.
 
 Un grad de apartenență este:
 
-$$
-μ∈[0,1].
-$$
+`μ ∈ [0, 1]`
 
 Sunt relevante:
 
@@ -72,15 +50,9 @@ Sunt relevante:
 
 O distincție fundamentală este:
 
-$$
-μ
-≠
-p
-≠
-\alpha,
-$$
+`μ ≠ p ≠ α`
 
-unde $μ$ este un grad fuzzy, $p$ o probabilitate, iar $\alpha$ poate reprezenta
+unde `μ` este un grad fuzzy, `p` o probabilitate, iar `α` poate reprezenta
 o amplitudine cuantică.
 
 În QFLPN, o valoare fuzzy este utilizată ca parametru al unei mapări declarate,
@@ -99,104 +71,54 @@ QFLPN este poziționat ca formalism hibrid cu trei niveluri:
 
 Principiul de proiectare este:
 
-> **separare semantică → interfață explicită → compoziție controlată.**
+> **separare semantică → interfață explicită → compoziție controlată**
 
 Nu se afirmă că un simulator clasic este echivalent cu un procesor cuantic fizic și
 nu se deduce scalabilitatea dintr-un circuit de patru qubiți.
 
 ## 2.5. Fundamente cuantice
 
-Pentru $q$ qubiți:
+Pentru `q` qubiți:
 
-$$
-ℋ_q=(ℂ²)⊗ q,
-\qquad
-\dim(ℋ_q)=2^q.
-$$
+`ℋ_q = (ℂ²)⊗q`, `dim(ℋ_q) = 2^q`
 
 O stare pură este:
 
-$$
-|ψ\rangle
-=
-\sumj=₀²^q⁻¹c_j|j\rangle,
-\qquad
-\sum_j|c_j|²=1.
-$$
+`|ψ⟩ = Σⱼ₌₀^(2^q−1) cⱼ|j⟩`, `Σⱼ |cⱼ|² = 1`
 
 O stare mixtă este reprezentată prin:
 
-$$
-ρ
-=
-\sum_i p_i|ψ_i\rangle\langleψ_i|,
-$$
+`ρ = Σᵢ pᵢ|ψᵢ⟩⟨ψᵢ|`
 
 cu:
 
-$$
-ρ\succeq0,
-\qquad
-Tr(ρ)=1.
-$$
+`ρ ⪰ 0`, `Tr(ρ) = 1`
 
 Evoluția unitară:
 
-$$
-|ψ'\rangle=U|ψ\rangle,
-\qquad
-U^† U=I.
-$$
+`|ψ′⟩ = U|ψ⟩`, `U†U = I`
 
 Conservarea normei rezultă din:
 
-$$
-\|U|ψ\rangle\|₂²
-=
-\langleψ|U^† U|ψ\rangle
-=
-\|ψ\|₂².
-$$
+`‖U|ψ⟩‖₂² = ⟨ψ|U†U|ψ⟩ = ‖ψ‖₂²`
 
 ## 2.6. Canale CPTP și sisteme deschise
 
 Pentru un canal cuantic:
 
-$$
-\mathcal{E}(ρ)
-=
-\sum_kK_kρ K_k^†,
-$$
+`𝓔(ρ) = Σₖ KₖρKₖ†`
 
 cu:
 
-$$
-\sum_kK_k^† K_k=I.
-$$
+`Σₖ Kₖ†Kₖ = I`
 
 Această condiție asigură conservarea urmei:
 
-$$
-Tr(\mathcal{E}(ρ))
-=
-Tr(ρ).
-$$
+`Tr(𝓔(ρ)) = Tr(ρ)`
 
 Pentru dinamica Markoviană continuă, forma Lindblad este:
 
-$$
-\frac{dρ}{dt}
-=
--i[H,ρ]
-+
-\sum_k
-(
-L_kρ L_k^†
--
-\frac12
-\{L_k^† L_k,ρ\}
-).
-$$
+`dρ/dt = −i[H,ρ] + Σₖ (LₖρLₖ† − ½{Lₖ†Lₖ,ρ})`
 
 În teză, cadrul Lindblad este tratat ca rezultat experimental numai dacă există
 implementarea și măsurarea corespunzătoare; altfel rămâne un cadru teoretic.
@@ -205,69 +127,47 @@ implementarea și măsurarea corespunzătoare; altfel rămâne un cadru teoretic
 
 Pentru sisteme compuse:
 
-$$
-ℋ_q
-=
-\bigotimesi=₀q⁻¹ℋ_i.
-$$
+`ℋ_q = ⊗ᵢ₌₀^(q−1) ℋᵢ`
 
 Pentru patru qubiți:
 
-$$
-|q₀q₁q₂q₃\rangle
-=
-|q₀\rangle⊗|q₁\rangle⊗|q₂\rangle⊗|q₃\rangle.
-$$
+`|q₀q₁q₂q₃⟩ = |q₀⟩⊗|q₁⟩⊗|q₂⟩⊗|q₃⟩`
 
-Un operator localizat pe qubitul $i$ este:
+Un operator localizat pe qubitul `i` este:
 
-$$
-\widetilde U_i
-=
-I₂⊗ i
-⊗ U_i
-⊗
-I₂⊗(q⁻i⁻¹).
-$$
+`Ũᵢ = I₂⊗i ⊗ Uᵢ ⊗ I₂⊗(q−i−1)`
+
+unde notația indică plasarea lui `Uᵢ` în poziția `i`; în implementarea efectivă
+operatorul trebuie construit explicit astfel încât ordinea tensorială să coincidă
+cu baza declarată.
 
 Pentru operații independente:
 
-$$
-U_{\mathrm{loc}}
-=
-U₀⊗ U₁⊗·s⊗ Uq-₁.
-$$
+`U_loc = U₀⊗U₁⊗⋯⊗U_{q−1}`
+
+Pentru cazul 4Q:
+
+`U_loc = U₀⊗U₁⊗U₂⊗U₃`
 
 Convenția de ordine tensorială trebuie sincronizată între matematică și software.
 
 ## 2.8. Analiză spectrală
 
-Spectrul unui operator $A$ este:
+Spectrul unui operator `A` este:
 
-$$
-\sigma(A)
-=
-\{λ∈ℂ:A-λ I
-\text{ nu este inversabil}\}.
-$$
+`σ(A) = {λ ∈ ℂ : A − λI nu este inversabil}`
 
 Pentru un operator Hermitian:
 
-$$
-A=A^†,
-$$
+`A = A†`
 
 valorile proprii sunt reale, iar descompunerea spectrală poate fi scrisă:
 
-$$
-A=\sum_jλ_jP_j.
-$$
+`A = Σⱼ λⱼPⱼ`
 
 Calculul funcțional conduce la:
 
-$$
-f(A)=\sum_jf(λ_j)P_j.
-$$
+`f(A) = Σⱼ f(λⱼ)Pⱼ`
 
 Algebrele Artin–Wedderburn pot furniza o perspectivă structurală asupra
 decompunerii algebrice, dar sunt utilizate numai acolo unde această structură
@@ -278,20 +178,14 @@ sunt utilizate efectiv în analiza sau implementarea finală.
 
 ## 2.9. Analiză funcțională
 
-Într-un spațiu normat $(X,\|·\|)$, un operator liniar continuu satisface
+Într-un spațiu normat `(X, ‖·‖)`, un operator liniar continuu satisface
 proprietățile standard de mărginitate și continuitate.
 
-Pentru un operator $T:X→ X$:
+Pentru un operator `T : X → X`:
 
-$$
-\|T(x)-T(y)\|
-\le
-q\|x-y\|,
-\qquad
-0\le q<1,
-$$
+`‖T(x) − T(y)‖ ≤ q‖x − y‖`, `0 ≤ q < 1`
 
-înseamnă că $T$ este contracție.
+înseamnă că `T` este contracție.
 
 Teorema punctului fix Banach oferă existență și unicitate în condițiile sale.
 Aceasta nu constituie automat o demonstrație a absenței deadlock-ului într-o
@@ -301,38 +195,22 @@ rețea Petri; deadlock-ul este o proprietate distinctă care necesită analiză 
 
 Exponențiala unui operator este:
 
-$$
-e^A
-=
-\sumk=₀∈fty\frac{A^k}{k!}.
-$$
+`e^A = Σₖ₌₀^∞ A^k/k!`
 
 În problemele de evoluție este esențială distincția:
 
-$$
-e^A
-\quad\text{versus}\quad
-e^Av.
-$$
+`e^A` versus `e^A v`
 
 Teza urmărește în principal a doua problemă, deoarece formarea explicită a lui
-$e^A$ poate fi prohibitivă pentru operatori mari și rari.
+`e^A` poate fi prohibitivă pentru operatori mari și rari.
 
 Aproximarea Taylor:
 
-$$
-T_m(A)v
-=
-\sumk=₀m\frac{A^kv}{k!}.
-$$
+`T_m(A)v = Σₖ₌₀^m A^k v/k!`
 
 Pentru scalare:
 
-$$
-e^A
-=
-(eA/²^s)²^s.
-$$
+`e^A = (e^(A/2^s))^(2^s)`
 
 Padé și scaling-and-squaring sunt tratate drept metode consacrate de referință,
 nu drept contribuții originale QFLPN.
@@ -341,38 +219,23 @@ nu drept contribuții originale QFLPN.
 
 Subspațiul Krylov este:
 
-$$
-\mathcal{K}_m(A,v)
-=
-\operatorname{span}
-\{v,Av,A²v,\ldots,Am⁻¹v\}.
-$$
+`𝒦_m(A,v) = span{v, Av, A²v, …, A^(m−1)v}`
 
-Procesul Arnoldi construiește $V_m$ și $H_m$ astfel încât:
+Procesul Arnoldi construiește `V_m` și `H_m` astfel încât:
 
-$$
-AV_m
-=
-V_mH_m+hm+₁,mvm+₁e_m^\top.
-$$
+`AV_m = V_mH_m + h_{m+1,m}v_{m+1}e_mᵀ`
 
 Acțiunea exponențialei poate fi aproximată prin:
 
-$$
-etAv
-≈
-V_m etH_m(\beta e₁),
-\qquad
-\beta=\|v\|₂.
-$$
+`e^(tA)v ≈ V_m e^(tH_m)(βe₁)`, `β = ‖v‖₂`
 
 Trebuie analizate:
 
 - ortogonalizarea;
 - reortogonalizarea;
 - breakdown;
-- costul produselor cu $A$;
-- costul în funcție de $\operatorname{NNZ}$;
+- costul produselor cu `A`;
+- costul în funcție de `NNZ`;
 - memoria;
 - influența structurii spectrale.
 
@@ -381,11 +244,9 @@ Trebuie analizate:
 Pentru operatori Hermitieni, Lanczos produce o bază Krylov cu structură
 tridiagonală:
 
-$$
-AV_m≈ V_mT_m,
-$$
+`AV_m ≈ V_mT_m`
 
-unde $T_m$ este Hermitiană tridiagonală.
+unde `T_m` este Hermitiană tridiagonală.
 
 Avantajul este reducerea memoriei și a costului de stocare față de o matrice
 Hessenberg generală. Metoda este aplicabilă numai când ipotezele structurale
@@ -393,17 +254,13 @@ corespunzătoare sunt îndeplinite.
 
 ## 2.13. Aproximări Chebyshev
 
-Pentru $x∈[-1,1]$:
+Pentru `x ∈ [−1,1]`:
 
-$$
-T_k(x)=\cos(k\arccos x).
-$$
+`T_k(x) = cos(k arccos x)`
 
 O funcție poate fi aproximată printr-o combinație:
 
-$$
-f(x)≈\sumk=₀ma_kT_k(x).
-$$
+`f(x) ≈ Σₖ₌₀^m aₖT_k(x)`
 
 Aplicarea la operatori necesită scalarea spectrului într-un interval controlat.
 Prin urmare, informația spectrală este parte a condițiilor de aplicare.
@@ -412,22 +269,18 @@ Prin urmare, informația spectrală este parte a condițiilor de aplicare.
 
 Krylov rațional utilizează vectori de forma:
 
-$$
-(A-\xi_jI)⁻¹v.
-$$
+`(A − ξⱼI)⁻¹v`
 
 Metoda poate fi avantajoasă pentru spectre dificil de aproximat polinomial, dar
-introduce costul rezolvărilor liniare și dependența de alegerea polilor $\xi_j$.
+introduce costul rezolvărilor liniare și dependența de alegerea polilor `ξⱼ`.
 
 ## 2.15. Integratoare exponențiale
 
 Pentru ecuații de evoluție:
 
-$$
-\frac{dy}{dt}=Ay+g(t,y),
-$$
+`dy/dt = Ay + g(t,y)`
 
-integratoarele exponențiale exploatează explicit operatorul $etA$ și funcții
+integratoarele exponențiale exploatează explicit operatorul `e^(tA)` și funcții
 înrudite ale operatorului. Aceste metode constituie puntea dintre analiza
 exponențialei și dinamica temporală mai generală.
 
@@ -435,15 +288,11 @@ exponențialei și dinamica temporală mai generală.
 
 Pentru:
 
-$$
-y=Ax,
-$$
+`y = Ax`
 
-cu $A$ rară, costul SpMV este dominat de:
+cu `A` rară, costul SpMV este dominat de:
 
-$$
-O(\operatorname{NNZ}(A)).
-$$
+`O(NNZ(A))`
 
 Formatul CSR utilizează:
 
@@ -466,54 +315,28 @@ Prin urmare, o implementare sparse nu implică automat un speedup universal.
 
 Latența se raportează prin:
 
-$$
-T_{\mathrm{mean}},
-\quad
-T_{\mathrm{median}},
-\quad
-Tmin,
-\quad
-Tmax.
-$$
+`T_mean`, `T_median`, `T_min`, `T_max`
 
 Speedup-ul este:
 
-$$
-S
-=
-\frac{T_{\mathrm{seq}}}{T_{\mathrm{par}}}.
-$$
+`S = T_seq/T_par`
 
 Throughput-ul poate fi definit prin:
 
-$$
-\mathrm{Throughput}
-=
-\frac{N_{\mathrm{work}}}{T}.
-$$
+`Throughput = N_work/T`
 
 Eroarea absolută maximă:
 
-$$
-E_∈fty
-=
-max_j|x_j-\widehat{x}_j|.
-$$
+`E_∞ = maxⱼ |xⱼ − x̂ⱼ|`
 
 Conservarea normei:
 
-$$
-E_{\mathrm{norm}}
-=
-\left|\|x\|₂-1\right|.
-$$
+`E_norm = |‖x‖₂ − 1|`
 
 Pentru stări cuantice, fidelitatea trebuie definită conform tipului de stare;
 pentru două stări pure:
 
-$$
-F(ψ,φ)=|\langleψ|φ\rangle|².
-$$
+`F(ψ,φ) = |⟨ψ|φ⟩|²`
 
 ## 2.18. Protocolul reproductibil
 
@@ -535,13 +358,13 @@ superioritate între platforme decât în condiții controlate și comparabile.
 
 | Familie | Problemă | Avantaj | Limitare | Rol |
 | --- | --- | --- | --- | --- |
-| Taylor | $etAv$ | simplitate | cost la ordin mare | baseline |
-| Taylor scalată | $etAv$ | controlul normei | alegerea scalării | baseline |
-| Arnoldi | $etAv$ | reducere de dimensiune | ortogonalizare | principală |
+| Taylor | `e^(tA)v` | simplitate | cost la ordin mare | baseline |
+| Taylor scalată | `e^(tA)v` | controlul normei | alegerea scalării | baseline |
+| Arnoldi | `e^(tA)v` | reducere de dimensiune | ortogonalizare | principală |
 | Lanczos | caz Hermitian | structură compactă | condiții stricte | extensie |
 | Chebyshev | operator cu spectru controlat | aproximare polinomială | necesită scalare spectrală | referință |
-| Padé | $e^A$ | metodă consacrată | formează alt tip de aproximare | baseline |
-| Krylov rațional | $etAv$ | flexibilitate spectrală | rezolvări liniare | comparație |
+| Padé | `e^A` | metodă consacrată | formează alt tip de aproximare | baseline |
+| Krylov rațional | `e^(tA)v` | flexibilitate spectrală | rezolvări liniare | comparație |
 | MPS | stări cuantice | comprimare structurală | dependență de entanglement | SOTA contextual |
 
 ## 2.20. Golul de cercetare
@@ -557,19 +380,7 @@ Literatura oferă separat:
 Golul abordat de teză este integrarea acestora într-un formalism **QFLPN
 stratificat și auditabil**, cu:
 
-$$
-\text{semantică}
-→
-\text{model}
-→
-\text{operator}
-→
-\text{algoritm}
-→
-\text{software}
-→
-\text{validare}.
-$$
+> **semantică → model → operator → algoritm → software → validare**
 
 ## 2.21. Figuri obligatorii
 
@@ -578,7 +389,7 @@ $$
 Petri, fuzzy, quantum, operatori și HPC trebuie reprezentate ca niveluri distincte,
 iar QFLPN ca interfață de integrare.
 
-### Figura 2.2 — Taxonomia metodelor pentru $etAv$
+### Figura 2.2 — Taxonomia metodelor pentru `e^(tA)v`
 
 Taylor → Taylor scalată → Krylov/Arnoldi → Lanczos/Chebyshev → metode raționale.
 
@@ -601,7 +412,7 @@ latență / throughput / speedup
 - sinteza fundamentelor Petri;
 - sinteza fuzzy;
 - sinteza quantum;
-- comparația metodelor pentru $etAv$;
+- comparația metodelor pentru `e^(tA)v`;
 - comparația metodelor HPC;
 - ipoteze și condiții de aplicabilitate;
 - poziționarea QFLPN față de formalisme existente.
