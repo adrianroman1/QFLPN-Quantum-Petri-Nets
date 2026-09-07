@@ -1,10 +1,10 @@
 % ============================================================
-% QFLPN SCALING BENCHMARK - MATLAB / OCTAVE COMPATIBLE
+% QFLPN SCALING BENCHMARK - GNU OCTAVE / MATLAB COMPATIBLE
 %
-% Deterministic sparse/unitary block-rotation operator
+% Deterministic sparse block-rotation operator
 %
-% q = 4 ... 17
-% N = 2^q
+% Qubit range : q = 4 ... 17
+% State range : N = 2^q
 % ============================================================
 
 clear;
@@ -23,19 +23,29 @@ repetitions = 1000;
 mu = 0.70;
 threshold_ms = 15.0;
 
-results_dir = fullfile(fileparts(mfilename('fullpath')), 'results');
+% ------------------------------------------------------------
+% Output directory
+% ------------------------------------------------------------
+
+script_dir = fileparts(mfilename('fullpath'));
+results_dir = fullfile(script_dir, 'results');
 
 if ~exist(results_dir, 'dir')
     mkdir(results_dir);
 end
 
-results_file = fullfile(
-    results_dir,
-    'qflpn_scaling_matlab.csv'
+results_file = fullfile( ...
+    results_dir, ...
+    'qflpn_scaling_matlab.csv' ...
 );
 
 % ------------------------------------------------------------
-% QFLPN fuzzy-to-rotation convention
+% QFLPN fuzzy-to-rotation mapping
+%
+% theta = 2 asin(sqrt(mu))
+%
+% R = [ cos(theta)  -sin(theta)
+%       sin(theta)   cos(theta) ]
 % ------------------------------------------------------------
 
 theta = 2.0 * asin(sqrt(mu));
@@ -49,41 +59,42 @@ s = sin(theta);
 
 fprintf('\n');
 fprintf('============================================================\n');
-fprintf('QFLPN SCALING BENCHMARK - MATLAB / MATLAB-COMPATIBLE\n');
+fprintf('QFLPN SCALING BENCHMARK - GNU OCTAVE / MATLAB\n');
 fprintf('============================================================\n');
 fprintf('Qubit range          : %d ... %d\n', ...
-    qubit_min, qubit_max);
+        qubit_min, qubit_max);
 fprintf('State range          : %d ... %d\n', ...
-    2^qubit_min, 2^qubit_max);
+        2^qubit_min, 2^qubit_max);
 fprintf('Warmup repetitions   : %d\n', warmup);
 fprintf('Measured repetitions : %d\n', repetitions);
 fprintf('Fuzzy membership     : %.12f\n', mu);
 fprintf('Rotation angle       : %.12f rad\n', theta);
 fprintf('Target time          : %.6f ms\n', threshold_ms);
+fprintf('============================================================\n');
 fprintf('\n');
 
 % ------------------------------------------------------------
-% CSV file
+% Open CSV
 % ------------------------------------------------------------
 
 fid = fopen(results_file, 'w');
 
 if fid == -1
-    error('Cannot open result file for writing.');
+    error('Unable to open CSV output file.');
 end
 
 fprintf(fid, ...
-    ['language,qubits,states,nnz,warmup,repetitions,' ...
-     'fuzzy_membership,rotation_angle_rad,' ...
-     'mean_state_ms,median_state_ms,min_state_ms,max_state_ms,' ...
-     'maximum_error,norm_preservation_error,target_ms,' ...
-     'numerical_status,timing_status\n']);
+    'language,qubits,states,nnz,warmup,repetitions,fuzzy_membership,rotation_angle_rad,mean_state_ms,median_state_ms,min_state_ms,max_state_ms,maximum_error,norm_preservation_error,target_ms,numerical_status,timing_status\n');
 
 % ------------------------------------------------------------
 % Scaling loop
 % ------------------------------------------------------------
 
 for q = qubit_min:qubit_max
+
+    % --------------------------------------------------------
+    % State-space dimension
+    % --------------------------------------------------------
 
     n = 2^q;
 
@@ -97,7 +108,7 @@ for q = qubit_min:qubit_max
 
     idx = (1:n)';
 
-    x = sin(idx) + 0.5*cos(0.37*idx);
+    x = sin(idx) + 0.5 * cos(0.37 * idx);
 
     x_norm = norm(x, 2);
 
@@ -109,14 +120,21 @@ for q = qubit_min:qubit_max
     x = x / x_norm;
 
     % --------------------------------------------------------
-    % Sparse block-rotation operator
+    % Construct sparse block-rotation operator
+    %
+    % Every consecutive pair uses:
+    %
+    % [ c  -s ]
+    % [ s   c ]
+    %
+    % The global matrix contains n/2 such blocks.
     % --------------------------------------------------------
 
     construction_start = tic;
 
     blocks = n / 2;
 
-    base = (0:blocks-1)'*2 + 1;
+    base = (0:blocks-1)' * 2 + 1;
 
     rows = [
         base;
@@ -133,19 +151,13 @@ for q = qubit_min:qubit_max
     ];
 
     vals = [
-        c*ones(blocks,1);
-        -s*ones(blocks,1);
-        s*ones(blocks,1);
-        c*ones(blocks,1)
+        c * ones(blocks, 1);
+        -s * ones(blocks, 1);
+        s * ones(blocks, 1);
+        c * ones(blocks, 1)
     ];
 
-    A = sparse(
-        rows,
-        cols,
-        vals,
-        n,
-        n
-    );
+    A = sparse(rows, cols, vals, n, n);
 
     construction_ms = toc(construction_start) * 1000.0;
 
@@ -153,40 +165,40 @@ for q = qubit_min:qubit_max
     % Independent analytical reference
     % --------------------------------------------------------
 
-    y_ref = zeros(n,1);
+    y_ref = zeros(n, 1);
 
     y_ref(1:2:end) = ...
-        c*x(1:2:end) - s*x(2:2:end);
+        c * x(1:2:end) - s * x(2:2:end);
 
     y_ref(2:2:end) = ...
-        s*x(1:2:end) + c*x(2:2:end);
+        s * x(1:2:end) + c * x(2:2:end);
 
     % --------------------------------------------------------
     % Warmup
     % --------------------------------------------------------
 
     for r = 1:warmup
-        y = A*x;
+        y = A * x;
     end
 
     % --------------------------------------------------------
     % Measured sparse matrix-vector operations
     % --------------------------------------------------------
 
-    times_ms = zeros(repetitions,1);
+    times_ms = zeros(repetitions, 1);
 
     for r = 1:repetitions
 
         t0 = tic;
 
-        y = A*x;
+        y = A * x;
 
         times_ms(r) = toc(t0) * 1000.0;
 
     end
 
     % --------------------------------------------------------
-    % Metrics
+    % Timing metrics
     % --------------------------------------------------------
 
     mean_ms = mean(times_ms);
@@ -194,10 +206,14 @@ for q = qubit_min:qubit_max
     min_ms = min(times_ms);
     max_ms = max(times_ms);
 
+    % --------------------------------------------------------
+    % Numerical metrics
+    % --------------------------------------------------------
+
     maximum_error = max(abs(y - y_ref));
 
     norm_preservation_error = ...
-        abs(norm(y,2) - 1.0);
+        abs(norm(y, 2) - 1.0);
 
     % --------------------------------------------------------
     % Numerical status
@@ -230,13 +246,11 @@ for q = qubit_min:qubit_max
     end
 
     % --------------------------------------------------------
-    % Console output
+    % Console result
     % --------------------------------------------------------
 
     fprintf( ...
-        'mean=%.6f ms | median=%.6f ms | ' ...
-        'maxerr=%.3e | normerr=%.3e | ' ...
-        'build=%.3f ms | %s/%s\n', ...
+        'mean=%.6f ms | median=%.6f ms | maxerr=%.3e | normerr=%.3e | build=%.3f ms | %s/%s\n', ...
         mean_ms, ...
         median_ms, ...
         maximum_error, ...
@@ -246,13 +260,12 @@ for q = qubit_min:qubit_max
         timing_status);
 
     % --------------------------------------------------------
-    % CSV output
+    % CSV result
     % --------------------------------------------------------
 
     fprintf( ...
         fid, ...
-        ['MATLAB,%d,%d,%d,%d,%d,%.12f,%.12f,' ...
-         '%.9f,%.9f,%.9f,%.9f,%.16e,%.16e,%.6f,%s,%s\n'], ...
+        'MATLAB,%d,%d,%d,%d,%d,%.12f,%.12f,%.9f,%.9f,%.9f,%.9f,%.16e,%.16e,%.6f,%s,%s\n', ...
         q, ...
         n, ...
         2*n, ...
@@ -280,7 +293,9 @@ fclose(fid);
 
 fprintf('\n');
 fprintf('============================================================\n');
-fprintf('Results written to:\n');
+fprintf('SCALING BENCHMARK COMPLETED\n');
+fprintf('============================================================\n');
+fprintf('Results file:\n');
 fprintf('%s\n', results_file);
 fprintf('============================================================\n');
 fprintf('\n');
