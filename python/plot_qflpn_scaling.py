@@ -1,58 +1,58 @@
+#!/usr/bin/env python3
+
+from __future__ import annotations
+
 import csv
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+import numpy as np
 
 
 # ============================================================
 # QFLPN SCALING COMPARISON FIGURE
+# ============================================================
 #
-# Compares deterministic sparse-operator execution times
-# for:
+# Reads:
+#     python/results/qflpn_scaling_python.csv
+#     matlab/results/qflpn_scaling_matlab.csv
 #
-#       N = 1,024
-#       N = 10,000
-#       N = 100,000
+# Expected qubit range:
+#     q = 4 ... 17
 #
-# These are state-space dimensions, not qubit counts.
+# Expected state dimensions:
+#     N = 2^q
 #
-# No Monte Carlo.
+# Output:
+#     python/results/qflpn_scaling_comparison.png
+#
 # ============================================================
 
 
-BASE_DIR = (
-    Path(__file__).resolve().parent
-)
-
+ROOT = Path(__file__).resolve().parents[1]
 
 PYTHON_RESULTS = (
-    BASE_DIR /
-    "results" /
-    "qflpn_scaling_python.csv"
+    ROOT
+    / "python"
+    / "results"
+    / "qflpn_scaling_python.csv"
 )
-
 
 MATLAB_RESULTS = (
-    BASE_DIR.parent /
-    "matlab" /
-    "results" /
-    "qflpn_scaling_matlab.csv"
+    ROOT
+    / "matlab"
+    / "results"
+    / "qflpn_scaling_matlab.csv"
 )
 
-
-OUTPUT_FIGURE = (
-    BASE_DIR /
-    "results" /
-    "qflpn_scaling_comparison.png"
+OUTPUT_FILE = (
+    ROOT
+    / "python"
+    / "results"
+    / "qflpn_scaling_comparison.png"
 )
 
-
-EXPECTED_STATES = [
-    1024,
-    10000,
-    100000,
-]
-
+EXPECTED_QUBITS = list(range(4, 18))
 
 TARGET_MS = 15.0
 
@@ -61,461 +61,293 @@ TARGET_MS = 15.0
 # CSV reader
 # ------------------------------------------------------------
 
-def read_csv(filename):
-
-    if not filename.exists():
-
+def read_results(path: Path) -> list[dict[str, str]]:
+    if not path.exists():
         raise FileNotFoundError(
-            "Required results file was not found:\n"
-            f"{filename}"
+            f"Results file does not exist:\n{path}"
         )
 
-    with filename.open(
+    if path.stat().st_size == 0:
+        raise ValueError(
+            f"Results file is empty:\n{path}"
+        )
+
+    with path.open(
         "r",
+        newline="",
         encoding="utf-8",
-        newline=""
-    ) as file:
+    ) as csv_file:
 
-        reader = csv.DictReader(
-            file
-        )
-
-        rows = list(
-            reader
-        )
+        reader = csv.DictReader(csv_file)
+        rows = list(reader)
 
     if not rows:
-
         raise ValueError(
-            "Results file is empty:\n"
-            f"{filename}"
+            f"Results file contains no data rows:\n{path}"
+        )
+
+    required_columns = {
+        "qubits",
+        "states",
+        "mean_spmv_ms",
+        "median_spmv_ms",
+        "maximum_error",
+        "norm_error",
+    }
+
+    missing = required_columns.difference(
+        reader.fieldnames or []
+    )
+
+    if missing:
+        raise ValueError(
+            f"Missing columns in {path}:\n"
+            f"{sorted(missing)}"
         )
 
     return rows
 
 
 # ------------------------------------------------------------
-# Convert and validate results
+# Validation of dimensions
 # ------------------------------------------------------------
 
-def convert_results(rows, source_name):
+def validate_scaling_rows(
+    rows: list[dict[str, str]],
+    label: str,
+) -> None:
 
-    states = []
-    mean_ms = []
-    median_ms = []
-    min_ms = []
-    max_ms = []
-    numerical_status = []
-    timing_status = []
+    qubits = [
+        int(row["qubits"])
+        for row in rows
+    ]
 
-    for row in rows:
+    states = [
+        int(row["states"])
+        for row in rows
+    ]
 
-        states.append(
-            int(
-                row["states"]
-            )
-        )
+    expected_states = [
+        2 ** q
+        for q in EXPECTED_QUBITS
+    ]
 
-        mean_ms.append(
-            float(
-                row["mean_ms"]
-            )
-        )
-
-        median_ms.append(
-            float(
-                row["median_ms"]
-            )
-        )
-
-        min_ms.append(
-            float(
-                row["min_ms"]
-            )
-        )
-
-        max_ms.append(
-            float(
-                row["max_ms"]
-            )
-        )
-
-        numerical_status.append(
-            row["numerical_status"]
-        )
-
-        timing_status.append(
-            row["timing_status"]
-        )
-
-    if states != EXPECTED_STATES:
-
+    if qubits != EXPECTED_QUBITS:
         raise ValueError(
-            f"{source_name} contains unexpected "
-            f"state-space dimensions.\n"
-            f"Expected: {EXPECTED_STATES}\n"
-            f"Obtained: {states}"
+            f"{label}: unexpected qubit sequence.\n"
+            f"Expected: {EXPECTED_QUBITS}\n"
+            f"Received: {qubits}"
         )
 
-    for index in range(
-        len(states)
-    ):
-
-        if numerical_status[index] != "PASS":
-
-            raise ValueError(
-                f"{source_name}: numerical validation "
-                f"failed for N={states[index]}."
-            )
-
-    return {
-        "states": states,
-        "mean_ms": mean_ms,
-        "median_ms": median_ms,
-        "min_ms": min_ms,
-        "max_ms": max_ms,
-        "numerical_status": numerical_status,
-        "timing_status": timing_status,
-    }
-
-
-# ------------------------------------------------------------
-# Validate Python/MATLAB consistency
-# ------------------------------------------------------------
-
-def validate_consistency(
-    python_results,
-    matlab_results
-):
-
-    if (
-        python_results["states"]
-        !=
-        matlab_results["states"]
-    ):
-
+    if states != expected_states:
         raise ValueError(
-            "Python and MATLAB-compatible results "
-            "contain different state-space dimensions."
+            f"{label}: state dimensions do not equal 2^q.\n"
+            f"Expected: {expected_states}\n"
+            f"Received: {states}"
         )
 
 
 # ------------------------------------------------------------
-# Create figure
+# Numeric conversion
 # ------------------------------------------------------------
 
-def create_figure(
-    python_results,
-    matlab_results
-):
+def extract_values(
+    rows: list[dict[str, str]],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
 
-    states = (
-        python_results["states"]
+    qubits = np.array(
+        [int(row["qubits"]) for row in rows],
+        dtype=np.int32,
     )
 
-    python_mean = (
-        python_results["mean_ms"]
+    states = np.array(
+        [int(row["states"]) for row in rows],
+        dtype=np.int64,
     )
 
-    matlab_mean = (
-        matlab_results["mean_ms"]
-    )
-
-    fig, ax = plt.subplots(
-        figsize=(
-            11,
-            7
-        )
-    )
-
-
-    # --------------------------------------------------------
-    # Python
-    # --------------------------------------------------------
-
-    ax.plot(
-        states,
-        python_mean,
-        marker="o",
-        linewidth=2,
-        markersize=7,
-        label="Python / SciPy CSR"
-    )
-
-
-    # --------------------------------------------------------
-    # MATLAB-compatible
-    # --------------------------------------------------------
-
-    ax.plot(
-        states,
-        matlab_mean,
-        marker="s",
-        linewidth=2,
-        markersize=7,
-        label="MATLAB-compatible / sparse"
-    )
-
-
-    # --------------------------------------------------------
-    # Target
-    # --------------------------------------------------------
-
-    ax.axhline(
-        TARGET_MS,
-        linestyle="--",
-        linewidth=1.5,
-        label="Target = 15 ms"
-    )
-
-
-    # --------------------------------------------------------
-    # Axis configuration
-    # --------------------------------------------------------
-
-    ax.set_xscale(
-        "log"
-    )
-
-
-    ax.set_yscale(
-        "log"
-    )
-
-
-    ax.set_xlabel(
-        "State-space dimension N"
-    )
-
-
-    ax.set_ylabel(
-        "Mean sparse matrix-vector time (ms)"
-    )
-
-
-    ax.set_title(
-        "QFLPN Deterministic Sparse-Operator Scaling"
-    )
-
-
-    ax.set_xticks(
-        states
-    )
-
-
-    ax.set_xticklabels(
+    mean_ms = np.array(
         [
-            "1,024",
-            "10,000",
-            "100,000"
-        ]
+            float(row["mean_spmv_ms"])
+            for row in rows
+        ],
+        dtype=np.float64,
     )
 
-
-    ax.grid(
-        True,
-        which="both",
-        linestyle=":",
-        linewidth=0.7
+    median_ms = np.array(
+        [
+            float(row["median_spmv_ms"])
+            for row in rows
+        ],
+        dtype=np.float64,
     )
 
-
-    ax.legend(
-        loc="best"
-    )
-
-
-    # --------------------------------------------------------
-    # Annotate measured means
-    # --------------------------------------------------------
-
-    for state, value in zip(
-        states,
-        python_mean
-    ):
-
-        ax.annotate(
-            f"{value:.4f} ms",
-            (
-                state,
-                value
-            ),
-            textcoords="offset points",
-            xytext=(
-                0,
-                9
-            ),
-            ha="center",
-            fontsize=8
-        )
-
-
-    for state, value in zip(
-        states,
-        matlab_mean
-    ):
-
-        ax.annotate(
-            f"{value:.4f} ms",
-            (
-                state,
-                value
-            ),
-            textcoords="offset points",
-            xytext=(
-                0,
-                -16
-            ),
-            ha="center",
-            fontsize=8
-        )
-
-
-    # --------------------------------------------------------
-    # Figure note
-    # --------------------------------------------------------
-
-    ax.text(
-        0.02,
-        0.02,
-        "Deterministic benchmark; no Monte Carlo. "
-        "N denotes state-space dimension.",
-        transform=ax.transAxes,
-        fontsize=8,
-        verticalalignment="bottom"
-    )
-
-
-    fig.tight_layout()
-
-
-    OUTPUT_FIGURE.parent.mkdir(
-        parents=True,
-        exist_ok=True
-    )
-
-
-    fig.savefig(
-        OUTPUT_FIGURE,
-        dpi=200,
-        bbox_inches="tight"
-    )
-
-
-    plt.close(
-        fig
-    )
+    return qubits, states, mean_ms, median_ms
 
 
 # ------------------------------------------------------------
 # Main
 # ------------------------------------------------------------
 
-def main():
+def main() -> None:
 
-    print(
-        "============================================================"
-    )
+    print("=" * 72)
+    print("QFLPN SCALING COMPARISON")
+    print("=" * 72)
 
-    print(
-        "QFLPN SCALING COMPARISON"
-    )
+    python_rows = read_results(PYTHON_RESULTS)
+    matlab_rows = read_results(MATLAB_RESULTS)
 
-    print(
-        "============================================================"
-    )
-
-    print(
-        f"Python results:\n{PYTHON_RESULTS}"
-    )
-
-    print(
-        f"MATLAB-compatible results:\n{MATLAB_RESULTS}"
-    )
-
-    print()
-
-
-    python_rows = read_csv(
-        PYTHON_RESULTS
-    )
-
-
-    matlab_rows = read_csv(
-        MATLAB_RESULTS
-    )
-
-
-    python_results = convert_results(
+    validate_scaling_rows(
         python_rows,
-        "Python"
+        "Python",
     )
 
-
-    matlab_results = convert_results(
+    validate_scaling_rows(
         matlab_rows,
-        "MATLAB-compatible"
+        "MATLAB",
     )
 
+    (
+        python_q,
+        python_states,
+        python_mean,
+        python_median,
+    ) = extract_values(python_rows)
 
-    validate_consistency(
-        python_results,
-        matlab_results
-    )
+    (
+        matlab_q,
+        matlab_states,
+        matlab_mean,
+        matlab_median,
+    ) = extract_values(matlab_rows)
 
-
-    create_figure(
-        python_results,
-        matlab_results
-    )
-
-
-    print(
-        "Figure created:"
-    )
-
-    print(
-        OUTPUT_FIGURE
-    )
-
-    print()
-
-
-    print(
-        "Measured state-space dimensions:"
-    )
-
-    for index, states in enumerate(
-        EXPECTED_STATES
+    if not np.array_equal(
+        python_q,
+        matlab_q,
     ):
-
-        print(
-            f"N={states:,} | "
-            f"Python mean="
-            f"{python_results['mean_ms'][index]:.6f} ms | "
-            f"MATLAB-compatible mean="
-            f"{matlab_results['mean_ms'][index]:.6f} ms"
+        raise ValueError(
+            "Python and MATLAB qubit dimensions differ."
         )
 
+    if not np.array_equal(
+        python_states,
+        matlab_states,
+    ):
+        raise ValueError(
+            "Python and MATLAB state dimensions differ."
+        )
 
-    print()
+    # --------------------------------------------------------
+    # Figure
+    # --------------------------------------------------------
 
-    print(
-        "All numerical validation checks:"
+    figure, axis = plt.subplots(
+        figsize=(11, 7)
     )
 
-    print(
-        "Python: PASS"
+    axis.plot(
+        python_q,
+        python_mean,
+        marker="o",
+        linewidth=2,
+        label="Python — mean SpMV",
     )
 
-    print(
-        "MATLAB-compatible: PASS"
+    axis.plot(
+        matlab_q,
+        matlab_mean,
+        marker="s",
+        linewidth=2,
+        label="MATLAB — mean SpMV",
     )
 
+    axis.axhline(
+        TARGET_MS,
+        linestyle="--",
+        linewidth=1.5,
+        label=f"Target = {TARGET_MS:.1f} ms",
+    )
+
+    axis.set_xlabel(
+        "Number of qubits"
+    )
+
+    axis.set_ylabel(
+        "Mean sparse operator execution time (ms)"
+    )
+
+    axis.set_title(
+        "QFLPN Sparse Operator Scaling: 4–17 Qubits"
+    )
+
+    axis.set_xticks(
+        EXPECTED_QUBITS
+    )
+
+    axis.grid(
+        True,
+        which="both",
+        linestyle=":",
+        linewidth=0.8,
+    )
+
+    axis.legend()
+
+    # State dimensions are shown on a secondary x-axis.
+    secondary = axis.secondary_xaxis(
+        "top"
+    )
+
+    secondary.set_xticks(
+        EXPECTED_QUBITS
+    )
+
+    secondary.set_xticklabels(
+        [
+            f"{2 ** q:,}"
+            for q in EXPECTED_QUBITS
+        ],
+        rotation=45,
+        ha="left",
+    )
+
+    secondary.set_xlabel(
+        "State-space dimension N = 2^q"
+    )
+
+    figure.tight_layout()
+
+    figure.savefig(
+        OUTPUT_FILE,
+        dpi=300,
+        bbox_inches="tight",
+    )
+
+    plt.close(figure)
+
+    # --------------------------------------------------------
+    # Console summary
+    # --------------------------------------------------------
+
+    print("\nScaling dimensions:")
+    print("-" * 72)
+
+    for index, q in enumerate(EXPECTED_QUBITS):
+
+        print(
+            f"q={q:2d} | "
+            f"N={2 ** q:7d} | "
+            f"Python={python_mean[index]:.6f} ms | "
+            f"MATLAB={matlab_mean[index]:.6f} ms"
+        )
+
+    print("-" * 72)
 
     print(
-        "============================================================"
+        f"\nFigure written to:\n{OUTPUT_FILE}"
     )
+
+    print("=" * 72)
 
 
 if __name__ == "__main__":
