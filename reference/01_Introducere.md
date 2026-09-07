@@ -95,7 +95,7 @@ Ipoteza nu afirmă că QFLPN este universal superior altor formalisme.
 | C3 | Construcția locală–globală prin Kronecker | contribuție în cadrul QFLPN |
 | C4 | Integrarea operatorilor controlați | contribuție în cadrul QFLPN |
 | C5 | Separarea semantică a firing-ului de transformarea cuantică | contribuție de modelare |
-| C6 | Lanțul numeric pentru acțiunea $e^{tA}v$ | contribuție algoritmică/implementare |
+| C6 | Lanțul numeric pentru acțiunea $etAv$ | contribuție algoritmică/implementare |
 | C7 | Reprezentarea sparse și execuția SpMV | contribuție software/HPC |
 | C8 | Protocolul multi-limbaj reproductibil | contribuție metodologică |
 | C9 | Matricea de trasabilitate model–cod–rezultat | contribuție metodologică |
@@ -106,69 +106,69 @@ Ipoteza nu afirmă că QFLPN este universal superior altor formalisme.
 Pentru o familie QFLPN poate fi utilizată structura:
 
 $$
-\mathcal{N}_{QFLPN}
+\mathcal{N}QFLPN
 =
-(P,T,E,M,\mu,\mathcal{H},\rho,\mathcal{U},\mathcal{R}),
+(P,T,E,M,μ,ℋ,ρ,\mathcal{U},\mathcal{R}),
 $$
 
 unde $P$ reprezintă locurile, $T$ tranzițiile, $E$ relația de conectivitate,
-$M$ marcajul, $\mu$ componenta fuzzy, $\mathcal{H}$ spațiul Hilbert,
-$\rho$ reprezentarea stării, $\mathcal{U}$ familia de operatori, iar
+$M$ marcajul, $μ$ componenta fuzzy, $ℋ$ spațiul Hilbert,
+$ρ$ reprezentarea stării, $\mathcal{U}$ familia de operatori, iar
 $\mathcal{R}$ regulile de evoluție.
 
 Pentru $q$ qubiți:
 
 $$
-\mathcal{H}_q=(\mathbb{C}^{2})^{\otimes q},
+ℋ_q=(ℂ²)⊗ q,
 \qquad
-N_q=\dim(\mathcal{H}_q)=2^q.
+N_q=\dim(ℋ_q)=2^q.
 $$
 
 O stare pură satisface:
 
 $$
-|\psi\rangle\in\mathcal{H}_q,
+|ψ\rangle∈ℋ_q,
 \qquad
-\langle\psi|\psi\rangle=1.
+\langleψ|ψ\rangle=1.
 $$
 
 O matrice densitate satisface:
 
 $$
-\rho\succeq0,
+ρ\succeq0,
 \qquad
-\rho^\dagger=\rho,
+ρ^†=ρ,
 \qquad
-\operatorname{Tr}(\rho)=1.
+Tr(ρ)=1.
 $$
 
 Evoluția unitară este:
 
 $$
-|\psi'\rangle=U|\psi\rangle,
+|ψ'\rangle=U|ψ\rangle,
 \qquad
-U^\dagger U=I.
+U^† U=I.
 $$
 
 Pentru dinamica generală:
 
 $$
-\rho'
+ρ'
 =
-\mathcal{E}(\rho)
+\mathcal{E}(ρ)
 =
-\sum_kK_k\rho K_k^\dagger,
+\sum_kK_kρ K_k^†,
 \qquad
-\sum_kK_k^\dagger K_k=I.
+\sum_kK_k^† K_k=I.
 $$
 
 Pentru acțiunea exponențialei asupra unui vector:
 
 $$
-y=e^{tA}v.
+y=etAv.
 $$
 
-Această problemă este distinctă de formarea explicită a matricei $e^{tA}$.
+Această problemă este distinctă de formarea explicită a matricei $etA$.
 
 ## 1.8. Convenții de notație
 
@@ -177,11 +177,11 @@ Această problemă este distinctă de formarea explicită a matricei $e^{tA}$.
 | $P$ | mulțimea locurilor |
 | $T$ | mulțimea tranzițiilor |
 | $M$ | marcaj Petri |
-| $\mu$ | grad fuzzy |
-| $\mathcal{H}_q$ | spațiul Hilbert pentru $q$ qubiți |
+| $μ$ | grad fuzzy |
+| $ℋ_q$ | spațiul Hilbert pentru $q$ qubiți |
 | $N=2^q$ | dimensiunea spațiului de stare |
-| $|\psi\rangle$ | stare pură |
-| $\rho$ | matrice densitate |
+| $|ψ\rangle$ | stare pură |
+| $ρ$ | matrice densitate |
 | $U$ | operator unitar |
 | $A$ | operator/generator numeric |
 | $K_k$ | operator Kraus |
@@ -192,10 +192,10 @@ Această problemă este distinctă de formarea explicită a matricei $e^{tA}$.
 Convenția bazei computaționale este:
 
 $$
-|q_0q_1\ldots q_{q-1}\rangle
+|q₀q₁\ldots qq-₁\rangle
 =
-|q_0\rangle\otimes|q_1\rangle\otimes\cdots
-\otimes|q_{q-1}\rangle.
+|q₀\rangle⊗|q₁\rangle⊗·s
+⊗|qq-₁\rangle.
 $$
 
 Orice convenție de endianitate implementată în software trebuie documentată separat.
@@ -223,17 +223,17 @@ Lanțul de trasabilitate este:
 $$
 \boxed{
 \text{obiectiv}
-\rightarrow
+→
 \text{ipoteză}
-\rightarrow
+→
 \text{ecuație}
-\rightarrow
+→
 \text{algoritm}
-\rightarrow
+→
 \text{cod}
-\rightarrow
+→
 \text{metrică}
-\rightarrow
+→
 \text{rezultat}
 }
 $$
