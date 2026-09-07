@@ -526,6 +526,228 @@ precum și aceeași convenție de ordonare a bazei.
 
 ## 22. Convenția pentru figurile QFLPN-4Q
 
+În această revizie, figurile sunt introduse mai întâi ca **machete Mermaid editabile**. Ele nu sunt considerate încă figuri finale pentru teză sau publicații. Fiecare diagramă trebuie verificată matematic și structural înainte de transformarea ei într-o figură vectorială definitivă.
+
+### 22.1 Machetă — arhitectura generală QFLPN
+
+```mermaid
+flowchart LR
+    P["Locuri P"]
+    T["Tranziții T"]
+    F["Reguli de incidență F"]
+    M["Marcaj M"]
+    L["Valori fuzzy Λ"]
+    A["Activare αₜ = Φₜ(λ₁,...,λₘ)"]
+    Q["Stare cuantică |ψ⟩ sau ρ"]
+    U["Operator cuantic Uₜ"]
+    E["Evoluție ℰ"]
+
+    P --> M
+    F --> T
+    L --> A
+    M --> A
+    T --> A
+    A -->|activare acceptată| U
+    Q --> U
+    U --> E
+    E --> Q
+```
+
+**Verificare conceptuală:** diagrama păstrează separarea obligatorie `activare ≠ transformare cuantică`: regula fuzzy decide activarea, iar operatorul asociat tranziției realizează transformarea stării.
+
+### 22.2 Machetă — interfața fuzzy–cuantică
+
+```mermaid
+flowchart LR
+    L["λ ∈ [0,1]"]
+    TH["θ(λ) = 2 arcsin(√λ)"]
+    RY["RY(θ)"]
+    S0["|0⟩"]
+    PSI["|ψ⟩"]
+    P1["|⟨1|RY(θ)|0⟩|² = λ"]
+
+    L --> TH
+    TH --> RY
+    S0 --> RY
+    RY --> PSI
+    RY --> P1
+```
+
+**Verificare matematică:** pentru `λ ∈ [0,1]`, rezultă `θ ∈ [0,π]`, iar relația indicată reproduce exact `sin²(θ/2) = λ`. Diagrama prezintă explicit această mapare ca **alegere de modelare**, nu ca identitate universală.
+
+### 22.3 Machetă — ordonarea celor patru qubiți
+
+```mermaid
+flowchart LR
+    Q0["q₀"]
+    Q1["q₁"]
+    Q2["q₂"]
+    Q3["q₃"]
+    B["|q₀q₁q₂q₃⟩"]
+    H["ℋ₄ = (ℂ²)⁴"]
+    N["N = 2⁴ = 16"]
+
+    Q0 --> B
+    Q1 --> B
+    Q2 --> B
+    Q3 --> B
+    B --> H
+    H --> N
+```
+
+**Verificare structurală:** ordinea afișată este `q₀, q₁, q₂, q₃`, iar dimensiunea rezultată este `16`. Orice convenție software diferită trebuie tratată printr-o conversie explicită.
+
+### 22.4 Machetă — transformarea locală în operator global
+
+```mermaid
+flowchart LR
+    U0["U₀ ∈ U(2)"]
+    U1["U₁ ∈ U(2)"]
+    U2["U₂ ∈ U(2)"]
+    U3["U₃ ∈ U(2)"]
+    K["Produs Kronecker"]
+    UG["U = U₀ ⊗ U₁ ⊗ U₂ ⊗ U₃"]
+    D["U ∈ ℂ¹⁶ˣ¹⁶"]
+    UNIT["U†U = I₁₆"]
+
+    U0 --> K
+    U1 --> K
+    U2 --> K
+    U3 --> K
+    K --> UG
+    UG --> D
+    UG --> UNIT
+```
+
+**Verificare matematică:** dacă fiecare `Uᵢ` este unitar, produsul Kronecker este unitar. Dimensiunea este `2⁴ × 2⁴ = 16 × 16`.
+
+### 22.5 Machetă — operator controlat C³X
+
+```mermaid
+flowchart LR
+    C0["Control q₀"]
+    C1["Control q₁"]
+    C2["Control q₂"]
+    CT["Țintă q₃"]
+    PC["P₃ — proiector pe configurația de control activ"]
+    CX["C³X = (I − P₃) ⊗ I + P₃ ⊗ X"]
+
+    C0 --> PC
+    C1 --> PC
+    C2 --> PC
+    PC --> CX
+    CT --> CX
+```
+
+**Verificare structurală:** diagrama identifică separat cei trei qubiți de control și qubitul țintă. Formula trebuie interpretată pe descompunerea control/țintă corespunzătoare; ordinea tensorială exactă trebuie păstrată conform convenției din secțiunea 3.
+
+### 22.6 Machetă — evoluție ideală și evoluție cu zgomot
+
+```mermaid
+flowchart TB
+    R0["ρ(0)"]
+    IDEAL["Evoluție ideală"]
+    UNIT["ρ(t) = U(t)ρ(0)U†(t)"]
+    NOISY["Evoluție cu zgomot"]
+    KRAUS["𝓔(ρ) = ∑ₖ KₖρKₖ†"]
+    LIND["Lindblad — formalism continuu"]
+
+    R0 --> IDEAL
+    R0 --> NOISY
+    IDEAL --> UNIT
+    NOISY --> KRAUS
+    NOISY --> LIND
+```
+
+**Verificare conceptuală:** evoluția ideală nu este amestecată cu modelul de zgomot. Kraus și Lindblad sunt prezentate ca ramuri distincte; Lindblad rămâne formalism teoretic dacă nu există implementare și validare numerică explicită.
+
+### 22.7 Machetă — fluxul de validare
+
+```mermaid
+flowchart LR
+    SPEC["Specificație QFLPN-4Q"]
+    MODEL["Model matematic"]
+    OP["Operator / evoluție"]
+    REF["Referință analitică independentă"]
+    NUM["Rezultat numeric"]
+    ERR["e∞"]
+    NORM["Conservarea normei"]
+    FID["Fidelitate F"]
+    DEC["Clasificare rezultat"]
+
+    SPEC --> MODEL
+    MODEL --> OP
+    OP --> NUM
+    MODEL --> REF
+    REF --> ERR
+    NUM --> ERR
+    NUM --> NORM
+    NUM --> FID
+    ERR --> DEC
+    NORM --> DEC
+    FID --> DEC
+```
+
+**Verificare metodologică:** referința analitică este separată de implementarea numerică. Indicatorii `e∞`, norma și fidelitatea sunt tratate ca metrici distincte.
+
+### 22.8 Machetă — reproducibilitate multi-limbaj
+
+```mermaid
+flowchart TB
+    SPEC["QFLPN-4Q-REF-001"]
+    PY["Python"]
+    MA["MATLAB / Octave"]
+    JA["Java"]
+    PROT["Protocol comun"]
+    CMP["Metrici comune"]
+    RES["Rezultate comparabile"]
+
+    SPEC --> PROT
+    SPEC --> PY
+    SPEC --> MA
+    SPEC --> JA
+    PY --> PROT
+    MA --> PROT
+    JA --> PROT
+    PROT --> CMP
+    CMP --> RES
+```
+
+**Verificare înainte de figura finală:** aceeași definiție matematică, aceeași ordine a bazei, aceeași precizie și același protocol trebuie păstrate între implementări.
+
+### 22.9 Machetă — scalarea QFLPN
+
+```mermaid
+flowchart LR
+    Q4["q = 4<br/>N = 16"]
+    Q5["q = 5<br/>N = 32"]
+    Q6["q = 6<br/>N = 64"]
+    DOT["⋯"]
+    Q17["q = 17<br/>N = 131072"]
+
+    Q4 --> Q5 --> Q6 --> DOT --> Q17
+```
+
+**Verificare matematică:** fiecare treaptă respectă `N = 2ᑫ`. Diagrama nu asociază dimensiuni arbitrare `N` cu un număr de qubiți.
+
+### 22.10 Regula de aprobare a machetelor
+
+Machetele Mermaid din această secțiune au statut de **diagramă de lucru**. Înainte de conversia în figuri finale se verifică:
+
+1. consistența cu definițiile matematice;
+2. ordinea qubiților și a bazei;
+3. dimensiunile operatorilor;
+4. sensul săgeților și direcția evoluției;
+5. separarea dintre activare, transformare și zgomot;
+6. corespondența dintre formule și etichetele grafice;
+7. trasabilitatea către cod și rezultate;
+8. lizibilitatea la dimensiunea finală din teză.
+
+Figura finală se produce numai după închiderea acestei verificări.
+
+
+### 22.11 Cerința existentă pentru figurile finale
+
 Figura circuitului trebuie să indice explicit:
 
 - cei patru qubiți;
