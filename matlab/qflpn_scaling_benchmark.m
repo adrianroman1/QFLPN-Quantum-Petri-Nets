@@ -3,103 +3,250 @@ function qflpn_scaling_benchmark()
     clc;
 
     % ============================================================
-    % QFLPN SCALING BENCHMARK
+    % QFLPN DETERMINISTIC CSR/SPARSE SCALING BENCHMARK
     %
-    % Qubits:
-    %       q = 4 ... 17
+    % State-space dimensions:
     %
-    % States:
-    %       N = 2^q
+    %       N = 1,024
+    %       N = 10,000
+    %       N = 100,000
     %
-    % The same QFLPN transition operator is scaled with q.
+    % IMPORTANT:
+    % These are state-space dimensions, NOT qubit counts.
     %
-    % U = I_(2^(q-1)) kron RY(theta)
+    % N = 1,024 = 2^10 -> equivalent to 10 qubits.
+    % N = 10,000 and N = 100,000 are general numerical
+    % state-space dimensions.
     %
-    % theta = 2 asin(sqrt(mu))
+    % No random numbers.
+    % No Monte Carlo.
+    % No dense N x N matrix.
+    %
+    % Operator:
+    %
+    %     U = blockdiag(R(theta), R(theta), ...)
+    %
+    % where:
+    %
+    %     R(theta) =
+    %
+    %       [ cos(theta)  -sin(theta) ]
+    %       [ sin(theta)   cos(theta) ]
+    %
+    % and:
+    %
+    %     theta = 2 asin(sqrt(mu))
+    %
+    %     mu = 0.70
+    %
+    % Numerical validation is performed against an
+    % independent analytical reference.
     %
     % ============================================================
 
-    min_qubits = 4;
-    max_qubits = 17;
+
+    % ------------------------------------------------------------
+    % Experimental parameters
+    % ------------------------------------------------------------
+
+    dimensions = [
+        1024, ...
+        10000, ...
+        100000
+    ];
 
     mu = 0.70;
 
     warmup_repetitions = 20;
+
     benchmark_repetitions = 1000;
 
     target_ms = 15.0;
+
     numerical_tolerance = 1.0e-12;
 
-    theta = ...
-        2.0 * asin(sqrt(mu));
 
-    c = cos(theta);
-    s = sin(theta);
+    % ------------------------------------------------------------
+    % Output directory
+    % ------------------------------------------------------------
 
-    output_directory = 'results';
+    output_directory = ...
+        'results';
 
-    if exist(output_directory, 'dir') ~= 7
-        mkdir(output_directory);
+    if exist(
+        output_directory, ...
+        'dir'
+    ) ~= 7
+
+        mkdir(
+            output_directory
+        );
+
     end
 
-    output_file = fullfile( ...
-        output_directory, ...
-        'qflpn_scaling_matlab.csv');
 
-    fid = fopen( ...
+    output_file = fullfile(
+        output_directory, ...
+        'qflpn_scaling_matlab.csv'
+    );
+
+
+    % ------------------------------------------------------------
+    % Open CSV
+    % ------------------------------------------------------------
+
+    fid = fopen(
         output_file, ...
-        'w');
+        'w'
+    );
 
     if fid == -1
-        error( ...
+
+        error(
             'Cannot open output file: %s', ...
-            output_file);
+            output_file
+        );
+
     end
 
-    fprintf( ...
+
+    fprintf(
         fid, ...
-        ['language,qubits,states,nnz,mu,' ...
-         'warmup,repetitions,construction_ms,' ...
-         'mean_ms,median_ms,min_ms,max_ms,' ...
+        ['language,dimension_type,states,' ...
+         'equivalent_qubits,nnz,mu,warmup,' ...
+         'repetitions,construction_ms,mean_ms,' ...
+         'median_ms,min_ms,max_ms,' ...
          'maximum_error,input_norm,output_norm,' ...
-         'norm_error,target_ms,numerical_status,' ...
-         'timing_status\n']);
+         'norm_error,target_ms,numerical_tolerance,' ...
+         'numerical_status,timing_status,' ...
+         'matlab_version,computer\\n']
+    );
 
-    fprintf( ...
-        'QFLPN scaling benchmark\n');
 
-    fprintf( ...
-        'Qubits: %d ... %d\n', ...
-        min_qubits, ...
-        max_qubits);
+    % ------------------------------------------------------------
+    % Experimental information
+    % ------------------------------------------------------------
 
-    fprintf( ...
-        'States: N = 2^q\n');
+    fprintf(
+        '============================================================\n'
+    );
 
-    fprintf( ...
+    fprintf(
+        'QFLPN DETERMINISTIC SPARSE SCALING BENCHMARK\n'
+    );
+
+    fprintf(
+        '============================================================\n'
+    );
+
+    fprintf(
+        'Dimensions: 1024, 10000, 100000\n'
+    );
+
+    fprintf(
         'mu = %.12f\n', ...
-        mu);
+        mu
+    );
 
-    fprintf( ...
-        'Warmup: %d\n', ...
-        warmup_repetitions);
+    fprintf(
+        'Warm-up repetitions = %d\n', ...
+        warmup_repetitions
+    );
 
-    fprintf( ...
-        'Repetitions: %d\n', ...
-        benchmark_repetitions);
+    fprintf(
+        'Benchmark repetitions = %d\n', ...
+        benchmark_repetitions
+    );
 
-    fprintf( ...
-        'Target: %.3f ms\n\n', ...
-        target_ms);
+    fprintf(
+        'Target = %.3f ms\n', ...
+        target_ms
+    );
 
-    for q = min_qubits:max_qubits
+    fprintf(
+        'Monte Carlo = NOT USED\n\n'
+    );
 
-        states = 2^q;
 
-        fprintf( ...
-            'Running q=%d, N=%d\n', ...
-            q, ...
-            states);
+    % ------------------------------------------------------------
+    % Operator coefficients
+    % ------------------------------------------------------------
+
+    theta = ...
+        2.0 * asin(
+            sqrt(mu)
+        );
+
+    c = cos(theta);
+
+    s = sin(theta);
+
+
+    % ------------------------------------------------------------
+    % Main benchmark
+    % ------------------------------------------------------------
+
+    for dimension_index = ...
+            1:length(dimensions)
+
+        states = ...
+            dimensions(
+                dimension_index
+            );
+
+
+        % --------------------------------------------------------
+        % Validate dimension
+        % --------------------------------------------------------
+
+        if mod(
+            states, ...
+            2
+        ) ~= 0
+
+            fclose(fid);
+
+            error(
+                'State-space dimension must be even.'
+            );
+
+        end
+
+
+        fprintf(
+            'Running N = %d\n', ...
+            states
+        );
+
+
+        % --------------------------------------------------------
+        % Equivalent qubits
+        % --------------------------------------------------------
+
+        q = log2(
+            states
+        );
+
+        if abs(
+            q - round(q)
+        ) < 1.0e-12
+
+            equivalent_qubits = ...
+                round(q);
+
+            equivalent_qubits_csv = ...
+                sprintf(
+                    '%d', ...
+                    equivalent_qubits
+                );
+
+        else
+
+            equivalent_qubits = [];
+            equivalent_qubits_csv = '';
+
+        end
+
 
         % --------------------------------------------------------
         % Deterministic initial state
@@ -115,79 +262,83 @@ function qflpn_scaling_benchmark()
             cos(0.37 .* index);
 
         input_norm = ...
-            norm(x, 2);
+            norm(
+                x, ...
+                2
+            );
 
         if input_norm == 0
 
             fclose(fid);
 
-            error( ...
-                'Initial state has zero norm.');
+            error(
+                'Initial state has zero norm.'
+            );
 
         end
 
         x = ...
             x ./ input_norm;
 
+
         % --------------------------------------------------------
-        % Sparse operator construction
+        % Sparse matrix construction
         % --------------------------------------------------------
 
         number_of_blocks = ...
             states / 2;
 
-        rows = ...
-            zeros( ...
-                4 * number_of_blocks, ...
-                1);
+        block_index = ...
+            (0:(number_of_blocks - 1))';
 
-        cols = ...
-            zeros( ...
-                4 * number_of_blocks, ...
-                1);
+        first = ...
+            2 .* block_index + 1;
 
-        values = ...
-            zeros( ...
-                4 * number_of_blocks, ...
-                1);
+        second = ...
+            first + 1;
 
-        position = 1;
 
-        for k = 1:number_of_blocks
+        % Four non-zero entries per 2x2 block:
+        %
+        % [ c  -s ]
+        % [ s   c ]
 
-            i = 2 * k - 1;
-            j = 2 * k;
+        rows = [
+            first;
+            first;
+            second;
+            second
+        ];
 
-            rows(position) = i;
-            cols(position) = i;
-            values(position) = c;
-            position = position + 1;
+        cols = [
+            first;
+            second;
+            first;
+            second
+        ];
 
-            rows(position) = i;
-            cols(position) = j;
-            values(position) = -s;
-            position = position + 1;
+        values = [
+            c .* ones(
+                number_of_blocks, ...
+                1
+            );
 
-            rows(position) = j;
-            cols(position) = i;
-            values(position) = s;
-            position = position + 1;
+            -s .* ones(
+                number_of_blocks, ...
+                1
+            );
 
-            rows(position) = j;
-            cols(position) = j;
-            values(position) = c;
-            position = position + 1;
+            s .* ones(
+                number_of_blocks, ...
+                1
+            );
 
-        end
+            c .* ones(
+                number_of_blocks, ...
+                1
+            )
+        ];
 
-        rows = ...
-            rows(1:position-1);
-
-        cols = ...
-            cols(1:position-1);
-
-        values = ...
-            values(1:position-1);
 
         % --------------------------------------------------------
         % Construction timing
@@ -195,29 +346,63 @@ function qflpn_scaling_benchmark()
 
         construction_start = tic;
 
-        A = sparse( ...
+        A = sparse(
             rows, ...
             cols, ...
             values, ...
             states, ...
-            states);
+            states
+        );
 
         construction_ms = ...
-            toc(construction_start) * 1000.0;
+            toc(
+                construction_start
+            ) * 1000.0;
 
-        nnz_value = nnz(A);
+
+        % --------------------------------------------------------
+        % Structural validation
+        % --------------------------------------------------------
+
+        expected_nnz = ...
+            2 * states;
+
+        actual_nnz = ...
+            nnz(A);
+
+        if actual_nnz ~= expected_nnz
+
+            fclose(fid);
+
+            error(
+                ['CSR/sparse structural validation failed: ' ...
+                 'expected NNZ=%d, obtained NNZ=%d.'], ...
+                expected_nnz, ...
+                actual_nnz
+            );
+
+        end
+
 
         % --------------------------------------------------------
         % Independent analytical reference
         % --------------------------------------------------------
 
         y_reference = ...
-            zeros(states, 1);
+            zeros(
+                states, ...
+                1
+            );
 
-        for k = 1:number_of_blocks
 
-            i = 2 * k - 1;
-            j = 2 * k;
+        for k = ...
+                1:number_of_blocks
+
+            i = ...
+                2 * k - 1;
+
+            j = ...
+                2 * k;
 
             y_reference(i) = ...
                 c * x(i) ...
@@ -231,162 +416,240 @@ function qflpn_scaling_benchmark()
 
         end
 
+
         % --------------------------------------------------------
         % Warm-up
         % --------------------------------------------------------
 
         y = ...
-            zeros(states, 1);
+            zeros(
+                states, ...
+                1
+            );
 
-        for r = 1:warmup_repetitions
 
-            y = A * x;
+        for repetition = ...
+                1:warmup_repetitions
+
+            y = ...
+                A * x;
 
         end
 
+
         % --------------------------------------------------------
-        % Timing
+        % Timed sparse matrix-vector multiplication
         % --------------------------------------------------------
 
         times_ms = ...
-            zeros( ...
+            zeros(
                 benchmark_repetitions, ...
-                1);
+                1
+            );
 
-        for r = 1:benchmark_repetitions
+
+        for repetition = ...
+                1:benchmark_repetitions
 
             start_time = tic;
 
-            y = A * x;
+            y = ...
+                A * x;
 
-            times_ms(r) = ...
-                toc(start_time) ...
-                * ...
-                1000.0;
+            times_ms(repetition) = ...
+                toc(
+                    start_time
+                ) * 1000.0;
 
         end
+
 
         % --------------------------------------------------------
         % Numerical validation
         % --------------------------------------------------------
 
         maximum_error = ...
-            max( ...
-                abs( ...
-                    y - ...
-                    y_reference));
+            max(
+                abs(
+                    y -
+                    y_reference
+                )
+            );
+
 
         output_norm = ...
-            norm(y, 2);
+            norm(
+                y, ...
+                2
+            );
+
 
         norm_error = ...
-            abs( ...
+            abs(
                 output_norm ...
                 - ...
-                input_norm);
+                input_norm
+            );
 
-        numerical_status = ...
-            'FAIL';
 
         if ...
-            maximum_error <= numerical_tolerance ...
+            maximum_error <= ...
+            numerical_tolerance ...
             && ...
-            norm_error <= numerical_tolerance
+            norm_error <= ...
+            numerical_tolerance
 
             numerical_status = ...
                 'PASS';
 
+        else
+
+            numerical_status = ...
+                'FAIL';
+
         end
+
 
         % --------------------------------------------------------
         % Timing statistics
         % --------------------------------------------------------
 
         mean_ms = ...
-            mean(times_ms);
+            mean(
+                times_ms
+            );
+
 
         sorted_times = ...
-            sort(times_ms);
+            sort(
+                times_ms
+            );
 
-        left = ...
-            benchmark_repetitions / 2;
 
-        right = ...
-            left + 1;
+        if mod(
+            benchmark_repetitions, ...
+            2
+        ) == 0
 
-        median_ms = ...
-            ( ...
-                sorted_times(left) ...
-                + ...
-                sorted_times(right) ...
-            ) / 2.0;
+            left = ...
+                benchmark_repetitions / 2;
+
+            right = ...
+                left + 1;
+
+            median_ms = ...
+                (
+                    sorted_times(left) ...
+                    + ...
+                    sorted_times(right)
+                ) / 2.0;
+
+        else
+
+            middle = ...
+                (
+                    benchmark_repetitions + 1
+                ) / 2;
+
+            median_ms = ...
+                sorted_times(middle);
+
+        end
+
 
         min_ms = ...
-            min(times_ms);
+            min(
+                times_ms
+            );
+
 
         max_ms = ...
-            max(times_ms);
+            max(
+                times_ms
+            );
 
-        timing_status = ...
-            'FAIL';
 
         if mean_ms <= target_ms
+
             timing_status = ...
                 'PASS';
+
+        else
+
+            timing_status = ...
+                'FAIL';
+
         end
+
 
         % --------------------------------------------------------
         % Console output
         % --------------------------------------------------------
 
-        fprintf( ...
-            '  States: %d\n', ...
-            states);
+        fprintf(
+            '  NNZ             = %d\n', ...
+            actual_nnz
+        );
 
-        fprintf( ...
-            '  NNZ: %d\n', ...
-            nnz_value);
+        fprintf(
+            '  Construction    = %.6f ms\n', ...
+            construction_ms
+        );
 
-        fprintf( ...
-            '  Construction: %.6f ms\n', ...
-            construction_ms);
+        fprintf(
+            '  Mean SpMV       = %.6f ms\n', ...
+            mean_ms
+        );
 
-        fprintf( ...
-            '  Mean: %.6f ms\n', ...
-            mean_ms);
+        fprintf(
+            '  Median SpMV     = %.6f ms\n', ...
+            median_ms
+        );
 
-        fprintf( ...
-            '  Median: %.6f ms\n', ...
-            median_ms);
+        fprintf(
+            '  Minimum SpMV    = %.6f ms\n', ...
+            min_ms
+        );
 
-        fprintf( ...
-            '  Maximum error: %.3e\n', ...
-            maximum_error);
+        fprintf(
+            '  Maximum SpMV    = %.6f ms\n', ...
+            max_ms
+        );
 
-        fprintf( ...
-            '  Norm error: %.3e\n', ...
-            norm_error);
+        fprintf(
+            '  Maximum error   = %.3e\n', ...
+            maximum_error
+        );
 
-        fprintf( ...
-            '  Numerical: %s\n', ...
-            numerical_status);
+        fprintf(
+            '  Norm error      = %.3e\n', ...
+            norm_error
+        );
 
-        fprintf( ...
-            '  Timing: %s\n\n', ...
-            timing_status);
+        fprintf(
+            '  Numerical       = %s\n', ...
+            numerical_status
+        );
+
+        fprintf(
+            '  Timing          = %s\n\n', ...
+            timing_status
+        );
+
 
         % --------------------------------------------------------
-        % CSV
+        % CSV output
         % --------------------------------------------------------
 
-        fprintf( ...
+        fprintf(
             fid, ...
-            ['MATLAB,%d,%d,%d,%.12f,%d,%d,' ...
-             '%.12f,%.12f,%.12f,%.12f,%.12f,' ...
-             '%.12e,%.12e,%.12e,%.12e,%.12f,%s,%s\n'], ...
-            q, ...
+            ['MATLAB-compatible,state_space,%d,%s,%d,' ...
+             '%.12f,%d,%d,%.12f,%.12f,%.12f,' ...
+             '%.12f,%.12f,%.12e,%.12e,%.12e,' ...
+             '%.12e,%.12f,%.12e,%s,%s,"%s","%s"\\n'], ...
             states, ...
-            nnz_value, ...
+            equivalent_qubits_csv, ...
+            actual_nnz, ...
             mu, ...
             warmup_repetitions, ...
             benchmark_repetitions, ...
@@ -400,21 +663,38 @@ function qflpn_scaling_benchmark()
             output_norm, ...
             norm_error, ...
             target_ms, ...
+            numerical_tolerance, ...
             numerical_status, ...
-            timing_status);
+            timing_status, ...
+            version, ...
+            computer
+        );
 
     end
 
+
+    % ------------------------------------------------------------
+    % Close CSV
+    % ------------------------------------------------------------
+
     fclose(fid);
 
-    fprintf( ...
-        'Benchmark completed.\n');
 
-    fprintf( ...
-        'Results saved to:\n');
+    fprintf(
+        '============================================================\n'
+    );
 
-    fprintf( ...
-        '%s\n', ...
-        output_file);
+    fprintf(
+        'Benchmark completed.\n'
+    );
+
+    fprintf(
+        'Results saved to:\n%s\n', ...
+        output_file
+    );
+
+    fprintf(
+        '============================================================\n'
+    );
 
 end
