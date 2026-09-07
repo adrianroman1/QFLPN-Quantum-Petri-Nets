@@ -1,13 +1,9 @@
-#!/usr/bin/env python3
-
-from __future__ import annotations
-
+from pathlib import Path
 import csv
 import math
 import platform
 import sys
 import time
-from pathlib import Path
 
 import numpy as np
 import scipy
@@ -16,402 +12,325 @@ from scipy.sparse import csr_matrix
 
 # ============================================================
 # QFLPN SCALING BENCHMARK
-# ============================================================
-#
-# Deterministic sparse QFLPN operator benchmark.
-#
-# Qubit range:
-#     q = 4, ..., 17
-#
-# State dimensions:
-#     N = 2^q
-#
-# Operator:
-#     identical 2x2 unitary rotation blocks
-#
-# Benchmark:
-#     CSR sparse matrix-vector multiplication
-#
-# Numerical validation:
-#     independent analytical application of the same operator
-#
-# Precision:
-#     float64
-#
-# Timing:
-#     20 warmup repetitions
-#     1000 measured repetitions
-#
-# Output:
-#     python/results/qflpn_scaling_python.csv
-#
+# Deterministic sparse/unitary block-rotation operator
 # ============================================================
 
-
-# -----------------------------
-# Configuration
-# -----------------------------
-
-MIN_QUBITS = 4
-MAX_QUBITS = 17
-
+QUBIT_RANGE = range(4, 18)       # q = 4 ... 17
 WARMUP = 20
 REPETITIONS = 1000
 
-TARGET_MS = 15.0
-
-# Fuzzy membership used by the declared
-# fuzzy-to-quantum angle convention.
 MU = 0.70
+THRESHOLD_MS = 15.0
 
-OUTPUT_DIR = Path(__file__).resolve().parent / "results"
-OUTPUT_FILE = OUTPUT_DIR / "qflpn_scaling_python.csv"
+BASE_DIR = Path(__file__).resolve().parent
+RESULTS_DIR = BASE_DIR / "results"
+RESULTS_FILE = RESULTS_DIR / "qflpn_scaling_python.csv"
 
 
-# -----------------------------
-# QFLPN operator definition
-# -----------------------------
-
-def qflpn_rotation_parameters(mu: float) -> tuple[float, float, float]:
+def rotation_parameters(mu: float):
     """
-    Convert fuzzy membership mu to the rotation angle and
-    corresponding cosine/sine values.
+    QFLPN fuzzy-to-rotation convention:
 
-    theta(mu) = 2 * asin(sqrt(mu))
+        theta = 2 asin(sqrt(mu))
+
+    with the corresponding 2x2 rotation block.
     """
-    if not (0.0 <= mu <= 1.0):
-        raise ValueError("mu must satisfy 0 <= mu <= 1.")
-
     theta = 2.0 * math.asin(math.sqrt(mu))
     c = math.cos(theta)
     s = math.sin(theta)
-
     return theta, c, s
 
 
-def build_qflpn_csr(n: int, c: float, s: float) -> csr_matrix:
+def deterministic_state(n: int) -> np.ndarray:
     """
-    Construct the deterministic sparse QFLPN transition operator.
+    Deterministic normalized input state.
+    """
+    idx = np.arange(n, dtype=np.float64) + 1.0
 
-    Each pair of basis states receives the unitary block
+    x = (
+        np.sin(idx)
+        + 0.5 * np.cos(0.37 * idx)
+    )
+
+    norm_x = np.linalg.norm(x, ord=2)
+
+    if norm_x == 0.0:
+        raise RuntimeError("Invalid zero input state.")
+
+    return x / norm_x
+
+
+def build_operator(n: int, c: float, s: float) -> csr_matrix:
+    """
+    Construct the deterministic sparse QFLPN operator.
+
+    Each consecutive pair receives:
 
         [ c  -s ]
         [ s   c ]
 
-    Therefore every row has exactly two non-zero elements.
+    The global operator is block diagonal and orthogonal.
     """
-    if n <= 0:
-        raise ValueError("State dimension must be positive.")
 
     if n % 2 != 0:
         raise ValueError("State dimension must be even.")
 
-    rows = np.repeat(np.arange(n, dtype=np.int32), 2)
+    blocks = n // 2
 
-    cols = np.empty(2 * n, dtype=np.int32)
+    base = 2 * np.arange(blocks, dtype=np.int64)
+
+    rows = np.repeat(np.arange(n, dtype=np.int64), 2)
+
+    cols = np.empty(2 * n, dtype=np.int64)
     data = np.empty(2 * n, dtype=np.float64)
 
-    for k in range(0, n, 2):
-        p = 2 * k
+    # Row 0: columns 0,1
+    # Row 1: columns 0,1
+    # Row 2: columns 2,3
+    # Row 3: columns 2,3
+    # ...
 
-        cols[p] = k
-        data[p] = c
+    cols[0::4] = base
+    cols[1::4] = base + 1
+    cols[2::4] = base
+    cols[3::4] = base + 1
 
-        cols[p + 1] = k + 1
-        data[p + 1] = -s
+    data[0::4] = c
+    data[1::4] = -s
+    data[2::4] = s
+    data[3::4] = c
 
-        cols[p + 2] = k
-        data[p + 2] = s
-
-        cols[p + 3] = k + 1
-        data[p + 3] = c
-
-    # The construction above uses four values per pair.
-    # Rebuild explicitly to guarantee the correct CSR layout.
-    row_index = np.arange(n, dtype=np.int32)
-
-    row_list = np.empty(2 * n, dtype=np.int32)
-    col_list = np.empty(2 * n, dtype=np.int32)
-    value_list = np.empty(2 * n, dtype=np.float64)
-
-    pos = 0
-
-    for k in range(0, n, 2):
-        row_list[pos] = k
-        col_list[pos] = k
-        value_list[pos] = c
-        pos += 1
-
-        row_list[pos] = k
-        col_list[pos] = k + 1
-        value_list[pos] = -s
-        pos += 1
-
-        row_list[pos] = k + 1
-        col_list[pos] = k
-        value_list[pos] = s
-        pos += 1
-
-        row_list[pos] = k + 1
-        col_list[pos] = k + 1
-        value_list[pos] = c
-        pos += 1
-
-    matrix = csr_matrix(
-        (value_list, (row_list, col_list)),
+    return csr_matrix(
+        (data, (rows, cols)),
         shape=(n, n),
         dtype=np.float64,
     )
 
-    matrix.sum_duplicates()
-    matrix.eliminate_zeros()
 
-    return matrix
-
-
-# -----------------------------
-# Deterministic input state
-# -----------------------------
-
-def deterministic_state(n: int) -> np.ndarray:
-    """
-    Generate a deterministic normalized state vector.
-
-    No random generator is used.
-    """
-    i = np.arange(n, dtype=np.float64)
-
-    x = np.sin(i) + 0.5 * np.cos(0.37 * i)
-
-    norm = np.linalg.norm(x)
-
-    if norm == 0.0:
-        raise ValueError("Input state has zero norm.")
-
-    return x / norm
-
-
-# -----------------------------
-# Independent analytical action
-# -----------------------------
-
-def analytical_qflpn_action(
+def reference_apply(
     x: np.ndarray,
     c: float,
     s: float,
 ) -> np.ndarray:
     """
-    Apply the same QFLPN operator directly from its analytical
-    2x2 block definition.
+    Independent analytical application of the same
+    2x2 rotation rule.
 
-    This is independent of scipy.sparse CSR multiplication.
+    This does not use sparse matrix multiplication.
     """
-    n = x.size
 
     y = np.empty_like(x)
 
-    even = np.arange(0, n, 2)
-    odd = even + 1
+    y[0::2] = (
+        c * x[0::2]
+        - s * x[1::2]
+    )
 
-    x_even = x[even]
-    x_odd = x[odd]
-
-    y[even] = c * x_even - s * x_odd
-    y[odd] = s * x_even + c * x_odd
+    y[1::2] = (
+        s * x[0::2]
+        + c * x[1::2]
+    )
 
     return y
 
 
-# -----------------------------
-# Validation
-# -----------------------------
-
-def validate_operator(
-    matrix: csr_matrix,
+def measure_operator(
+    A: csr_matrix,
     x: np.ndarray,
-    reference: np.ndarray,
-) -> tuple[float, float]:
+):
     """
-    Validate sparse operator action against the analytical result.
-
-    Returns:
-        maximum absolute error
-        norm preservation error
+    Warmup followed by the measured sparse matrix-vector
+    operations.
     """
-    result = matrix @ x
 
-    maximum_error = float(
-        np.max(np.abs(result - reference))
-    )
-
-    input_norm = float(np.linalg.norm(x))
-    output_norm = float(np.linalg.norm(result))
-
-    norm_error = abs(output_norm - input_norm)
-
-    return maximum_error, norm_error
-
-
-# -----------------------------
-# Timing
-# -----------------------------
-
-def benchmark_spmv(
-    matrix: csr_matrix,
-    x: np.ndarray,
-) -> np.ndarray:
-    """
-    Measure only the repeated CSR SpMV operation.
-    """
     for _ in range(WARMUP):
-        matrix @ x
+        A @ x
 
-    timings_ms = np.empty(REPETITIONS, dtype=np.float64)
+    times_ms = np.empty(REPETITIONS, dtype=np.float64)
 
-    for repetition in range(REPETITIONS):
-        start = time.perf_counter_ns()
-        matrix @ x
-        end = time.perf_counter_ns()
+    y = None
 
-        timings_ms[repetition] = (end - start) / 1_000_000.0
+    for i in range(REPETITIONS):
+        start_ns = time.perf_counter_ns()
 
-    return timings_ms
+        y = A @ x
+
+        end_ns = time.perf_counter_ns()
+
+        times_ms[i] = (end_ns - start_ns) / 1_000_000.0
+
+    return y, times_ms
 
 
-# -----------------------------
-# Main benchmark
-# -----------------------------
+def write_results(rows):
+    """
+    Write CSV using the standard library.
+    """
 
-def main() -> None:
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
-    theta, c, s = qflpn_rotation_parameters(MU)
-
-    print("=" * 72)
-    print("QFLPN SCALING BENCHMARK — PYTHON")
-    print("=" * 72)
-    print(f"Qubit range       : {MIN_QUBITS} ... {MAX_QUBITS}")
-    print(f"Warmup repetitions: {WARMUP}")
-    print(f"Measured repetitions: {REPETITIONS}")
-    print(f"Fuzzy membership  : {MU:.12f}")
-    print(f"Rotation angle    : {theta:.12f} rad")
-    print(f"Target time       : {TARGET_MS:.6f} ms")
-    print(f"Python            : {sys.version.split()[0]}")
-    print(f"NumPy             : {np.__version__}")
-    print(f"SciPy             : {scipy.__version__}")
-    print(f"Platform          : {platform.platform()}")
-    print("=" * 72)
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
     fieldnames = [
         "language",
         "qubits",
         "states",
         "nnz",
-        "repetitions",
         "warmup",
-        "mean_spmv_ms",
-        "median_spmv_ms",
-        "min_spmv_ms",
-        "max_spmv_ms",
+        "repetitions",
+        "fuzzy_membership",
+        "rotation_angle_rad",
+        "mean_state_ms",
+        "median_state_ms",
+        "min_state_ms",
+        "max_state_ms",
         "maximum_error",
-        "norm_error",
+        "norm_preservation_error",
         "target_ms",
         "numerical_status",
         "timing_status",
     ]
 
+    with RESULTS_FILE.open(
+        "w",
+        newline="",
+        encoding="utf-8",
+    ) as handle:
+
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=fieldnames,
+        )
+
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def main():
+    theta, c, s = rotation_parameters(MU)
+
+    print("=" * 64)
+    print("QFLPN SCALING BENCHMARK - PYTHON")
+    print("=" * 64)
+    print(f"Qubit range          : 4 ... 17")
+    print(f"State range          : 16 ... 131072")
+    print(f"Warmup repetitions   : {WARMUP}")
+    print(f"Measured repetitions : {REPETITIONS}")
+    print(f"Fuzzy membership     : {MU:.12f}")
+    print(f"Rotation angle       : {theta:.12f} rad")
+    print(f"Target time          : {THRESHOLD_MS:.6f} ms")
+    print()
+
+    print(f"Python               : {sys.version.split()[0]}")
+    print(f"NumPy                : {np.__version__}")
+    print(f"SciPy                : {scipy.__version__}")
+    print(f"Platform             : {platform.platform()}")
+    print()
+
     rows = []
 
-    for qubits in range(MIN_QUBITS, MAX_QUBITS + 1):
-        states = 2 ** qubits
+    for q in QUBIT_RANGE:
+
+        n = 2 ** q
 
         print(
-            f"\nq={qubits:2d} | "
-            f"N={states:7d} | "
-            f"constructing CSR operator..."
+            f"q={q:2d} | "
+            f"N={n:6d} | "
+            f"NNZ={2*n:7d}",
+            end=" | ",
+            flush=True,
         )
 
-        matrix = build_qflpn_csr(states, c, s)
-        x = deterministic_state(states)
+        construction_start = time.perf_counter_ns()
 
-        reference = analytical_qflpn_action(
-            x,
-            c,
-            s,
+        x = deterministic_state(n)
+        A = build_operator(n, c, s)
+
+        construction_end = time.perf_counter_ns()
+
+        construction_ms = (
+            construction_end - construction_start
+        ) / 1_000_000.0
+
+        y_ref = reference_apply(x, c, s)
+
+        y, times_ms = measure_operator(A, x)
+
+        maximum_error = float(
+            np.max(np.abs(y - y_ref))
         )
 
-        maximum_error, norm_error = validate_operator(
-            matrix,
-            x,
-            reference,
+        norm_preservation_error = float(
+            abs(np.linalg.norm(y, ord=2) - 1.0)
         )
 
-        timings = benchmark_spmv(matrix, x)
+        mean_ms = float(np.mean(times_ms))
+        median_ms = float(np.median(times_ms))
+        min_ms = float(np.min(times_ms))
+        max_ms = float(np.max(times_ms))
 
-        mean_ms = float(np.mean(timings))
-        median_ms = float(np.median(timings))
-        min_ms = float(np.min(timings))
-        max_ms = float(np.max(timings))
+        numerical_ok = (
+            np.isfinite(maximum_error)
+            and np.isfinite(norm_preservation_error)
+            and maximum_error <= 1e-12
+            and norm_preservation_error <= 1e-12
+        )
+
+        timing_ok = (
+            np.isfinite(mean_ms)
+            and mean_ms <= THRESHOLD_MS
+        )
 
         numerical_status = (
             "PASS"
-            if maximum_error <= 1e-12
-            and norm_error <= 1e-12
+            if numerical_ok
             else "FAIL"
         )
 
         timing_status = (
             "PASS"
-            if mean_ms <= TARGET_MS
+            if timing_ok
             else "FAIL"
         )
 
-        row = {
-            "language": "Python",
-            "qubits": qubits,
-            "states": states,
-            "nnz": int(matrix.nnz),
-            "repetitions": REPETITIONS,
-            "warmup": WARMUP,
-            "mean_spmv_ms": f"{mean_ms:.12f}",
-            "median_spmv_ms": f"{median_ms:.12f}",
-            "min_spmv_ms": f"{min_ms:.12f}",
-            "max_spmv_ms": f"{max_ms:.12f}",
-            "maximum_error": f"{maximum_error:.16e}",
-            "norm_error": f"{norm_error:.16e}",
-            "target_ms": f"{TARGET_MS:.6f}",
-            "numerical_status": numerical_status,
-            "timing_status": timing_status,
-        }
-
-        rows.append(row)
-
         print(
-            f"       nnz={matrix.nnz:7d} | "
             f"mean={mean_ms:.6f} ms | "
             f"median={median_ms:.6f} ms | "
-            f"max_error={maximum_error:.3e} | "
-            f"norm_error={norm_error:.3e} | "
+            f"maxerr={maximum_error:.3e} | "
+            f"normerr={norm_preservation_error:.3e} | "
+            f"build={construction_ms:.3f} ms | "
             f"{numerical_status}/{timing_status}"
         )
 
-    with OUTPUT_FILE.open(
-        "w",
-        newline="",
-        encoding="utf-8",
-    ) as csv_file:
-        writer = csv.DictWriter(
-            csv_file,
-            fieldnames=fieldnames,
+        rows.append(
+            {
+                "language": "Python",
+                "qubits": q,
+                "states": n,
+                "nnz": 2 * n,
+                "warmup": WARMUP,
+                "repetitions": REPETITIONS,
+                "fuzzy_membership": f"{MU:.12f}",
+                "rotation_angle_rad": f"{theta:.12f}",
+                "mean_state_ms": f"{mean_ms:.9f}",
+                "median_state_ms": f"{median_ms:.9f}",
+                "min_state_ms": f"{min_ms:.9f}",
+                "max_state_ms": f"{max_ms:.9f}",
+                "maximum_error": f"{maximum_error:.16e}",
+                "norm_preservation_error": (
+                    f"{norm_preservation_error:.16e}"
+                ),
+                "target_ms": f"{THRESHOLD_MS:.6f}",
+                "numerical_status": numerical_status,
+                "timing_status": timing_status,
+            }
         )
-        writer.writeheader()
-        writer.writerows(rows)
 
-    print("\n" + "=" * 72)
-    print("RESULTS WRITTEN")
-    print("=" * 72)
-    print(OUTPUT_FILE)
-    print("=" * 72)
+    write_results(rows)
+
+    print()
+    print("=" * 64)
+    print(f"Results written to:")
+    print(RESULTS_FILE)
+    print("=" * 64)
 
 
 if __name__ == "__main__":
