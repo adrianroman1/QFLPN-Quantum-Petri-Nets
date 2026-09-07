@@ -1,104 +1,376 @@
 # Capitolul 1 — Introducere
 
-## 1.1 Rolul capitolului
-Stabilește problema doctorală, motivația, obiectivele, contribuțiile originale,
-metodologia și arhitectura tezei.
+## 1.1. Rolul capitolului
 
-## 1.2 Problema de cercetare
-Formularea unui formalism Quantum-Fuzzy Logical Petri Nets (QFLPN) care integrează
-dinamica Petri, informația fuzzy, stări cuantice, operatori, compoziție tensorială,
-evoluție operatorială și implementare numerică reproductibilă.
+Acest capitol stabilește problema științifică, motivația, întrebarea de cercetare,
+obiectivele, contribuțiile originale, metodologia și arhitectura tezei. Introducerea
+nu substituie formalizarea matematică din Capitolul 3 și nici validarea experimentală
+din Capitolul 6; ea fixează însă lanțul de trasabilitate care le leagă.
 
-## 1.3 Motivație
-### 1.3.1 Fundament matematic
-Definirea riguroasă a obiectelor QFLPN, spațiului de stări, operatorilor și regulilor
-de evoluție.
+## 1.2. Contextul cercetării
 
-### 1.3.2 Fundament algoritmic
-Calculul reproductibil al acțiunii `y = exp(tA)v`, prin metode Taylor și Krylov/Arnoldi
-și metode de referință.
+Rețelele Petri oferă un formalism consacrat pentru modelarea sistemelor cu evenimente
+discrete, a concurenței, a marcajelor și a regulilor de evoluție. Extensiile fuzzy
+permit reprezentarea informației graduale, iar formalismul cuantic introduce stări
+în spații Hilbert, operatori liniari și evoluție prin transformări unitare sau canale
+cuantice.
 
-### 1.3.3 Fundament computațional
-Reprezentare sparse, CSR, SpMV, paralelism și evaluarea scalării.
+Teza dezvoltă **Quantum-Fuzzy Logical Petri Nets (QFLPN)** ca formalism stratificat
+în care cele trei niveluri sunt păstrate distinct și apoi conectate prin interfețe
+matematice explicite:
 
-## 1.4 Întrebarea principală
-Cum poate fi construit și validat un formalism QFLPN coerent matematic și implementabil
-la scară, păstrând trasabilitatea dintre model, algoritm și rezultat?
+$$
+\text{Petri}
++
+\text{Fuzzy}
++
+\text{Quantum}
+\longrightarrow
+\text{QFLPN}.
+$$
 
-## 1.5 Obiective
-1. Definirea formală QFLPN.
-2. Definirea spațiului de stări și a evoluției.
-3. Formalizarea mapării fuzzy–cuantice.
-4. Formalizarea transformărilor locale–globale.
-5. Definirea operatorilor controlați și a referinței cu 4 qubiți.
-6. Separarea evoluției ideale de degradare/decoerență.
-7. Analiza proprietăților matematice.
-8. Implementarea metodelor numerice.
-9. Validarea pentru `q = 4,...,17`, `N = 2^q`.
-10. Evaluarea performanței și reproductibilității.
+Principiul central este **separarea semantică urmată de compoziție controlată**.
+Un loc Petri, un marcaj, o valoare fuzzy, un qubit și o stare cuantică nu sunt
+considerate automat obiecte identice.
 
-## 1.6 Contribuții originale
-- formalismul QFLPN propus;
-- integrarea fuzzy–cuantică;
-- construcția locală–globală prin Kronecker;
-- operatorii controlați;
-- metodologia numerică reproductibilă;
-- arhitectura software multi-limbaj;
-- metodologia de validare și scalare.
+## 1.3. Problema de cercetare
 
-## 1.7 Metodologia cercetării
-`definiție → model → analiză → algoritmi → implementare → validare → performanță → comparație`.
+Problema doctorală este:
 
-Trasabilitate obligatorie:
-`obiectiv → ipoteză → ecuație → algoritm → implementare → metrică → rezultat`.
+> Cum poate fi construit și validat un formalism QFLPN coerent matematic și
+> implementabil numeric, în care structura Petri, activarea fuzzy și evoluția
+> cuantică sunt conectate printr-o interfață operatorială explicită?
 
-## 1.8 Convenții
-- `q` = numărul de qubiți;
-- `N = 2^q` = dimensiunea spațiului Hilbert;
-- `|ψ⟩` = stare pură;
-- `ρ` = matrice densitate;
-- `U` = operator unitar;
-- `A` = operator generator;
-- `CSR`, `SpMV`, `NNZ` = notații HPC.
+Problema este descompusă în:
 
-## 1.9 Figuri
-- arhitectura cercetării;
-- relația Petri–fuzzy–quantum;
-- flux metodologic;
-- trasabilitatea obiective–rezultate.
+1. definirea formală a structurii QFLPN;
+2. definirea spațiului de stare și a regulilor de evoluție;
+3. stabilirea unei mapări fuzzy–cuantice documentate;
+4. construcția operatorilor locali și globali;
+5. integrarea operatorilor controlați;
+6. tratarea separată a dinamicii ideale și a modelelor de zgomot/degradare;
+7. analiza matematică a proprietăților relevante;
+8. implementarea numerică reproductibilă;
+9. validarea pe scala cuantică $N=2^q$;
+10. evaluarea performanței pentru reprezentări sparse și operații SpMV.
 
-## 1.10 Tabele
-- obiective și rezultate;
-- contribuții și capitole;
+## 1.4. Întrebarea principală și ipoteza de lucru
+
+Întrebarea principală este:
+
+$$
+\boxed{
+\text{Cum poate QFLPN să ofere o interfață verificabilă între logică discretă,
+informație fuzzy și evoluție cuantică?}
+}
+$$
+
+Ipoteza de lucru este că o arhitectură stratificată, cu interfețe matematice
+explicit definite și cu protocoale de calcul reproductibile, permite validarea
+separată a semanticii, proprietăților operatoriale și implementării numerice.
+
+Ipoteza nu afirmă că QFLPN este universal superior altor formalisme.
+
+## 1.5. Obiectivele cercetării
+
+| ID | Obiectiv | Evidență principală |
+| --- | --- | --- |
+| O1 | Definirea formală QFLPN | Capitolul 3 |
+| O2 | Definirea spațiului de stări | Capitolul 3 |
+| O3 | Formalizarea mapării fuzzy–cuantice | Capitolul 3 |
+| O4 | Transformări locale–globale | Capitolul 3 |
+| O5 | Operator controlat și referință 4Q | Capitolul 3 |
+| O6 | Separarea ideal/zgomot/degradare | Capitolele 3–5 |
+| O7 | Analiză matematică | Capitolul 4 |
+| O8 | Algoritmi și software | Capitolul 5 |
+| O9 | Validare numerică și experimentală | Capitolul 6 |
+| O10 | Reproductibilitate și diseminare | Capitolele 6–7 |
+
+## 1.6. Contribuții originale
+
+| ID | Contribuție | Natură |
+| --- | --- | --- |
+| C1 | Formalismul QFLPN stratificat | contribuție originală |
+| C2 | Interfața fuzzy–cuantică | alegere de model formalizată |
+| C3 | Construcția locală–globală prin Kronecker | contribuție în cadrul QFLPN |
+| C4 | Integrarea operatorilor controlați | contribuție în cadrul QFLPN |
+| C5 | Separarea semantică a firing-ului de transformarea cuantică | contribuție de modelare |
+| C6 | Lanțul numeric pentru acțiunea $e^{tA}v$ | contribuție algoritmică/implementare |
+| C7 | Reprezentarea sparse și execuția SpMV | contribuție software/HPC |
+| C8 | Protocolul multi-limbaj reproductibil | contribuție metodologică |
+| C9 | Matricea de trasabilitate model–cod–rezultat | contribuție metodologică |
+| C10 | Portofoliul de publicații derivat din rezultate | diseminare științifică |
+
+## 1.7. Ecuațiile fundamentale
+
+Pentru o familie QFLPN poate fi utilizată structura:
+
+$$
+\mathcal{N}_{QFLPN}
+=
+(P,T,E,M,\mu,\mathcal{H},\rho,\mathcal{U},\mathcal{R}),
+$$
+
+unde $P$ reprezintă locurile, $T$ tranzițiile, $E$ relația de conectivitate,
+$M$ marcajul, $\mu$ componenta fuzzy, $\mathcal{H}$ spațiul Hilbert,
+$\rho$ reprezentarea stării, $\mathcal{U}$ familia de operatori, iar
+$\mathcal{R}$ regulile de evoluție.
+
+Pentru $q$ qubiți:
+
+$$
+\mathcal{H}_q=(\mathbb{C}^{2})^{\otimes q},
+\qquad
+N_q=\dim(\mathcal{H}_q)=2^q.
+$$
+
+O stare pură satisface:
+
+$$
+|\psi\rangle\in\mathcal{H}_q,
+\qquad
+\langle\psi|\psi\rangle=1.
+$$
+
+O matrice densitate satisface:
+
+$$
+\rho\succeq0,
+\qquad
+\rho^\dagger=\rho,
+\qquad
+\operatorname{Tr}(\rho)=1.
+$$
+
+Evoluția unitară este:
+
+$$
+|\psi'\rangle=U|\psi\rangle,
+\qquad
+U^\dagger U=I.
+$$
+
+Pentru dinamica generală:
+
+$$
+\rho'
+=
+\mathcal{E}(\rho)
+=
+\sum_kK_k\rho K_k^\dagger,
+\qquad
+\sum_kK_k^\dagger K_k=I.
+$$
+
+Pentru acțiunea exponențialei asupra unui vector:
+
+$$
+y=e^{tA}v.
+$$
+
+Această problemă este distinctă de formarea explicită a matricei $e^{tA}$.
+
+## 1.8. Convenții de notație
+
+| Simbol | Semnificație |
+| --- | --- |
+| $P$ | mulțimea locurilor |
+| $T$ | mulțimea tranzițiilor |
+| $M$ | marcaj Petri |
+| $\mu$ | grad fuzzy |
+| $\mathcal{H}_q$ | spațiul Hilbert pentru $q$ qubiți |
+| $N=2^q$ | dimensiunea spațiului de stare |
+| $|\psi\rangle$ | stare pură |
+| $\rho$ | matrice densitate |
+| $U$ | operator unitar |
+| $A$ | operator/generator numeric |
+| $K_k$ | operator Kraus |
+| $\operatorname{NNZ}$ | numărul de elemente nenule |
+| CSR | Compressed Sparse Row |
+| SpMV | sparse matrix–vector multiplication |
+
+Convenția bazei computaționale este:
+
+$$
+|q_0q_1\ldots q_{q-1}\rangle
+=
+|q_0\rangle\otimes|q_1\rangle\otimes\cdots
+\otimes|q_{q-1}\rangle.
+$$
+
+Orice convenție de endianitate implementată în software trebuie documentată separat.
+
+## 1.9. Metodologia cercetării
+
+Metodologia este organizată în următoarele etape:
+
+1. delimitarea problemei și analiza critică a literaturii;
+2. definirea matematică a QFLPN;
+3. definirea interfeței fuzzy–cuantice;
+4. construirea operatorilor locali și globali;
+5. definirea circuitului QFLPN-4Q;
+6. separarea modelelor ideal și noisy;
+7. analiza matematică;
+8. proiectarea algoritmilor numerici;
+9. implementarea multi-limbaj;
+10. validarea numerică;
+11. evaluarea performanței;
+12. compararea controlată cu metode de referință;
+13. integrarea rezultatelor în publicații.
+
+Lanțul de trasabilitate este:
+
+$$
+\boxed{
+\text{obiectiv}
+\rightarrow
+\text{ipoteză}
+\rightarrow
+\text{ecuație}
+\rightarrow
+\text{algoritm}
+\rightarrow
+\text{cod}
+\rightarrow
+\text{metrică}
+\rightarrow
+\text{rezultat}
+}
+$$
+
+## 1.10. Scalare și delimitarea dimensiunilor
+
+Pentru componenta cuantică:
+
+$$
+N=2^q.
+$$
+
+În familia validată:
+
+| $q$ | $N$ |
+| ---: | ---: |
+| 4 | 16 |
+| 5 | 32 |
+| 6 | 64 |
+| 7 | 128 |
+| 8 | 256 |
+| 9 | 512 |
+| 10 | 1024 |
+| 11 | 2048 |
+| 12 | 4096 |
+| 13 | 8192 |
+| 14 | 16384 |
+| 15 | 32768 |
+| 16 | 65536 |
+| 17 | 131072 |
+
+Workload-urile HPC de ordinul milioanelor de stări/elemente sunt raportate ca
+probleme de calcul sparse și nu sunt reinterpretate ca dimensiuni ale unui
+spațiu Hilbert cuantic cu număr arbitrar de qubiți.
+
+Obiectivul de latență de **15 ms** este un prag de proiect pentru configurația
+definită și nu o limită universală.
+
+## 1.11. Criterii de succes
+
+| Domeniu | Criteriu |
+| --- | --- |
+| Formal | definiții fără ambiguități |
+| Matematic | ipoteze și demonstrații explicitate |
+| Numeric | erori și conservarea normei documentate |
+| Software | cod și configurație trasabile |
+| HPC | CSR/SpMV și cost în funcție de NNZ |
+| Scalare | $q$ și $N=2^q$ consecvente |
+| Reproductibilitate | protocol și parametri fixați |
+| Experimental | rezultate efectiv măsurate, fără extrapolare |
+| Științific | separarea rezultatelor proprii de literatură |
+
+## 1.12. Figuri obligatorii
+
+### Figura 1.1 — Arhitectura stratificată QFLPN
+
+Trebuie să conțină explicit cele trei niveluri:
+
+```text
+Structură Petri
+      ↓
+Activare fuzzy
+      ↓
+Interfață fuzzy–cuantică
+      ↓
+Stare în Hilbert / matrice densitate
+      ↓
+Operatori locali și globali
+      ↓
+Evoluție QFLPN
+```
+
+### Figura 1.2 — Fluxul metodologic
+
+```text
+Problemă
+   ↓
+Literatură
+   ↓
+Formalizare
+   ↓
+Analiză matematică
+   ↓
+Algoritmi
+   ↓
+Implementare
+   ↓
+Validare
+   ↓
+Rezultate
+   ↓
+Publicații
+```
+
+### Figura 1.3 — Lanțul de trasabilitate
+
+```text
+Obiectiv
+   ↓
+Definiție / ipoteză
+   ↓
+Ecuație
+   ↓
+Algoritm
+   ↓
+Fișier sursă
+   ↓
+Experiment
+   ↓
+Metrică
+   ↓
+Rezultat
+```
+
+## 1.13. Tabele obligatorii
+
+- obiective și evidențe;
+- contribuții și natură;
 - notații;
-- obiective–metode–metrici.
+- scala $q/N$;
+- obiective–metode–metrici;
+- trasabilitate model–software–experiment.
 
-### 1.10.1 Matricea obiectiv–rezultat
+## 1.14. Poziționarea științifică
 
-| Obiectiv | Capitol principal | Tip de verificare |
-|---|---|---|
-| Formalism QFLPN | 3 | definiții, propoziții, demonstrații |
-| Analiză matematică | 4 | teoreme, ipoteze, estimări |
-| Algoritmi și software | 5 | algoritmi și implementări |
-| Validare numerică | 6 | metrici, erori, reproductibilitate |
-| Sinteză și publicații | 7 | integrare și diseminare |
+Teza nu revendică înlocuirea tuturor formalismelor Petri, fuzzy sau cuantice.
+Contribuția este un cadru QFLPN explicit, auditabil și implementabil, în care
+interfețele dintre niveluri sunt declarate matematic și verificate independent.
 
-### 1.10.2 Matricea contribuțiilor
+## 1.15. Criteriu de închidere
 
-| Contribuție | Natură | Evidență |
-|---|---|---|
-| Formalism QFLPN | originală | definiții și construcții |
-| Mapare fuzzy–cuantică | alegere de model | formulare și justificare |
-| Construcție Kronecker | formală | ecuații și exemplu 4Q |
-| Metodologie numerică | metodologică | algoritmi și protocol |
-| Validare multi-limbaj | experimentală | rezultate reproductibile |
+Capitolul este închis când:
 
-## 1.11 Ecuații introductive
-`N = 2^q`
-
-`y = exp(tA)v`
-
-Ecuațiile introductive nu trebuie să anticipeze demonstrațiile din capitolele 3–4.
-
-## 1.12 Criteriu de închidere
-Fiecare obiectiv trebuie să aibă un loc precis de demonstrare, implementare sau validare.
+- problema și întrebarea de cercetare sunt formulate fără ambiguități;
+- O1–O10 sunt trasabile;
+- C1–C10 sunt delimitate de fundamentele bibliografice;
+- notația este identică cu cea din capitolele 2–6;
+- scala $N=2^q$ este utilizată consecvent;
+- figurile și tabelele sunt definite;
+- niciun rezultat experimental nu este prezentat fără dovadă corespunzătoare.
