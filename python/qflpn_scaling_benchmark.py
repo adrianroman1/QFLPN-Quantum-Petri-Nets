@@ -9,7 +9,34 @@ import numpy as np
 from scipy.sparse import csr_matrix
 
 
-DIMENSIONS = [1024, 10_000, 100_000]
+# ============================================================
+# QFLPN SCALING BENCHMARK
+#
+# Qubits:
+#       q = 4 ... 17
+#
+# State-space dimension:
+#       N = 2^q
+#
+# The same QFLPN transition operator is scaled with q.
+#
+# The operator is:
+#
+#       U = I_(2^(q-1)) kron RY(theta)
+#
+# where
+#
+#       theta = 2 asin(sqrt(mu))
+#
+# and
+#
+#       mu = 0.70
+#
+# ============================================================
+
+
+MIN_QUBITS = 4
+MAX_QUBITS = 17
 
 MU = 0.70
 
@@ -17,10 +44,14 @@ WARMUP = 20
 REPETITIONS = 1000
 
 TARGET_MS = 15.0
-ERROR_TOLERANCE = 1e-12
+ERROR_TOLERANCE = 1.0e-12
 
 BASE_DIR = Path(__file__).resolve().parent
-RESULTS_DIR = BASE_DIR / "results"
+
+RESULTS_DIR = (
+    BASE_DIR /
+    "results"
+)
 
 RESULTS_DIR.mkdir(
     parents=True,
@@ -33,61 +64,109 @@ OUTPUT_FILE = (
 )
 
 
-def build_operator(n: int, mu: float) -> csr_matrix:
-    theta = 2.0 * math.asin(
-        math.sqrt(mu)
+def rotation_parameters(mu: float):
+    theta = (
+        2.0 *
+        math.asin(
+            math.sqrt(mu)
+        )
     )
 
     c = math.cos(theta)
     s = math.sin(theta)
 
+    return theta, c, s
+
+
+def build_operator(
+    qubits: int,
+    mu: float
+) -> csr_matrix:
+
+    states = 2 ** qubits
+
+    theta, c, s = rotation_parameters(mu)
+
+    del theta
+
     rows = []
     cols = []
     values = []
 
-    for k in range(0, n, 2):
+    for k in range(
+        0,
+        states,
+        2
+    ):
 
         i = k
         j = k + 1
 
         rows.extend(
-            [i, i, j, j]
+            [
+                i,
+                i,
+                j,
+                j
+            ]
         )
 
         cols.extend(
-            [i, j, i, j]
+            [
+                i,
+                j,
+                i,
+                j
+            ]
         )
 
         values.extend(
-            [c, -s, s, c]
+            [
+                c,
+                -s,
+                s,
+                c
+            ]
         )
 
     return csr_matrix(
         (
             values,
-            (rows, cols)
+            (
+                rows,
+                cols
+            )
         ),
-        shape=(n, n),
+        shape=(
+            states,
+            states
+        ),
         dtype=np.float64
     )
 
 
-def build_initial_state(n: int) -> np.ndarray:
+def build_initial_state(
+    states: int
+) -> np.ndarray:
 
     index = np.arange(
-        n,
+        states,
         dtype=np.float64
     )
 
     x = (
         np.sin(index)
         +
-        0.5 * np.cos(
+        0.5 *
+        np.cos(
             0.37 * index
         )
     )
 
-    norm = np.linalg.norm(x)
+    norm = np.linalg.norm(
+        x,
+        ord=2
+    )
 
     if norm == 0.0:
         raise ValueError(
@@ -102,12 +181,11 @@ def analytical_reference(
     mu: float
 ) -> np.ndarray:
 
-    theta = 2.0 * math.asin(
-        math.sqrt(mu)
+    theta, c, s = (
+        rotation_parameters(mu)
     )
 
-    c = math.cos(theta)
-    s = math.sin(theta)
+    del theta
 
     y = np.empty_like(x)
 
@@ -139,13 +217,19 @@ def measure_spmv(
         dtype=np.float64
     )
 
-    for repetition in range(REPETITIONS):
+    for repetition in range(
+        REPETITIONS
+    ):
 
-        start = time.perf_counter_ns()
+        start = (
+            time.perf_counter_ns()
+        )
 
         operator @ x
 
-        end = time.perf_counter_ns()
+        end = (
+            time.perf_counter_ns()
+        )
 
         times_ms[repetition] = (
             end - start
@@ -154,16 +238,18 @@ def measure_spmv(
     return times_ms
 
 
-def benchmark_dimension(
-    n: int
+def benchmark_qubit_level(
+    qubits: int
 ) -> dict:
+
+    states = 2 ** qubits
 
     construction_start = (
         time.perf_counter_ns()
     )
 
     operator = build_operator(
-        n,
+        qubits,
         MU
     )
 
@@ -177,29 +263,42 @@ def benchmark_dimension(
         construction_start
     ) / 1_000_000.0
 
-    x = build_initial_state(n)
-
-    reference = analytical_reference(
-        x,
-        MU
+    x = build_initial_state(
+        states
     )
 
-    computed = operator @ x
+    reference = (
+        analytical_reference(
+            x,
+            MU
+        )
+    )
 
-    absolute_error = np.abs(
-        computed - reference
+    computed = (
+        operator @ x
     )
 
     max_absolute_error = float(
-        np.max(absolute_error)
+        np.max(
+            np.abs(
+                computed -
+                reference
+            )
+        )
     )
 
     input_norm = float(
-        np.linalg.norm(x)
+        np.linalg.norm(
+            x,
+            ord=2
+        )
     )
 
     output_norm = float(
-        np.linalg.norm(computed)
+        np.linalg.norm(
+            computed,
+            ord=2
+        )
     )
 
     norm_error = abs(
@@ -207,25 +306,35 @@ def benchmark_dimension(
         input_norm
     )
 
-    measurements = measure_spmv(
-        operator,
-        x
+    measurements = (
+        measure_spmv(
+            operator,
+            x
+        )
     )
 
     mean_ms = float(
-        np.mean(measurements)
+        np.mean(
+            measurements
+        )
     )
 
     median_ms = float(
-        np.median(measurements)
+        np.median(
+            measurements
+        )
     )
 
     min_ms = float(
-        np.min(measurements)
+        np.min(
+            measurements
+        )
     )
 
     max_ms = float(
-        np.max(measurements)
+        np.max(
+            measurements
+        )
     )
 
     numerical_status = (
@@ -250,29 +359,34 @@ def benchmark_dimension(
 
     return {
         "language": "Python",
-        "dimension": n,
-        "nnz": int(operator.nnz),
-        "density_percent": (
-            100.0 *
-            operator.nnz /
-            (n * n)
+        "qubits": qubits,
+        "states": states,
+        "nnz": int(
+            operator.nnz
         ),
         "mu": MU,
         "warmup": WARMUP,
         "repetitions": REPETITIONS,
-        "construction_ms": construction_ms,
-        "mean_ms": mean_ms,
-        "median_ms": median_ms,
-        "min_ms": min_ms,
-        "max_ms": max_ms,
-        "max_absolute_error":
+        "construction_ms":
+            construction_ms,
+        "mean_ms":
+            mean_ms,
+        "median_ms":
+            median_ms,
+        "min_ms":
+            min_ms,
+        "max_ms":
+            max_ms,
+        "maximum_error":
             max_absolute_error,
-        "input_norm": input_norm,
-        "output_norm": output_norm,
-        "norm_error": norm_error,
-        "target_ms": TARGET_MS,
-        "error_tolerance":
-            ERROR_TOLERANCE,
+        "input_norm":
+            input_norm,
+        "output_norm":
+            output_norm,
+        "norm_error":
+            norm_error,
+        "target_ms":
+            TARGET_MS,
         "numerical_status":
             numerical_status,
         "timing_status":
@@ -280,15 +394,18 @@ def benchmark_dimension(
     }
 
 
-def environment_information() -> dict:
+def environment_information():
 
     return {
         "python_version":
             sys.version.split()[0],
+
         "numpy_version":
             np.__version__,
+
         "platform":
             platform.platform(),
+
         "processor":
             platform.processor()
     }
@@ -298,9 +415,27 @@ def save_results(
     results: list[dict]
 ) -> None:
 
-    fieldnames = list(
-        results[0].keys()
-    )
+    fieldnames = [
+        "language",
+        "qubits",
+        "states",
+        "nnz",
+        "mu",
+        "warmup",
+        "repetitions",
+        "construction_ms",
+        "mean_ms",
+        "median_ms",
+        "min_ms",
+        "max_ms",
+        "maximum_error",
+        "input_norm",
+        "output_norm",
+        "norm_error",
+        "target_ms",
+        "numerical_status",
+        "timing_status"
+    ]
 
     with OUTPUT_FILE.open(
         "w",
@@ -327,8 +462,17 @@ def main():
     )
 
     print(
-        "Dimensions:",
-        DIMENSIONS
+        f"Qubits: "
+        f"{MIN_QUBITS} ... "
+        f"{MAX_QUBITS}"
+    )
+
+    print(
+        "States: 2^q"
+    )
+
+    print(
+        f"mu = {MU}"
     )
 
     print(
@@ -336,7 +480,13 @@ def main():
     )
 
     print(
-        f"Repetitions: {REPETITIONS}"
+        f"Repetitions: "
+        f"{REPETITIONS}"
+    )
+
+    print(
+        f"Target: "
+        f"{TARGET_MS:.3f} ms"
     )
 
     print()
@@ -347,43 +497,54 @@ def main():
 
     print(
         "Python:",
-        environment["python_version"]
+        environment[
+            "python_version"
+        ]
     )
 
     print(
         "NumPy:",
-        environment["numpy_version"]
+        environment[
+            "numpy_version"
+        ]
     )
 
     print(
         "Platform:",
-        environment["platform"]
+        environment[
+            "platform"
+        ]
     )
 
     print()
 
     results = []
 
-    for n in DIMENSIONS:
+    for qubits in range(
+        MIN_QUBITS,
+        MAX_QUBITS + 1
+    ):
+
+        states = 2 ** qubits
 
         print(
-            f"Running N={n:,}"
+            f"Running q={qubits}, "
+            f"N={states:,}"
         )
 
-        result = benchmark_dimension(
-            n
+        result = (
+            benchmark_qubit_level(
+                qubits
+            )
         )
 
-        results.append(result)
+        results.append(
+            result
+        )
 
         print(
             f"  NNZ: "
             f"{result['nnz']:,}"
-        )
-
-        print(
-            f"  Construction: "
-            f"{result['construction_ms']:.6f} ms"
         )
 
         print(
@@ -398,7 +559,7 @@ def main():
 
         print(
             f"  Maximum error: "
-            f"{result['max_absolute_error']:.3e}"
+            f"{result['maximum_error']:.3e}"
         )
 
         print(
@@ -407,12 +568,12 @@ def main():
         )
 
         print(
-            f"  Numerical status: "
+            f"  Numerical: "
             f"{result['numerical_status']}"
         )
 
         print(
-            f"  Timing status: "
+            f"  Timing: "
             f"{result['timing_status']}"
         )
 
@@ -423,8 +584,11 @@ def main():
     )
 
     print(
-        f"Results saved to:\n"
-        f"{OUTPUT_FILE}"
+        "Results saved to:"
+    )
+
+    print(
+        OUTPUT_FILE
     )
 
 
