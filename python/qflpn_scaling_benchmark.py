@@ -12,31 +12,37 @@ from scipy.sparse import csr_matrix
 # ============================================================
 # QFLPN SCALING BENCHMARK
 #
-# Qubits:
-#       q = 4 ... 17
+# Qubit scaling:
+#     q = 4 ... 20
 #
 # State-space dimension:
-#       N = 2^q
+#     N = 2^q
 #
-# The same QFLPN transition operator is scaled with q.
+# The QFLPN transition operator is represented as a
+# sparse block-diagonal unitary operator.
 #
-# The operator is:
+# Each 2 x 2 block is:
 #
-#       U = I_(2^(q-1)) kron RY(theta)
+#       RY(theta) =
 #
-# where
+#       [ cos(theta/2)  -sin(theta/2) ]
+#       [ sin(theta/2)   cos(theta/2) ]
+#
+# with the declared fuzzy-to-quantum mapping:
 #
 #       theta = 2 asin(sqrt(mu))
 #
-# and
+# Therefore:
 #
-#       mu = 0.70
+#       sin(theta/2)^2 = mu
+#
+# The sparse operator is applied through CSR SpMV.
 #
 # ============================================================
 
 
 MIN_QUBITS = 4
-MAX_QUBITS = 17
+MAX_QUBITS = 20
 
 MU = 0.70
 
@@ -45,6 +51,7 @@ REPETITIONS = 1000
 
 TARGET_MS = 15.0
 ERROR_TOLERANCE = 1.0e-12
+
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -72,8 +79,10 @@ def rotation_parameters(mu: float):
         )
     )
 
-    c = math.cos(theta)
-    s = math.sin(theta)
+    half_theta = theta / 2.0
+
+    c = math.cos(half_theta)
+    s = math.sin(half_theta)
 
     return theta, c, s
 
@@ -89,9 +98,22 @@ def build_operator(
 
     del theta
 
-    rows = []
-    cols = []
-    values = []
+    rows = np.empty(
+        2 * states,
+        dtype=np.int64
+    )
+
+    cols = np.empty(
+        2 * states,
+        dtype=np.int64
+    )
+
+    values = np.empty(
+        2 * states,
+        dtype=np.float64
+    )
+
+    position = 0
 
     for k in range(
         0,
@@ -99,35 +121,25 @@ def build_operator(
         2
     ):
 
-        i = k
-        j = k + 1
+        rows[position] = k
+        cols[position] = k
+        values[position] = c
+        position += 1
 
-        rows.extend(
-            [
-                i,
-                i,
-                j,
-                j
-            ]
-        )
+        rows[position] = k
+        cols[position] = k + 1
+        values[position] = -s
+        position += 1
 
-        cols.extend(
-            [
-                i,
-                j,
-                i,
-                j
-            ]
-        )
+        rows[position] = k + 1
+        cols[position] = k
+        values[position] = s
+        position += 1
 
-        values.extend(
-            [
-                c,
-                -s,
-                s,
-                c
-            ]
-        )
+        rows[position] = k + 1
+        cols[position] = k + 1
+        values[position] = c
+        position += 1
 
     return csr_matrix(
         (
@@ -278,7 +290,7 @@ def benchmark_qubit_level(
         operator @ x
     )
 
-    max_absolute_error = float(
+    maximum_error = float(
         np.max(
             np.abs(
                 computed -
@@ -340,7 +352,7 @@ def benchmark_qubit_level(
     numerical_status = (
         "PASS"
         if (
-            max_absolute_error
+            maximum_error
             <= ERROR_TOLERANCE
             and
             norm_error
@@ -378,7 +390,7 @@ def benchmark_qubit_level(
         "max_ms":
             max_ms,
         "maximum_error":
-            max_absolute_error,
+            maximum_error,
         "input_norm":
             input_norm,
         "output_norm":
@@ -458,7 +470,7 @@ def save_results(
 def main():
 
     print(
-        "QFLPN scaling benchmark"
+        "QFLPN qubit/state scaling benchmark"
     )
 
     print(
@@ -468,11 +480,11 @@ def main():
     )
 
     print(
-        "States: 2^q"
+        "State dimension: N = 2^q"
     )
 
     print(
-        f"mu = {MU}"
+        f"Fuzzy membership mu = {MU}"
     )
 
     print(
@@ -480,12 +492,11 @@ def main():
     )
 
     print(
-        f"Repetitions: "
-        f"{REPETITIONS}"
+        f"Repetitions: {REPETITIONS}"
     )
 
     print(
-        f"Target: "
+        f"Timing target: "
         f"{TARGET_MS:.3f} ms"
     )
 
@@ -543,17 +554,27 @@ def main():
         )
 
         print(
+            f"  States: "
+            f"{result['states']:,}"
+        )
+
+        print(
             f"  NNZ: "
             f"{result['nnz']:,}"
         )
 
         print(
-            f"  Mean: "
+            f"  Construction: "
+            f"{result['construction_ms']:.6f} ms"
+        )
+
+        print(
+            f"  Mean SpMV: "
             f"{result['mean_ms']:.6f} ms"
         )
 
         print(
-            f"  Median: "
+            f"  Median SpMV: "
             f"{result['median_ms']:.6f} ms"
         )
 
@@ -568,12 +589,12 @@ def main():
         )
 
         print(
-            f"  Numerical: "
+            f"  Numerical status: "
             f"{result['numerical_status']}"
         )
 
         print(
-            f"  Timing: "
+            f"  Timing status: "
             f"{result['timing_status']}"
         )
 
