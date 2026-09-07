@@ -1,10 +1,10 @@
 # Specificația de referință QFLPN-4Q
 
-> **Identificator document:** QFLPN-4Q-REF-001  
-> **Revizia:** 1.0  
-> **Statut:** Specificație oficială de referință  
-> **Proiect:** Rețele Petri Logice Fuzzy-Cuantice (QFLPN)  
-> **Instanță de referință:** QFLPN-4Q  
+> **Identificator document:** QFLPN-4Q-REF-001
+> **Revizia:** 1.0
+> **Statut:** Specificație oficială de referință
+> **Proiect:** Rețele Petri Logice Fuzzy-Cuantice (QFLPN)
+> **Instanță de referință:** QFLPN-4Q
 > **Dimensiunea spațiului Hilbert:** N = 2⁴ = 16
 
 ---
@@ -138,17 +138,21 @@ Pentru matricea de densitate:
 
 Operatorii controlați trebuie definiți prin proiectori și operatori locali, pentru a evita ambiguitatea asupra convenției de control și țintă.
 
-Pentru un control pe un qubit și un operator V pe țintă:
+Pentru un control pe un qubit și un operator V pe țintă, în ordinea tensorială
+(control, țintă), se definește:
 
 **C(V) = |0⟩⟨0| ⊗ I + |1⟩⟨1| ⊗ V**
 
-Pentru mai mulți qubiți de control, se utilizează proiectori asupra subspațiului de control.
+Pentru mai mulți qubiți de control, se utilizează proiectori asupra subspațiului
+de control, iar pozițiile control/țintă trebuie specificate explicit.
 
-De exemplu, un operator controlat cu trei qubiți de control și un qubit țintă poate fi exprimat schematic ca:
+Pentru instanța QFLPN-4Q, dacă q₀, q₁ și q₂ sunt controalele, iar q₃ este ținta,
+se poate scrie:
 
-**C³(V) = (I − P₃) ⊗ I + P₃ ⊗ V**
+**C³(V) = (I₈ − P₃) ⊗ I₂ + P₃ ⊗ V**
 
-unde P₃ este proiectorul asupra configurației de control activ.
+unde **P₃** este proiectorul de rang 1 asupra configurației de control active
+**|111⟩⟨111|** în subspațiul celor trei controale.
 
 Pentru V = X, operatorul corespunde unei porți **C³X**, cu convenția de control definită explicit de configurația de bază.
 
@@ -526,12 +530,12 @@ precum și aceeași convenție de ordonare a bazei.
 
 ## 22. Convenția pentru figurile QFLPN-4Q
 
-În această revizie, figurile sunt introduse mai întâi ca **machete Mermaid editabile**. Ele nu sunt considerate încă figuri finale pentru teză sau publicații. Fiecare diagramă trebuie verificată matematic și structural înainte de transformarea ei într-o figură vectorială definitivă.
+În această revizie, figurile sunt introduse mai întâi ca **machete Mermaid editabile**. Blocurile Mermaid reprezintă sursa diagramelor; la randarea în GitHub, acestea sunt afișate ca diagrame, nu ca text de cod. Ele nu sunt considerate încă figuri finale pentru teză sau publicații. Fiecare diagramă trebuie verificată matematic și structural înainte de transformarea ei într-o figură vectorială definitivă.
 
 ### 22.1 Machetă — arhitectura generală QFLPN
 
 ```mermaid
-flowchart LR
+    flowchart LR
     P["Locuri P"]
     T["Tranziții T"]
     F["Reguli de incidență F"]
@@ -558,7 +562,7 @@ flowchart LR
 ### 22.2 Machetă — interfața fuzzy–cuantică
 
 ```mermaid
-flowchart LR
+    flowchart LR
     L["λ ∈ [0,1]"]
     TH["θ(λ) = 2 arcsin(√λ)"]
     RY["RY(θ)"]
@@ -578,7 +582,7 @@ flowchart LR
 ### 22.3 Machetă — ordonarea celor patru qubiți
 
 ```mermaid
-flowchart LR
+    flowchart LR
     Q0["q₀"]
     Q1["q₁"]
     Q2["q₂"]
@@ -600,7 +604,7 @@ flowchart LR
 ### 22.4 Machetă — transformarea locală în operator global
 
 ```mermaid
-flowchart LR
+    flowchart LR
     U0["U₀ ∈ U(2)"]
     U1["U₁ ∈ U(2)"]
     U2["U₂ ∈ U(2)"]
@@ -624,7 +628,7 @@ flowchart LR
 ### 22.5 Machetă — operator controlat C³X
 
 ```mermaid
-flowchart LR
+    flowchart LR
     C0["Control q₀"]
     C1["Control q₁"]
     C2["Control q₂"]
@@ -644,7 +648,7 @@ flowchart LR
 ### 22.6 Machetă — evoluție ideală și evoluție cu zgomot
 
 ```mermaid
-flowchart TB
+    flowchart TB
     R0["ρ(0)"]
     IDEAL["Evoluție ideală"]
     UNIT["ρ(t) = U(t)ρ(0)U†(t)"]
@@ -664,7 +668,7 @@ flowchart TB
 ### 22.7 Machetă — fluxul de validare
 
 ```mermaid
-flowchart LR
+    flowchart LR
     SPEC["Specificație QFLPN-4Q"]
     MODEL["Model matematic"]
     OP["Operator / evoluție"]
@@ -693,7 +697,7 @@ flowchart LR
 ### 22.8 Machetă — reproducibilitate multi-limbaj
 
 ```mermaid
-flowchart TB
+    flowchart TB
     SPEC["QFLPN-4Q-REF-001"]
     PY["Python"]
     MA["MATLAB / Octave"]
@@ -718,7 +722,7 @@ flowchart TB
 ### 22.9 Machetă — scalarea QFLPN
 
 ```mermaid
-flowchart LR
+    flowchart LR
     Q4["q = 4<br/>N = 16"]
     Q5["q = 5<br/>N = 32"]
     Q6["q = 6<br/>N = 64"]
@@ -744,7 +748,6 @@ Machetele Mermaid din această secțiune au statut de **diagramă de lucru**. Î
 8. lizibilitatea la dimensiunea finală din teză.
 
 Figura finală se produce numai după închiderea acestei verificări.
-
 
 ### 22.11 Cerința existentă pentru figurile finale
 
