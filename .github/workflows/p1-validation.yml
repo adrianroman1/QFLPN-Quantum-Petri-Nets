@@ -1,0 +1,40 @@
+name: P1 Preprint-Aligned Validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'P1/**'
+      - '.github/workflows/p1-validation.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'P1/**'
+      - '.github/workflows/p1-validation.yml'
+
+jobs:
+  p1-python-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install P1 numerical dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r P1/requirements.txt
+
+      - name: Compile P1 Python sources
+        run: python -m compileall -q P1/code P1/tests
+
+      - name: Run P1 mathematical validation
+        run: python P1/tests/qflpn_validation.py
+
+      - name: Run P1 CSR rotation consistency helper
+        run: python P1/tests/qflpn_operator_validation.py
