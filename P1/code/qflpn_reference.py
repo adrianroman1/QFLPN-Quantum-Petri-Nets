@@ -1,28 +1,9 @@
+"""Numerical reference primitives for the QFLPN P1 validation layer.
+
+This module deliberately contains small, auditable NumPy implementations.
+It does not claim to implement the complete Petri-net semantics described in
+ the manuscript.
 """
-QFLPN Reference Model
-=====================
-
-4-qubit reference implementation for the QFLPN doctoral model.
-
-Mathematical convention:
-    theta(mu) = 2 * arcsin(sqrt(mu)),  mu in [0, 1]
-
-Then:
-    RY(theta(mu)) |0>
-has measurement probability mu for state |1>.
-
-This mapping is a declared QFLPN modeling convention:
-fuzzy membership != quantum probability by definition.
-
-The module provides:
-- fuzzy-to-angle mapping
-- single-qubit state preparation
-- 4-qubit reference state
-- normalization validation
-- density matrix construction and PSD diagnostic
-- fidelity between pure states
-"""
-
 from __future__ import annotations
 
 import math
@@ -31,133 +12,130 @@ from typing import Iterable
 import numpy as np
 
 
-N_QUBITS = 4
-STATE_DIMENSION = 2 ** N_QUBITS
+def _finite_nonnegative_tolerance(tol: float) -> float:
+    value = float(tol)
+    if not math.isfinite(value) or value < 0.0:
+        raise ValueError("tol must be finite and non-negative")
+    return value
 
 
 def fuzzy_to_angle(mu: float) -> float:
-    """Map fuzzy membership mu in [0,1] to theta(mu)=2 asin(sqrt(mu))."""
-    if not 0.0 <= mu <= 1.0:
-        raise ValueError("Fuzzy membership must belong to [0, 1].")
-    return 2.0 * math.asin(math.sqrt(mu))
+    """Encode a membership value mu in [0,1] as theta=2 asin(sqrt(mu))."""
+    value = float(mu)
+    if not math.isfinite(value):
+        raise ValueError("membership value must be finite")
+    if not 0.0 <= value <= 1.0:
+        raise ValueError("membership value must lie in [0, 1]")
+    return 2.0 * math.asin(math.sqrt(value))
 
 
-def ry_state(mu: float) -> np.ndarray:
-    """Return RY(theta(mu))|0>; P(|1>) equals mu up to roundoff."""
-    theta = fuzzy_to_angle(mu)
-    return np.array(
-        [math.cos(theta / 2.0), math.sin(theta / 2.0)],
-        dtype=np.complex128,
-    )
+def ry_state(theta: float) -> np.ndarray:
+    """Apply the single-qubit RY(theta) rotation to |0>."""
+    value = float(theta)
+    if not math.isfinite(value):
+        raise ValueError("theta must be finite")
+    return np.array([math.cos(value / 2.0), math.sin(value / 2.0)], dtype=np.complex128)
 
 
-def kron_product(states: Iterable[np.ndarray]) -> np.ndarray:
-    """Compute the Kronecker product of a sequence of state vectors."""
-    result = np.array([1.0 + 0.0j], dtype=np.complex128)
-    for state in states:
-        result = np.kron(result, state)
+def kron_product(*operators: np.ndarray) -> np.ndarray:
+    """Kronecker product of one or more vectors/matrices."""
+    if not operators:
+        raise ValueError("at least one operand is required")
+    result = np.asarray(operators[0])
+    for operand in operators[1:]:
+        result = np.kron(result, np.asarray(operand))
     return result
 
 
 def reference_state(memberships: Iterable[float]) -> np.ndarray:
-    """Construct the four-qubit product reference state."""
-    memberships = tuple(float(mu) for mu in memberships)
-    if len(memberships) != N_QUBITS:
-        raise ValueError(
-            f"Expected {N_QUBITS} fuzzy memberships, received {len(memberships)}."
-        )
-    state = kron_product(ry_state(mu) for mu in memberships)
-    validate_normalization(state)
-    return state
+    """Prepare a product state using the membership-to-angle encoding."""
+    values = list(memberships)
+    if not values:
+        raise ValueError("at least one membership value is required")
+    states = [ry_state(fuzzy_to_angle(mu)) for mu in values]
+    return kron_product(*states).astype(np.complex128, copy=False)
 
 
 def density_matrix(state: np.ndarray) -> np.ndarray:
-    """Construct rho = |psi><psi| for a normalized pure state."""
-    state = np.asarray(state, dtype=np.complex128)
-    validate_normalization(state)
-    return np.outer(state, np.conjugate(state))
+    """Return |psi><psi| after validating a finite, nonzero state vector."""
+    vector = np.asarray(state, dtype=np.complex128)
+    if vector.ndim != 1 or vector.size == 0:
+        raise ValueError("state must be a non-empty one-dimensional vector")
+    if not np.all(np.isfinite(vector)):
+        raise ValueError("state vector must contain only finite values")
+    norm = float(np.linalg.norm(vector))
+    if not math.isfinite(norm) or norm == 0.0:
+        raise ValueError("state vector must have a finite, nonzero norm")
+    vector = vector / norm
+    return np.outer(vector, vector.conj())
 
 
-def validate_normalization(state: np.ndarray, tolerance: float = 1e-12) -> None:
-    """Verify ||psi||_2 = 1."""
-    state = np.asarray(state, dtype=np.complex128)
-    if state.ndim != 1:
-        raise ValueError("State vector must be one-dimensional.")
-    norm = np.linalg.norm(state)
-    if not np.isclose(norm, 1.0, atol=tolerance, rtol=0.0):
-        raise ValueError(f"State is not normalized: ||psi|| = {norm}")
+def validate_normalization(state: np.ndarray, tol: float = 1e-10) -> float:
+    """Return absolute norm error; raise when the vector is invalid/out of tolerance."""
+    tolerance = _finite_nonnegative_tolerance(tol)
+    vector = np.asarray(state, dtype=np.complex128)
+    if vector.ndim != 1 or vector.size == 0:
+        raise ValueError("state must be a non-empty one-dimensional vector")
+    if not np.all(np.isfinite(vector)):
+        raise ValueError("state vector must contain only finite values")
+    norm = float(np.linalg.norm(vector))
+    if not math.isfinite(norm):
+        raise ValueError("state norm is not finite")
+    error = abs(norm - 1.0)
+    if error > tolerance:
+        raise ValueError(f"state is not normalized: error={error}")
+    return error
 
 
-def positive_semidefinite_residual(
-    rho: np.ndarray,
-    hermiticity_tolerance: float = 1e-12,
-) -> float:
-    r"""Return eps_PSD=max(0,-lambda_min(rho)) for a Hermitian matrix.
+def positive_semidefinite_residual(rho: np.ndarray, tol: float = 1e-10) -> float:
+    """Return max(0,-lambda_min) for a finite Hermitian square matrix.
 
-    The Hermiticity precondition is checked explicitly because the PSD
-    diagnostic in P1 is defined for density operators.
+    Non-finite inputs, non-Hermitian inputs, and invalid tolerances are rejected
+    explicitly instead of allowing eigensolvers to return misleading values.
     """
-    rho = np.asarray(rho, dtype=np.complex128)
-    if rho.ndim != 2 or rho.shape[0] != rho.shape[1]:
-        raise ValueError("Density matrix must be square.")
-    hermiticity_error = np.linalg.norm(rho - rho.conj().T, ord="fro")
-    if hermiticity_error > hermiticity_tolerance:
-        raise ValueError(
-            "PSD diagnostic requires a Hermitian matrix; "
-            f"Hermiticity error={hermiticity_error:.3e}."
-        )
-    lambda_min = float(np.min(np.linalg.eigvalsh(rho)))
-    return max(0.0, -lambda_min)
+    tolerance = _finite_nonnegative_tolerance(tol)
+    matrix = np.asarray(rho, dtype=np.complex128)
+    if matrix.ndim != 2 or matrix.shape[0] != matrix.shape[1] or matrix.shape[0] == 0:
+        raise ValueError("density operator must be a non-empty square matrix")
+    if not np.all(np.isfinite(matrix)):
+        raise ValueError("density operator must contain only finite values")
+    hermiticity_error = float(np.linalg.norm(matrix - matrix.conj().T, ord="fro"))
+    if not math.isfinite(hermiticity_error):
+        raise ValueError("Hermiticity residual is not finite")
+    if hermiticity_error > tolerance:
+        raise ValueError(f"density operator is not Hermitian: residual={hermiticity_error}")
+    eigenvalues = np.linalg.eigvalsh((matrix + matrix.conj().T) / 2.0)
+    if not np.all(np.isfinite(eigenvalues)):
+        raise ValueError("density-operator eigenvalues are not finite")
+    residual = max(0.0, -float(np.min(eigenvalues)))
+    if not math.isfinite(residual):
+        raise ValueError("positive-semidefinite residual is not finite")
+    return residual
 
 
 def pure_state_fidelity(state_a: np.ndarray, state_b: np.ndarray) -> float:
-    """Fidelity F=|<psi_a|psi_b>|^2 between normalized pure states."""
-    state_a = np.asarray(state_a, dtype=np.complex128)
-    state_b = np.asarray(state_b, dtype=np.complex128)
-    validate_normalization(state_a)
-    validate_normalization(state_b)
-    if state_a.shape != state_b.shape:
-        raise ValueError("Pure-state vectors must have identical dimensions.")
-    return float(abs(np.vdot(state_a, state_b)) ** 2)
+    """Squared overlap fidelity for normalized pure state vectors."""
+    a = np.asarray(state_a, dtype=np.complex128)
+    b = np.asarray(state_b, dtype=np.complex128)
+    if a.ndim != 1 or b.ndim != 1 or a.shape != b.shape or a.size == 0:
+        raise ValueError("pure states must be non-empty vectors of equal dimension")
+    if not np.all(np.isfinite(a)) or not np.all(np.isfinite(b)):
+        raise ValueError("pure states must contain only finite values")
+    na, nb = float(np.linalg.norm(a)), float(np.linalg.norm(b))
+    if not math.isfinite(na) or not math.isfinite(nb) or na == 0.0 or nb == 0.0:
+        raise ValueError("pure states must have finite, nonzero norms")
+    overlap = np.vdot(a / na, b / nb)
+    value = float(abs(overlap) ** 2)
+    return min(1.0, max(0.0, value))
 
 
 def computational_basis_probabilities(state: np.ndarray) -> np.ndarray:
-    """Return probabilities in lexicographic computational-basis order."""
-    state = np.asarray(state, dtype=np.complex128)
-    if state.ndim != 1 or state.size != STATE_DIMENSION:
-        raise ValueError(
-            f"Expected state vector dimension {STATE_DIMENSION}, "
-            f"received shape {state.shape}."
-        )
-    validate_normalization(state)
-    probabilities = np.abs(state) ** 2
-    if not np.isclose(probabilities.sum(), 1.0, atol=1e-12, rtol=0.0):
-        raise ValueError("Probabilities are not normalized.")
-    return probabilities
-
-
-def main() -> None:
-    memberships = (0.85, 0.90, 0.45, 0.70)
-    state = reference_state(memberships)
-    rho = density_matrix(state)
-    probabilities = computational_basis_probabilities(state)
-    print("QFLPN 4-qubit reference model")
-    print("--------------------------------")
-    print("Memberships:", memberships)
-    print("Number of qubits:", N_QUBITS)
-    print("State dimension:", state.size)
-    print("Norm:", np.linalg.norm(state))
-    print("Density matrix shape:", rho.shape)
-    print("Probability sum:", probabilities.sum())
-    print("PSD residual:", positive_semidefinite_residual(rho))
-    print("\nFuzzy -> RY angles:")
-    for mu in memberships:
-        print(f"mu={mu:.6f} -> theta={fuzzy_to_angle(mu):.12f}")
-    print("\nComputational-basis probabilities:")
-    for index, probability in enumerate(probabilities):
-        if probability > 1e-14:
-            print(f"|{index:04b}> : {probability:.12f}")
-
-
-if __name__ == "__main__":
-    main()
+    """Return normalized computational-basis probabilities."""
+    vector = np.asarray(state, dtype=np.complex128)
+    if vector.ndim != 1 or vector.size == 0 or not np.all(np.isfinite(vector)):
+        raise ValueError("state must be a finite, non-empty vector")
+    norm_sq = float(np.vdot(vector, vector).real)
+    if not math.isfinite(norm_sq) or norm_sq <= 0.0:
+        raise ValueError("state must have a finite, positive squared norm")
+    probabilities = np.abs(vector) ** 2 / norm_sq
+    return probabilities.astype(float)

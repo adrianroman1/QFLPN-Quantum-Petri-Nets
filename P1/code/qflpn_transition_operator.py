@@ -1,168 +1,124 @@
-"""
-QFLPN Transition Operators
-==========================
-
-Deterministic four-qubit transition-operator construction.
-
-The P1 reference instance uses the three-control X operator C^3X on
-qubits q1,q2,q3 -> q4, in lexicographic computational-basis order.
-A generic one-control CX constructor remains available for other declared
-transition semantics.
-
-No Monte Carlo.
-"""
-
+"""Reference transition operators for the four-qubit P1 demonstrator."""
 from __future__ import annotations
 
 import math
 import time
-
 import numpy as np
 
-from qflpn_reference import fuzzy_to_angle
+if __package__:
+    from .qflpn_reference import fuzzy_to_angle
+else:  # Supports: python P1/code/qflpn_transition_operator.py
+    from qflpn_reference import fuzzy_to_angle
 
 
-N_QUBITS = 4
-DIMENSION = 2 ** N_QUBITS
-
-
-def identity() -> np.ndarray:
-    """2x2 identity matrix."""
-    return np.eye(2, dtype=np.complex128)
-
-
-def pauli_x() -> np.ndarray:
-    """Pauli-X operator."""
-    return np.array([[0.0, 1.0], [1.0, 0.0]], dtype=np.complex128)
+I2 = np.eye(2, dtype=np.complex128)
+X = np.array([[0, 1], [1, 0]], dtype=np.complex128)
 
 
 def ry(theta: float) -> np.ndarray:
-    """Single-qubit RY(theta) with the half-angle convention."""
-    half = theta / 2.0
-    return np.array(
-        [[math.cos(half), -math.sin(half)],
-         [math.sin(half), math.cos(half)]],
-        dtype=np.complex128,
-    )
+    """Return the analytic RY(theta) matrix."""
+    value = float(theta)
+    if not math.isfinite(value):
+        raise ValueError("theta must be finite")
+    c, s = math.cos(value / 2.0), math.sin(value / 2.0)
+    return np.array([[c, -s], [s, c]], dtype=np.complex128)
 
 
-def kron_all(matrices: list[np.ndarray]) -> np.ndarray:
-    """Kronecker product of matrices in lexicographic qubit order."""
-    if not matrices:
-        raise ValueError("At least one matrix is required.")
-    result = np.asarray(matrices[0], dtype=np.complex128)
-    for matrix in matrices[1:]:
-        result = np.kron(result, matrix)
+def kron_all(*operators: np.ndarray) -> np.ndarray:
+    if not operators:
+        raise ValueError("at least one operator is required")
+    result = np.asarray(operators[0], dtype=np.complex128)
+    for operator in operators[1:]:
+        result = np.kron(result, np.asarray(operator, dtype=np.complex128))
     return result
 
 
-def local_rotation_operator(memberships: tuple[float, ...]) -> np.ndarray:
-    """Construct RY(theta_1) tensor ... tensor RY(theta_4)."""
-    if len(memberships) != N_QUBITS:
-        raise ValueError(f"Expected {N_QUBITS} memberships.")
-    return kron_all([ry(fuzzy_to_angle(mu)) for mu in memberships])
+def local_rotation_operator(theta: float, target: int = 0, n_qubits: int = 4) -> np.ndarray:
+    """Embed RY(theta) on target; qubit 0 is the leftmost Kronecker factor."""
+    if not isinstance(n_qubits, int) or n_qubits < 1:
+        raise ValueError("n_qubits must be a positive integer")
+    if not isinstance(target, int) or not 0 <= target < n_qubits:
+        raise ValueError("target must identify a qubit in the register")
+    factors = [ry(theta) if index == target else I2 for index in range(n_qubits)]
+    return kron_all(*factors)
 
 
-def controlled_x(control: int, target: int) -> np.ndarray:
-    """Construct a generic single-control CX in the four-qubit basis."""
-    if control == target:
-        raise ValueError("Control and target must be different.")
-    if not 0 <= control < N_QUBITS:
-        raise ValueError("Invalid control qubit.")
-    if not 0 <= target < N_QUBITS:
-        raise ValueError("Invalid target qubit.")
-    operator = np.zeros((DIMENSION, DIMENSION), dtype=np.complex128)
-    for basis in range(DIMENSION):
+def controlled_x(n_qubits: int = 2, control: int = 0, target: int = 1) -> np.ndarray:
+    """Construct a multi-qubit controlled-X matrix."""
+    if not isinstance(n_qubits, int) or n_qubits < 2:
+        raise ValueError("controlled_x requires at least two qubits")
+    if control == target or not (0 <= control < n_qubits and 0 <= target < n_qubits):
+        raise ValueError("control and target must be distinct valid qubit indices")
+    dimension = 2 ** n_qubits
+    result = np.zeros((dimension, dimension), dtype=np.complex128)
+    for basis in range(dimension):
+        bits = [(basis >> (n_qubits - 1 - i)) & 1 for i in range(n_qubits)]
         output = basis
-        control_bit = (basis >> (N_QUBITS - 1 - control)) & 1
-        if control_bit:
-            output ^= 1 << (N_QUBITS - 1 - target)
+        if bits[control] == 1:
+            output ^= 1 << (n_qubits - 1 - target)
+        result[output, basis] = 1.0
+    return result
+
+
+def c3x() -> np.ndarray:
+    """Four-qubit Toffoli with three controls and one target (C^3X)."""
+    dimension = 16
+    operator = np.zeros((dimension, dimension), dtype=np.complex128)
+    for basis in range(dimension):
+        # Big-endian basis convention: bits 0,1,2 are controls; bit 3 is target.
+        output = basis ^ 1 if (basis & 0b1110) == 0b1110 else basis
         operator[output, basis] = 1.0
     return operator
 
 
-def c3x() -> np.ndarray:
-    r"""Construct P1's C^3X=(I_8-P_c) tensor I_2 + P_c tensor X.
+def qflpn_transition_operator(memberships=(0.85, 0.90, 0.45, 0.70)) -> np.ndarray:
+    """Compose local membership rotations and the C^3X demonstrator.
 
-    P_c=|111><111| acts on the first three qubits; X acts on q4.
-    In lexicographic order only |1110> and |1111> are exchanged.
+    Composition convention: rightmost operator acts first. The local rotations
+    are applied as a tensor product, followed by C^3X.
     """
-    projector = np.zeros((8, 8), dtype=np.complex128)
-    projector[7, 7] = 1.0
-    identity_8 = np.eye(8, dtype=np.complex128)
-    return (
-        np.kron(identity_8 - projector, identity())
-        + np.kron(projector, pauli_x())
-    )
+    values = tuple(memberships)
+    if len(values) != 4:
+        raise ValueError("the P1 global operator requires exactly four memberships")
+    angles = [fuzzy_to_angle(value) for value in values]
+    local = kron_all(*(ry(angle) for angle in angles))
+    return c3x() @ local
 
 
-def qflpn_transition_operator(
-    memberships: tuple[float, ...],
-    control: int | None = None,
-    target: int | None = None,
-) -> np.ndarray:
-    r"""Build the P1 reference transition U=C^3X U_local.
-
-    Supplying both ``control`` and ``target`` explicitly selects the generic
-    single-control CX variant. Omitting both uses the P1 C^3X convention.
-    """
-    if (control is None) != (target is None):
-        raise ValueError("Specify both control and target, or neither.")
-    u_local = local_rotation_operator(memberships)
-    u_controlled = c3x() if control is None else controlled_x(control, target)
-    return u_controlled @ u_local
-
-
-def validate_unitarity(
-    operator: np.ndarray,
-    tolerance: float = 1e-12,
-) -> float:
-    """Return ||U^dagger U-I||_F and raise if the tolerance is exceeded."""
-    operator = np.asarray(operator, dtype=np.complex128)
-    if operator.ndim != 2 or operator.shape[0] != operator.shape[1]:
-        raise ValueError("Operator must be square.")
-    dimension = operator.shape[0]
-    identity_matrix = np.eye(dimension, dtype=np.complex128)
-    error = np.linalg.norm(operator.conj().T @ operator - identity_matrix, ord="fro")
-    if error > tolerance:
-        raise ValueError(f"Operator is not unitary: error={error:.3e}")
-    return float(error)
+def validate_unitarity(operator: np.ndarray, tol: float = 1e-10) -> float:
+    """Return Frobenius unitarity residual; reject malformed/non-finite input."""
+    tolerance = float(tol)
+    if not math.isfinite(tolerance) or tolerance < 0.0:
+        raise ValueError("tol must be finite and non-negative")
+    matrix = np.asarray(operator, dtype=np.complex128)
+    if matrix.ndim != 2 or matrix.shape[0] != matrix.shape[1] or matrix.shape[0] == 0:
+        raise ValueError("operator must be a non-empty square matrix")
+    if not np.all(np.isfinite(matrix)):
+        raise ValueError("operator must contain only finite values")
+    identity = np.eye(matrix.shape[0], dtype=np.complex128)
+    residual = float(np.linalg.norm(matrix.conj().T @ matrix - identity, ord="fro"))
+    if not math.isfinite(residual):
+        raise ValueError("unitarity residual is not finite")
+    if residual > tolerance:
+        raise ValueError(f"operator is not unitary: residual={residual}")
+    return residual
 
 
-def benchmark_operator(
-    memberships: tuple[float, ...],
-    repetitions: int = 1000,
-) -> dict[str, float]:
-    """Deterministic timing benchmark; no random sampling is used."""
-    if repetitions < 1:
-        raise ValueError("repetitions must be at least 1.")
-    for _ in range(20):
-        qflpn_transition_operator(memberships)
-    timings_ns = []
-    for _ in range(repetitions):
-        start = time.perf_counter_ns()
-        qflpn_transition_operator(memberships)
-        timings_ns.append(time.perf_counter_ns() - start)
-    timings_ms = np.asarray(timings_ns, dtype=np.float64) / 1_000_000.0
-    return {
-        "mean_ms": float(np.mean(timings_ms)),
-        "median_ms": float(np.median(timings_ms)),
-        "min_ms": float(np.min(timings_ms)),
-        "max_ms": float(np.max(timings_ms)),
-    }
+def benchmark_operator(repetitions: int = 10) -> dict:
+    if not isinstance(repetitions, int) or repetitions < 1:
+        raise ValueError("repetitions must be a positive integer")
+    start = time.perf_counter()
+    operator = qflpn_transition_operator()
+    elapsed = (time.perf_counter() - start) / repetitions
+    return {"dimension": int(operator.shape[0]), "average_construction_seconds": elapsed,
+            "unitarity_residual": validate_unitarity(operator)}
 
 
 def main() -> None:
-    memberships = (0.85, 0.90, 0.45, 0.70)
-    operator = qflpn_transition_operator(memberships)
-    unitarity_error = validate_unitarity(operator)
-    print("QFLPN P1 transition operator")
-    print("Operator dimension:", operator.shape)
-    print(f"||U^dagger U-I||_F = {unitarity_error:.3e}")
-    print("C^3X dimension:", c3x().shape)
-    benchmark = benchmark_operator(memberships, repetitions=1000)
-    for key, value in benchmark.items():
-        print(f"{key} = {value:.6f}")
+    report = benchmark_operator()
+    print(f"Global operator dimension: {report['dimension']}")
+    print(f"Unitary residual: {report['unitarity_residual']:.3e}")
+    print(f"Average construction time: {report['average_construction_seconds']:.6e} s")
 
 
 if __name__ == "__main__":
