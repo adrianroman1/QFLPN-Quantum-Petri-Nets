@@ -1,4 +1,4 @@
-"""Validate JSON report syntax and reject non-finite numeric values."""
+"""Fail-closed validation of JSON reports."""
 
 from __future__ import annotations
 
@@ -15,109 +15,72 @@ REPORTS_DIR = P2_ROOT / "reports"
 
 
 def reject_constant(value: str) -> None:
-    """Reject non-standard JSON constants such as NaN and Infinity."""
-    raise ValueError(f"Non-standard JSON numeric constant: {value}")
+    raise ValueError(f"Non-standard JSON constant: {value}")
 
 
 def validate_finite_values(value: Any, location: str = "$") -> list[str]:
-    """Return validation errors for non-finite floating-point values."""
     errors: list[str] = []
 
-    if isinstance(value, bool) or value is None:
-        return errors
-
-    if isinstance(value, float):
-        if not math.isfinite(value):
-            errors.append(f"{location}: non-finite float")
-        return errors
-
-    if isinstance(value, list):
+    if isinstance(value, float) and not math.isfinite(value):
+        errors.append(f"{location}: non-finite number")
+    elif isinstance(value, list):
         for index, item in enumerate(value):
-            errors.extend(
-                validate_finite_values(item, f"{location}[{index}]")
-            )
-        return errors
-
-    if isinstance(value, dict):
+            errors.extend(validate_finite_values(item, f"{location}[{index}]"))
+    elif isinstance(value, dict):
         for key, item in value.items():
-            errors.extend(
-                validate_finite_values(item, f"{location}.{key}")
-            )
-        return errors
+            errors.extend(validate_finite_values(item, f"{location}.{key}"))
 
     return errors
 
 
 def validate_json_file(path: Path) -> list[str]:
-    """Validate one JSON file and return all detected errors."""
-    errors: list[str] = []
-
     try:
         raw = path.read_text(encoding="utf-8")
-    except OSError as exc:
-        return [f"{path}: read error: {exc}"]
+        parsed = json.loads(raw, parse_constant=reject_constant)
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+        return [f"{path}: invalid or unreadable JSON: {exc}"]
 
-    try:
-        parsed = json.loads(
-            raw,
-            parse_constant=reject_constant,
-        )
-    except (json.JSONDecodeError, ValueError) as exc:
-        return [f"{path}: invalid JSON: {exc}"]
-
-    errors.extend(validate_finite_values(parsed))
-
-    return [f"{path}: {error}" for error in errors]
+    return [f"{path}: {error}" for error in validate_finite_values(parsed)]
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Validate JSON reports in P2/reports."
-    )
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--directory", type=Path, default=REPORTS_DIR)
     parser.add_argument(
-        "--directory",
-        type=Path,
-        default=REPORTS_DIR,
-        help="Directory containing JSON reports.",
+        "--allow-empty",
+        action="store_true",
+        help="Explicitly allow a report directory with no JSON files.",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
-    report_dir = args.directory.resolve()
-
-    if not report_dir.is_dir():
-        print(f"ERROR: Report directory does not exist: {report_dir}")
+    directory = args.directory.resolve()
+    if not directory.is_dir():
+        print(f"FAIL: report directory does not exist: {directory}")
         return 2
 
-    files = sorted(
-        path
-        for path in report_dir.rglob("*.json")
-        if path.is_file()
-    )
-
+    files = sorted(path for path in directory.rglob("*.json") if path.is_file())
     if not files:
-        print(f"INFO: No JSON reports found in {report_dir}")
-        return 0
+        if args.allow_empty:
+            print(f"PASS: no JSON reports; empty directory explicitly allowed: {directory}")
+            return 0
+        print(f"FAIL: no JSON reports found in {directory}")
+        return 1
 
-    all_errors: list[str] = []
-
+    errors: list[str] = []
     for path in files:
-        errors = validate_json_file(path)
-
-        if errors:
-            all_errors.extend(errors)
+        current = validate_json_file(path)
+        if current:
+            errors.extend(current)
             print("FAIL:", path)
         else:
-            print("PASS: JSON syntax and finite-value checks:", path)
+            print("PASS:", path)
 
-    print("-" * 72)
-    print("JSON files checked:", len(files))
-    print("Validation errors:", len(all_errors))
-
-    for error in all_errors:
+    for error in errors:
         print("ERROR:", error)
 
-    return 1 if all_errors else 0
+    print(f"Checked: {len(files)}; errors: {len(errors)}")
+    return 1 if errors else 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())
