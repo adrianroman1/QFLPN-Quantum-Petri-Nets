@@ -14,42 +14,21 @@ DEFAULT_MANIFEST = P2_ROOT / "MANIFEST.txt"
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
 EXCLUDED_DIRS = {
-    "__pycache__",
-    ".pytest_cache",
-    ".mypy_cache",
-    ".ruff_cache",
-    ".tox",
-    ".venv",
-    "venv",
-    "site-packages",
-    "results",
+    "__pycache__", ".pytest_cache", ".mypy_cache",
+    ".ruff_cache", ".tox", ".venv", "venv",
+    "site-packages", "results",
 }
 
-EXCLUDED_NAMES = {
-    "MANIFEST.txt",
-    "SHA256SUMS.txt",
-}
-
-EXCLUDED_SUFFIXES = {
-    ".pyc",
-    ".pyo",
-}
-
-PROTECTED_REPORT_FILES = {
-    "reports/reference_config.json",
-}
+EXCLUDED_NAMES = {"MANIFEST.txt", "SHA256SUMS.txt"}
+EXCLUDED_SUFFIXES = {".pyc", ".pyo"}
+PROTECTED_REPORT_FILES = {"reports/reference_config.json"}
 
 
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
-
     with path.open("rb") as stream:
-        for chunk in iter(
-            lambda: stream.read(1024 * 1024),
-            b"",
-        ):
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
-
     return digest.hexdigest()
 
 
@@ -58,23 +37,22 @@ def is_excluded(relative: Path) -> bool:
 
     if normalized in PROTECTED_REPORT_FILES:
         return False
-
     if relative.name in EXCLUDED_NAMES:
         return True
-
     if relative.suffix.lower() in EXCLUDED_SUFFIXES:
         return True
-
     if any(part in EXCLUDED_DIRS for part in relative.parts):
         return True
-
     if "reports" in relative.parts:
         return True
 
     return False
 
 
-def collect_expected_paths(root: Path) -> set[str]:
+def collect_expected_paths(
+    root: Path,
+    require_protected_config: bool = False,
+) -> set[str]:
     root = root.resolve(strict=True)
     expected: set[str] = set()
 
@@ -117,7 +95,10 @@ def collect_expected_paths(root: Path) -> set[str]:
 
     protected_config = "reports/reference_config.json"
 
-    if protected_config not in expected:
+    if (
+        require_protected_config
+        and protected_config not in expected
+    ):
         raise ValueError(
             "Required protected configuration is missing: "
             f"{protected_config}"
@@ -134,9 +115,7 @@ def parse_manifest(
     declared_count: int | None = None
 
     try:
-        lines = manifest.read_text(
-            encoding="utf-8"
-        ).splitlines()
+        lines = manifest.read_text(encoding="utf-8").splitlines()
     except (OSError, UnicodeError) as exc:
         return {}, [f"Cannot read manifest: {exc}"], None
 
@@ -231,6 +210,7 @@ def parse_manifest(
 def verify_manifest(
     root: Path,
     manifest: Path,
+    require_protected_config: bool = False,
 ) -> tuple[int, int, list[str]]:
     entries, errors, _ = parse_manifest(manifest)
 
@@ -238,22 +218,21 @@ def verify_manifest(
     failed = len(errors)
 
     try:
-        expected_paths = collect_expected_paths(root)
+        expected_paths = collect_expected_paths(
+            root,
+            require_protected_config=require_protected_config,
+        )
     except (OSError, ValueError) as exc:
         return passed, failed + 1, errors + [str(exc)]
 
     manifest_paths = set(entries)
 
     for relative in sorted(expected_paths - manifest_paths):
-        errors.append(
-            f"Missing from manifest: {relative}"
-        )
+        errors.append(f"Missing from manifest: {relative}")
         failed += 1
 
     for relative in sorted(manifest_paths - expected_paths):
-        errors.append(
-            f"Unexpected manifest path: {relative}"
-        )
+        errors.append(f"Unexpected manifest path: {relative}")
         failed += 1
 
     root_resolved = root.resolve(strict=True)
@@ -263,31 +242,23 @@ def verify_manifest(
 
         try:
             if candidate.is_symlink():
-                raise ValueError(
-                    "Symbolic links are forbidden"
-                )
+                raise ValueError("Symbolic links are forbidden")
 
             resolved = candidate.resolve(strict=True)
             resolved.relative_to(root_resolved)
 
             if not resolved.is_file():
-                raise ValueError(
-                    "Not a regular file"
-                )
+                raise ValueError("Not a regular file")
 
             actual_hash = sha256_file(resolved)
 
         except (OSError, ValueError) as exc:
-            errors.append(
-                f"{relative}: {exc}"
-            )
+            errors.append(f"{relative}: {exc}")
             failed += 1
             continue
 
         if actual_hash != expected_hash:
-            errors.append(
-                f"{relative}: SHA-256 mismatch"
-            )
+            errors.append(f"{relative}: SHA-256 mismatch")
             failed += 1
         else:
             passed += 1
@@ -299,16 +270,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Verify the P2 SHA-256 source manifest."
     )
-    parser.add_argument(
-        "--root",
-        type=Path,
-        default=P2_ROOT,
-    )
-    parser.add_argument(
-        "--manifest",
-        type=Path,
-        default=DEFAULT_MANIFEST,
-    )
+    parser.add_argument("--root", type=Path, default=P2_ROOT)
+    parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     args = parser.parse_args()
 
     root = args.root.resolve()
@@ -324,13 +287,18 @@ def main() -> int:
 
     try:
         manifest.relative_to(root)
-    except ValueError:
-        print("FAIL: manifest must be inside P2 root")
+        collect_expected_paths(
+            root,
+            require_protected_config=True,
+        )
+    except (OSError, ValueError) as exc:
+        print("FAIL:", exc)
         return 2
 
     passed, failed, errors = verify_manifest(
         root,
         manifest,
+        require_protected_config=True,
     )
 
     for error in errors:
