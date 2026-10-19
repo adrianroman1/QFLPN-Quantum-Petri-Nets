@@ -48,6 +48,17 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _is_excluded(relative: Path) -> bool:
+    return (
+        relative.name in EXCLUDED_NAMES
+        or relative.suffix.lower() in EXCLUDED_SUFFIXES
+        or any(
+            part in EXCLUDED_DIRS
+            for part in relative.parts
+        )
+    )
+
+
 def collect_files(root: Path, output: Path) -> list[Path]:
     root = root.resolve()
     output = output.resolve()
@@ -59,7 +70,6 @@ def collect_files(root: Path, output: Path) -> list[Path]:
         followlinks=False,
     ):
         current_path = Path(current)
-
         retained_directories = []
 
         for directory in directories:
@@ -70,10 +80,8 @@ def collect_files(root: Path, output: Path) -> list[Path]:
                     f"Symbolic directory is forbidden: {candidate}"
                 )
 
-            if directory in EXCLUDED_DIRS:
-                continue
-
-            retained_directories.append(directory)
+            if directory not in EXCLUDED_DIRS:
+                retained_directories.append(directory)
 
         directories[:] = retained_directories
 
@@ -87,22 +95,11 @@ def collect_files(root: Path, output: Path) -> list[Path]:
 
             relative = candidate.relative_to(root)
 
-            if candidate == output:
+            if candidate == output or _is_excluded(relative):
                 continue
 
-            if filename in EXCLUDED_NAMES:
-                continue
-
-            if candidate.suffix.lower() in EXCLUDED_SUFFIXES:
-                continue
-
-            if any(part in EXCLUDED_DIRS for part in relative.parts):
-                continue
-
-            if not candidate.is_file():
-                continue
-
-            files.append(candidate)
+            if candidate.is_file():
+                files.append(candidate)
 
     return sorted(
         files,
@@ -110,9 +107,75 @@ def collect_files(root: Path, output: Path) -> list[Path]:
     )
 
 
+def build_manifest(root: Path, files: list[Path]) -> str:
+    """Build deterministic manifest content from an explicit file list."""
+
+    root = root.resolve()
+    normalized: list[tuple[str, Path]] = []
+    seen: set[str] = set()
+
+    for path in files:
+        candidate = Path(path)
+
+        if candidate.is_symlink():
+            raise ValueError(
+                f"Symbolic file is forbidden: {candidate}"
+            )
+
+        resolved = candidate.resolve(strict=True)
+
+        try:
+            relative = resolved.relative_to(root).as_posix()
+        except ValueError as exc:
+            raise ValueError(
+                f"File is outside manifest root: {candidate}"
+            ) from exc
+
+        if not resolved.is_file():
+            raise ValueError(
+                f"Manifest entry is not a regular file: {candidate}"
+            )
+
+        relative_path = Path(relative)
+
+        if _is_excluded(relative_path):
+            raise ValueError(
+                f"Excluded file cannot be manifested: {relative}"
+            )
+
+        if relative in seen:
+            raise ValueError(
+                f"Duplicate manifest path: {relative}"
+            )
+
+        seen.add(relative)
+        normalized.append((relative, resolved))
+
+    normalized.sort(key=lambda item: item[0])
+
+    lines = [
+        "# QFLPN P2 SHA-256 source manifest",
+        "# Format: SHA256  relative/path",
+        f"# File count: {len(normalized)}",
+    ]
+
+    for relative, path in normalized:
+        lines.append(
+            f"{sha256_file(path)}  {relative}"
+        )
+
+    return "\n".join(lines) + "\n"
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser = argparse.ArgumentParser(
+        description="Generate the deterministic P2 SHA-256 manifest."
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=DEFAULT_OUTPUT,
+    )
     args = parser.parse_args()
 
     root = P2_ROOT.resolve()
@@ -121,33 +184,30 @@ def main() -> int:
     try:
         output.relative_to(root)
         files = collect_files(root, output)
+
+        if not files:
+            print("FAIL: no source files found")
+            return 1
+
+        content = build_manifest(root, files)
+
+        output.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        temporary = output.with_suffix(
+            output.suffix + ".tmp"
+        )
+
+        temporary.write_text(
+            content,
+            encoding="utf-8",
+        )
+        temporary.replace(output)
+
     except (OSError, ValueError) as exc:
         print("FAIL:", exc)
-        return 2
-
-    if not files:
-        print("FAIL: no source files found")
-        return 1
-
-    lines = [
-        "# QFLPN P2 SHA-256 source manifest",
-        "# Format: SHA256  relative/path",
-        f"# File count: {len(files)}",
-    ]
-
-    for path in files:
-        relative = path.relative_to(root).as_posix()
-        lines.append(f"{sha256_file(path)}  {relative}")
-
-    content = "\n".join(lines) + "\n"
-
-    try:
-        output.parent.mkdir(parents=True, exist_ok=True)
-        temporary = output.with_suffix(output.suffix + ".tmp")
-        temporary.write_text(content, encoding="utf-8")
-        temporary.replace(output)
-    except OSError as exc:
-        print("FAIL: cannot write manifest:", exc)
         return 2
 
     print("Manifest:", output)
