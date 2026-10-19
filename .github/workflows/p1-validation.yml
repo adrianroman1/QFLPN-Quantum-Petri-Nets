@@ -1,4 +1,4 @@
-name: P1 Preprint-Aligned Validation
+name: P1 Canonical Reproducibility and Acceptance
 
 on:
   workflow_dispatch:
@@ -14,9 +14,8 @@ on:
       - '.github/workflows/p1-validation.yml'
 
 jobs:
-  p1-python-validation:
+  p1-canonical-validation:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -25,40 +24,66 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: pip
+          cache-dependency-path: P1/requirements-lock.txt
 
       - name: Install locked dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r P1/requirements-lock.txt
 
-      - name: Compile P1 Python sources
-        run: |
-          python -m compileall -q P1/code P1/tests P1/tools
+      - name: Compile P1 sources
+        run: python -m compileall -q P1/code P1/tests P1/tools
 
-      - name: Run legacy mathematical validation
-        run: |
-          python P1/tests/qflpn_validation.py
+      - name: Run legacy P1 mathematical validation
+        run: python P1/tests/qflpn_validation.py
 
-      - name: Run P1 remediation test suite
-        run: |
-          python -m pytest -q P1/tests/test_p1_remediation.py
+      - name: Run legacy CSR rotation consistency validation
+        run: python P1/tests/qflpn_operator_validation.py
 
-      - name: Run CSR rotation consistency validation
-        run: |
-          python P1/tests/qflpn_operator_validation.py
+      - name: Generate canonical reference instance
+        run: python P1/tools/generate_reference_instance.py
 
-      - name: Generate P1 reproducibility reports
-        run: |
-          python P1/tools/generate_p1_reports.py
+      - name: Verify gates, basis convention, and independent implementation
+        run: python P1/tools/verify_reference_instance.py
 
-      - name: Upload P1 validation artifacts
+      - name: Compute formal numerical residuals
+        run: python P1/tools/compute_residuals.py
+
+      - name: Generate existing P1 reports
+        run: python P1/tools/generate_p1_reports.py
+
+      - name: Run complete P1 test suite
+        id: pytest
+        shell: bash
+        run: |
+          mkdir -p P1/reports
+          set +e
+          python -m pytest -q P1/tests --junitxml=P1/reports/junit.xml
+          rc=$?
+          printf '%s\n' "$rc" > P1/reports/pytest_exit_code.txt
+          exit 0
+
+      - name: Aggregate test and numerical evidence
+        if: always()
+        run: python P1/tools/write_test_results.py
+
+      - name: Generate final manifest and SHA-256 inventory
+        if: always()
+        run: python P1/tools/compute_checksums.py
+
+      - name: Verify final package (fail closed)
+        if: always()
+        run: python P1/tools/verify_final_package.py
+
+      - name: Upload P1 evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: P1-validation-artifacts
+          name: P1-canonical-validation-evidence
           path: |
+            P1/artifacts/
             P1/reports/
             P1/MANIFEST.txt
             P1/SHA256SUMS.txt
-            P1/P1_AUDIT_REPORT.md
           if-no-files-found: warn
