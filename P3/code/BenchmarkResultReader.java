@@ -51,8 +51,15 @@ public final class BenchmarkResultReader {
                 inputPath,
                 StandardCharsets.UTF_8);
 
-        List<List<String>> records =
-                parseCsv(content);
+        List<List<String>> records;
+
+        try {
+            records = parseCsv(content);
+        } catch (IllegalArgumentException exception) {
+            throw new IOException(
+                    "Invalid CSV syntax.",
+                    exception);
+        }
 
         if (records.isEmpty()) {
             return List.of();
