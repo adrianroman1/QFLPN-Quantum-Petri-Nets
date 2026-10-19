@@ -54,6 +54,7 @@ jobs:
           test -f P2/tests/test_ordering_sensitivity.py
           test -f P2/tests/test_reference_invariants.py
           test -f P2/tests/test_pennylane_parity.py
+          test -f P2/tests/qflpn_validation.py
           test -f P2/tools/run_all_tests.py
           test -f P2/tools/validate_reports.py
           test -f P2/tools/generate_manifest.py
@@ -62,6 +63,13 @@ jobs:
       - name: Run complete P2 test suite
         run: |
           python P2/tools/run_all_tests.py -v
+
+      - name: Run standalone mathematical validation
+        run: |
+          set -o pipefail
+          export PYTHONPATH="$GITHUB_WORKSPACE/P2/code${PYTHONPATH:+:$PYTHONPATH}"
+          python P2/tests/qflpn_validation.py \
+            2>&1 | tee P2/reports/qflpn-validation.log
 
       - name: Validate machine-readable test evidence
         if: always()
