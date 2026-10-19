@@ -6,10 +6,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from P1.tools.compute_checksums import (
-    inventory_files,
-    sha256_bytes,
-)
+from P1.tools.compute_checksums import inventory_files, sha256_bytes
 from P1.tools.verify_final_package import safe_relative
 from P1.tools.write_test_results import is_valid_numeric, junit_counts
 
@@ -61,6 +58,34 @@ def test_inventory_excludes_bytecode_and_cache_directories(tmp_path):
     relative = {
         path.relative_to(tmp_path).as_posix()
         for path in inventory_files(tmp_path)
+    }
+
+    assert relative == {"P1/valid.py"}
+
+
+def test_inventory_excludes_file_and_directory_symlinks(tmp_path):
+    root = tmp_path
+    p1 = root / "P1"
+    p1.mkdir()
+
+    external_file = root / "external.py"
+    external_file.write_text("external\n")
+
+    external_dir = root / "external_dir"
+    external_dir.mkdir()
+    (external_dir / "hidden.py").write_text("hidden\n")
+
+    try:
+        (p1 / "linked_file.py").symlink_to(external_file)
+        (p1 / "linked_dir").symlink_to(external_dir, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("Symlink creation is unavailable on this platform")
+
+    (p1 / "valid.py").write_text("valid\n")
+
+    relative = {
+        path.relative_to(root).as_posix()
+        for path in inventory_files(root)
     }
 
     assert relative == {"P1/valid.py"}
@@ -163,3 +188,61 @@ def test_junit_counts_accept_consistent_test_report(tmp_path):
     assert (tests, failures, errors, skipped) == (2, 0, 0, 0)
     assert len(names) == 2
     assert problems == []
+
+
+def test_junit_counts_reconciles_nested_testsuites(tmp_path):
+    junit = tmp_path / "nested-junit.xml"
+    junit.write_text(
+        """<?xml version="1.0"?>
+<testsuites tests="2" failures="0" errors="0" skipped="0">
+  <testsuite name="suite_a" tests="2" failures="0" errors="0" skipped="0">
+    <testcase classname="p1" name="test_one"/>
+    <testcase classname="p1" name="test_two"/>
+  </testsuite>
+</testsuites>
+""",
+        encoding="utf-8",
+    )
+
+    tests, failures, errors, skipped, names, problems = junit_counts(junit)
+
+    assert (tests, failures, errors, skipped) == (2, 0, 0, 0)
+    assert len(names) == 2
+    assert problems == []
+
+
+def test_junit_counts_detects_failure_error_and_skipped_cases(tmp_path):
+    junit = tmp_path / "outcomes.xml"
+    junit.write_text(
+        """<?xml version="1.0"?>
+<testsuite tests="3" failures="1" errors="1" skipped="1">
+  <testcase classname="p1" name="test_failure">
+    <failure message="assertion failed"/>
+  </testcase>
+  <testcase classname="p1" name="test_error">
+    <error message="runtime error"/>
+  </testcase>
+  <testcase classname="p1" name="test_skipped">
+    <skipped message="not executed"/>
+  </testcase>
+</testsuite>
+""",
+        encoding="utf-8",
+    )
+
+    tests, failures, errors, skipped, names, problems = junit_counts(junit)
+
+    assert (tests, failures, errors, skipped) == (3, 1, 1, 1)
+    assert len(names) == 3
+    assert problems == []
+
+
+def test_junit_counts_rejects_malformed_xml(tmp_path):
+    junit = tmp_path / "malformed.xml"
+    junit.write_text(
+        "<testsuite><testcase></testsuite>",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ET.ParseError):
+        junit_counts(junit)
