@@ -113,7 +113,7 @@ def is_valid_numeric(value: object) -> bool:
 
 
 def is_valid_integer(value: object) -> bool:
-    """Accept integers but reject bool, which is an int subclass in Python."""
+    """Accept integers but reject bool."""
     return isinstance(value, int) and not isinstance(value, bool)
 
 
@@ -149,12 +149,7 @@ def load_json(path: Path, label: str, errors: list[str]):
 
 
 def rebuild_eligible_inventory_independently(root: Path) -> set[str]:
-    """Rebuild the eligible file set without importing the manifest producer.
-
-    This deliberately uses os.walk rather than compute_checksums.inventory_files,
-    while independently applying the repository inventory inclusion/exclusion
-    rules to P1 and .github/workflows.
-    """
+    """Rebuild eligible files without importing the manifest producer."""
     excluded_names = {"MANIFEST.txt", "SHA256SUMS.txt"}
     excluded_directories = {"__pycache__", ".pytest_cache", ".mypy_cache"}
     scan_roots = (root / "P1", root / ".github" / "workflows")
@@ -209,7 +204,6 @@ def validate_inventory(errors: list[str]):
         manifest_lines = manifest_path.read_text(
             encoding="utf-8"
         ).splitlines()
-
         manifest = [
             line.strip()
             for line in manifest_lines
@@ -549,7 +543,10 @@ def validate_residual_report(
 
         for key, value in checks.items():
             if value is not True:
-                fail(f"residual report check missing, invalid, or false: {key}", errors)
+                fail(
+                    f"residual report check missing, invalid, or false: {key}",
+                    errors,
+                )
 
 
 def validate_independent_report(
@@ -614,13 +611,8 @@ def validate_test_log(
     if not isinstance(checks, dict) or not checks:
         fail("test-log checks missing or invalid", errors)
     else:
-        missing_checks = sorted(set(TEST_LOG_CHECK_KEYS) - set(checks))
-        if missing_checks:
-            fail(
-                "test-log required checks missing: "
-                + ", ".join(missing_checks),
-                errors,
-            )
+        if set(checks) != set(TEST_LOG_CHECK_KEYS):
+            fail("test-log checks schema mismatch", errors)
 
         for key, value in checks.items():
             if value is not True:
@@ -655,14 +647,31 @@ def validate_test_log(
             fail(f"pytest {key} must be integer zero", errors)
 
     test_cases = pytest.get("test_cases")
+
     if (
         not isinstance(test_cases, list)
-        or not all(isinstance(item, str) for item in test_cases)
+        or not all(
+            isinstance(item, str) and bool(item.strip())
+            for item in test_cases
+        )
     ):
-        fail("pytest test_cases must be a list of strings", errors)
-        observed_cases: set[str] = set()
+        fail("pytest test_cases must be a list of non-empty strings", errors)
+        observed_names: set[str] = set()
     else:
-        observed_cases = set(test_cases)
+        if len(test_cases) != len(set(test_cases)):
+            fail("pytest test_cases contains duplicate identifiers", errors)
+
+        if is_valid_integer(tests) and len(test_cases) != tests:
+            fail(
+                "pytest test_cases count does not match pytest tests "
+                f"(test_cases={len(test_cases)}, tests={tests})",
+                errors,
+            )
+
+        observed_names = {
+            entry.rsplit("::", 1)[-1]
+            for entry in test_cases
+        }
 
     required_case_suffixes = {
         "test_density_matrix_trace_is_one",
@@ -689,12 +698,8 @@ def validate_test_log(
         "test_initial_state_is_the_canonical_zero_basis_vector",
     }
 
-    observed_names = {
-        entry.rsplit("::", 1)[-1]
-        for entry in observed_cases
-    }
-
     missing_cases = sorted(required_case_suffixes - observed_names)
+
     if missing_cases:
         fail(
             "required acceptance test cases missing: "
