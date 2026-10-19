@@ -34,6 +34,22 @@ FINITE_CHECK_KEYS = (
 )
 
 INDEPENDENT_CHECK_KEYS = (
+    "schema_version",
+    "instance_id",
+    "qubit_count",
+    "hilbert_space_dimension",
+    "basis_ordering",
+    "initial_state_label",
+    "initial_state_basis_index",
+    "operator_expression",
+    "gate_sequence",
+    "c3x_controls",
+    "c3x_target",
+    "composition_convention",
+    "numeric_dtype",
+    "array_serialization",
+    "canonical_memberships",
+    "canonical_angles",
     "operator_agreement_frobenius",
     "saved_operator_matches_production",
     "constructive_gate_reconstruction",
@@ -45,7 +61,6 @@ INDEPENDENT_CHECK_KEYS = (
     "c3x_truth_table_controls_0_1_2_target_3",
 )
 
-# Every reported numerical discrepancy must be checked independently.
 INDEPENDENT_METRIC_KEYS = (
     "operator_difference_frobenius",
     "saved_operator_difference_frobenius",
@@ -242,7 +257,8 @@ def validate_independent_report(
             )
             valid = False
 
-        for key, value in checks.items():
+        for key in INDEPENDENT_CHECK_KEYS:
+            value = checks.get(key)
             if not isinstance(value, bool):
                 errors.append(
                     f"independent_agreement.json: checks.{key} must be boolean"
