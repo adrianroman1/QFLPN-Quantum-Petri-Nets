@@ -10,6 +10,7 @@ import pytest
 from tools.validate_reports import (
     validate_pytest_report,
     validate_pytest_json,
+    validate_junit,
 )
 
 from tools.generate_manifest import (
@@ -21,7 +22,6 @@ from tools.verify_sha256 import verify_manifest
 
 
 def valid_report() -> dict:
-    """Return a valid schema-version-2 pytest report."""
     return {
         "schema_version": 2,
         "runner": "pytest",
@@ -49,7 +49,6 @@ def write_report(
     tmp_path: Path,
     report: dict,
 ) -> Path:
-    """Write a report to a temporary JSON file."""
     path = tmp_path / "pytest-run.json"
 
     path.write_text(
@@ -58,6 +57,31 @@ def write_report(
     )
 
     return path
+
+
+def write_junit(
+    tmp_path: Path,
+    content: str,
+) -> Path:
+    path = tmp_path / "junit.xml"
+
+    path.write_text(
+        content,
+        encoding="utf-8",
+    )
+
+    return path
+
+
+def valid_junit_xml() -> str:
+    return """<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="2" failures="0" errors="0" skipped="0">
+    <testsuite name="P2" tests="2" failures="0" errors="0" skipped="0">
+        <testcase classname="P2.test_one" name="test_one"/>
+        <testcase classname="P2.test_two" name="test_two"/>
+    </testsuite>
+</testsuites>
+"""
 
 
 def test_valid_schema_v2_report_is_accepted():
@@ -132,16 +156,37 @@ def test_report_rejects_no_tests_ran():
 
 def test_report_rejects_failure_summary():
     report = valid_report()
-    report["stdout"] = (
-        "10 passed, 1 failed"
-    )
+    report["stdout"] = "10 passed, 1 failed"
 
     errors = validate_pytest_report(report)
 
     assert any(
-        "failure indicator" in error
+        "pytest summary reports failures or errors" in error
         for error in errors
     )
+
+
+def test_report_rejects_error_summary():
+    report = valid_report()
+    report["stdout"] = "10 passed, 1 error"
+
+    errors = validate_pytest_report(report)
+
+    assert any(
+        "pytest summary reports failures or errors" in error
+        for error in errors
+    )
+
+
+def test_report_allows_failure_word_outside_summary():
+    report = valid_report()
+    report["stdout"] = (
+        "Test named test_failed_state passed\n"
+        "============================== 10 passed "
+        "=============================="
+    )
+
+    assert validate_pytest_report(report) == []
 
 
 def test_report_rejects_non_finite_numeric_value():
@@ -191,6 +236,170 @@ def test_json_reader_rejects_missing_file(tmp_path: Path):
     path = tmp_path / "missing.json"
 
     assert validate_pytest_json(path)
+
+
+# ---------------------------------------------------------
+# JUnit adversarial validation
+# ---------------------------------------------------------
+
+
+def test_junit_accepts_valid_report(tmp_path: Path):
+    path = write_junit(
+        tmp_path,
+        valid_junit_xml(),
+    )
+
+    assert validate_junit(path) == []
+
+
+def test_junit_rejects_missing_file(tmp_path: Path):
+    path = tmp_path / "missing.xml"
+
+    errors = validate_junit(path)
+
+    assert errors
+    assert any(
+        "does not exist" in error
+        for error in errors
+    )
+
+
+def test_junit_rejects_malformed_xml(tmp_path: Path):
+    path = write_junit(
+        tmp_path,
+        "<testsuites><testsuite>",
+    )
+
+    assert validate_junit(path)
+
+
+def test_junit_rejects_unexpected_root(tmp_path: Path):
+    path = write_junit(
+        tmp_path,
+        "<unexpected/>",
+    )
+
+    errors = validate_junit(path)
+
+    assert any(
+        "Unexpected JUnit root" in error
+        for error in errors
+    )
+
+
+def test_junit_rejects_zero_tests(tmp_path: Path):
+    path = write_junit(
+        tmp_path,
+        """<testsuite tests="0" failures="0" errors="0"/>""",
+    )
+
+    errors = validate_junit(path)
+
+    assert any(
+        "zero tests" in error
+        for error in errors
+    )
+
+
+def test_junit_rejects_failure_count(tmp_path: Path):
+    path = write_junit(
+        tmp_path,
+        """<testsuite tests="1" failures="1" errors="0">
+        <testcase name="test_failure">
+            <failure message="failure"/>
+        </testcase>
+        </testsuite>""",
+    )
+
+    errors = validate_junit(path)
+
+    assert any(
+        "failures" in error
+        for error in errors
+    )
+
+
+def test_junit_rejects_error_count(tmp_path: Path):
+    path = write_junit(
+        tmp_path,
+        """<testsuite tests="1" failures="0" errors="1">
+        <testcase name="test_error">
+            <error message="error"/>
+        </testcase>
+        </testsuite>""",
+    )
+
+    errors = validate_junit(path)
+
+    assert any(
+        "errors" in error
+        for error in errors
+    )
+
+
+def test_junit_rejects_invalid_numeric_counter(tmp_path: Path):
+    path = write_junit(
+        tmp_path,
+        """<testsuite tests="invalid" failures="0" errors="0"/>""",
+    )
+
+    errors = validate_junit(path)
+
+    assert any(
+        "invalid numeric counters" in error
+        for error in errors
+    )
+
+
+def test_junit_rejects_negative_counter(tmp_path: Path):
+    path = write_junit(
+        tmp_path,
+        """<testsuite tests="-1" failures="0" errors="0"/>""",
+    )
+
+    errors = validate_junit(path)
+
+    assert any(
+        "must not be negative" in error
+        for error in errors
+    )
+
+
+def test_junit_rejects_testcase_count_mismatch(tmp_path: Path):
+    path = write_junit(
+        tmp_path,
+        """<testsuite tests="2" failures="0" errors="0">
+        <testcase name="only_one"/>
+        </testsuite>""",
+    )
+
+    errors = validate_junit(path)
+
+    assert any(
+        "does not match testcase elements" in error
+        for error in errors
+    )
+
+
+def test_junit_rejects_skipped_count_above_total(tmp_path: Path):
+    path = write_junit(
+        tmp_path,
+        """<testsuite tests="1" failures="0" errors="0" skipped="2">
+        <testcase name="test_one"/>
+        </testsuite>""",
+    )
+
+    errors = validate_junit(path)
+
+    assert any(
+        "skipped count exceeds" in error
+        for error in errors
+    )
+
+
+# ---------------------------------------------------------
+# SHA-256 manifest integrity
+# ---------------------------------------------------------
 
 
 def test_manifest_excludes_cache_and_bytecode(
