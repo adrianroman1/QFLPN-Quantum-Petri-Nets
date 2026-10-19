@@ -1,27 +1,26 @@
-```markdown
 # P3 — Benchmark Reproducibility Protocol
 
 ## 1. Objective
 
-This protocol defines how to reproduce the P3 large-scale
-CSR sparse matrix-vector benchmark.
+This protocol defines the reproducible execution of the P3
+large-scale CSR sparse matrix-vector benchmark.
 
-The benchmark is deterministic with respect to matrix
-construction and input-vector generation.
+The benchmark uses deterministic matrix and vector construction.
 
-No random-number generator is used by the current
-BenchmarkRunner implementation.
+No random-number generator is used.
 
 Therefore:
 
 - random seed: NOT APPLICABLE;
 - matrix generation: deterministic;
 - input vector: x[i] = 1.0;
-- expected output: y[i] = 1.5.
+- expected output: y[i] = 1.5;
+- matrix dimension: N;
+- number of non-zero elements: NNZ = 2N.
 
 ## 2. Required software
 
-The CI validation run used:
+The successful P3 CI validation run used:
 
 | Component | Observed CI version |
 |---|---|
@@ -32,21 +31,65 @@ The CI validation run used:
 | Maven Compiler Plugin | 3.13.0 |
 | Maven Surefire Plugin | 3.2.5 |
 
-The local execution environment must be captured separately.
-Do not assume that the local machine has the same CPU,
-operating system, JVM build, or memory limit as GitHub Actions.
+These are CI environment observations.
+They must not be presented as the local benchmark environment.
 
-## 3. Primary benchmark parameters
+The local benchmark environment must be captured independently.
 
-The reproducibility run uses:
+## 3. Benchmark configuration
 
-```text
-N             = 1000000
-NNZ           = 2000000
-warmup        = 5
-iterations    = 10
-threshold     = 4096
-parallelism   = 2
-input         = x[i] = 1.0
-expected      = y[i] = 1.5
-tolerance     = 1.0e-12
+Default reproducibility configuration:
+
+| Parameter | Value |
+|---|---:|
+| N | 1,000,000 |
+| NNZ | 2,000,000 |
+| Warm-up iterations | 5 |
+| Measured iterations | 10 |
+| Fork/Join threshold | 4096 |
+| Fork/Join parallelism | 2 |
+| Input vector | x[i] = 1.0 |
+| Expected output | y[i] = 1.5 |
+| Numerical tolerance | 1.0e-12 |
+| Timing method | System.nanoTime() |
+
+The benchmark accepts explicit command-line parameters.
+The actual parameters stored in the CSV row are authoritative.
+
+## 4. Matrix construction
+
+For each row i, the benchmark creates:
+
+A[i,i] = 1.0
+
+A[i,i+1] = 0.5, when i < N-1
+
+For the final row:
+
+A[N-1,0] = 0.5
+
+Thus, for N > 1:
+
+NNZ = 2N
+
+The input vector is:
+
+x[i] = 1.0
+
+The expected result is:
+
+y[i] = 1.5
+
+This is a deterministic synthetic benchmark matrix.
+It is not the 4 x 4 correctness matrix in manuscript Section 13.
+
+## 5. Execution procedure
+
+The canonical execution script is:
+
+`P3/results/run_benchmark.sh`
+
+From the repository root, execute:
+
+```bash
+bash P3/results/run_benchmark.sh
