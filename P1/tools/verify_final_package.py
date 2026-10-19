@@ -7,6 +7,7 @@ import math
 import re
 import sys
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 import numpy as np
 
@@ -17,16 +18,17 @@ if str(ROOT) not in sys.path:
 from P1.tools.constants import (
     BASIS_ORDERING,
     CANONICAL_MEMBERSHIPS,
+    GATE_SEQUENCE,
     HILBERT_SPACE_DIMENSION,
     NUMERICAL_TOLERANCE,
     QUBIT_COUNT,
 )
+from P1.tools.compute_checksums import inventory_files
 
 P1 = ROOT / "P1"
 ART = P1 / "artifacts"
 REPORTS = P1 / "reports"
 
-# Files that must exist and must be tracked by both inventories.
 REQUIRED = [
     "P1/artifacts/operator.npy",
     "P1/artifacts/initial_state.npy",
@@ -38,7 +40,6 @@ REQUIRED = [
     "P1/reports/test_log.json",
 ]
 
-# Inventory files must exist physically, but must never inventory themselves.
 INVENTORY_FILES = [
     "P1/MANIFEST.txt",
     "P1/SHA256SUMS.txt",
@@ -49,10 +50,59 @@ MANIFEST_REQUIRED = set(REQUIRED)
 
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 
+RESIDUAL_KEYS = (
+    "operator_unitarity_frobenius",
+    "density_trace_absolute_error",
+    "density_hermiticity_frobenius",
+    "density_psd_residual",
+    "state_norm_absolute_error",
+    "state_evolution_l2_residual",
+    "pure_state_density_frobenius",
+)
+
+FINITE_CHECK_KEYS = (
+    "operator_finite",
+    "initial_state_finite",
+    "final_state_finite",
+    "density_matrix_finite",
+)
+
+INDEPENDENT_METRIC_KEYS = (
+    "operator_difference_frobenius",
+    "state_difference_l2",
+    "state_fidelity_error",
+)
+
+TEST_LOG_CHECK_KEYS = (
+    "pytest_exit_code_zero",
+    "pytest_tests_nonzero",
+    "pytest_failures_zero",
+    "pytest_errors_zero",
+    "pytest_skipped_zero",
+    "junit_counters_reconciled",
+    "residuals",
+    "independent_agreement",
+)
+
 
 def fail(message: str, errors: list[str]) -> None:
     """Record a validation failure without stopping subsequent checks."""
     errors.append(message)
+
+
+def is_valid_numeric(value: object) -> bool:
+    """Accept finite int/float values, but never bool."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(float(value))
+    except (TypeError, ValueError, OverflowError):
+        return False
+
+
+def is_valid_integer(value: object) -> bool:
+    """Accept integers but reject bool, which is an int subclass in Python."""
+    return isinstance(value, int) and not isinstance(value, bool)
 
 
 def safe_relative(value: str) -> bool:
@@ -87,14 +137,13 @@ def load_json(path: Path, label: str, errors: list[str]):
 
 
 def validate_inventory(errors: list[str]):
-    """Validate manifest/checksum structure and return parsed inventories."""
+    """Validate both inventories against the independently rebuilt file set."""
     manifest_path = P1 / "MANIFEST.txt"
     checksum_path = P1 / "SHA256SUMS.txt"
 
     manifest: list[str] = []
     checksum_map: dict[str, str] = {}
 
-    # Physical existence is checked independently from inventory membership.
     for rel in INVENTORY_FILES:
         if not (ROOT / rel).is_file():
             fail(f"missing required inventory file: {rel}", errors)
@@ -136,15 +185,10 @@ def validate_inventory(errors: list[str]):
         if not (ROOT / rel).is_file():
             fail(f"manifest path does not exist: {rel}", errors)
 
-    # Every tracked required artifact/report must appear in the manifest.
     for rel in sorted(MANIFEST_REQUIRED):
         if rel not in manifest:
-            fail(
-                f"required file absent from manifest: {rel}",
-                errors,
-            )
+            fail(f"required file absent from manifest: {rel}", errors)
 
-    # Parse SHA-256 inventory.
     try:
         checksum_lines = checksum_path.read_text(
             encoding="utf-8"
@@ -171,7 +215,6 @@ def validate_inventory(errors: list[str]):
 
         checksum_map[rel] = digest
 
-    # Inventory files must not be included in their own checksum inventory.
     for rel in INVENTORY_FILES:
         if rel in checksum_map:
             fail(
@@ -179,23 +222,51 @@ def validate_inventory(errors: list[str]):
                 errors,
             )
 
-    # The manifest and checksum inventory must describe exactly the same files.
     manifest_paths = set(manifest)
-
-    checksum_paths = set(checksum_map) - INVENTORY_FILE_SET
+    checksum_paths = set(checksum_map)
 
     if manifest_paths != checksum_paths:
-        missing_from_checksums = sorted(
-            manifest_paths - checksum_paths
-        )
-        missing_from_manifest = sorted(
-            checksum_paths - manifest_paths
-        )
-
+        missing_from_checksums = sorted(manifest_paths - checksum_paths)
+        missing_from_manifest = sorted(checksum_paths - manifest_paths)
         fail(
             "manifest and checksum path sets differ "
             f"(missing from checksums: {missing_from_checksums}; "
             f"missing from manifest: {missing_from_manifest})",
+            errors,
+        )
+
+    # A06: independently reconstruct the eligible inventory using the
+    # exact producer function and compare both inventories against it.
+    try:
+        eligible_files = {
+            path.relative_to(ROOT).as_posix()
+            for path in inventory_files(ROOT)
+        }
+    except Exception as exc:
+        fail(
+            "independent inventory reconstruction failed: "
+            f"{type(exc).__name__}: {exc}",
+            errors,
+        )
+        eligible_files = set()
+
+    if eligible_files != manifest_paths:
+        missing_from_manifest = sorted(eligible_files - manifest_paths)
+        extra_in_manifest = sorted(manifest_paths - eligible_files)
+        fail(
+            "manifest does not match independently reconstructed inventory "
+            f"(missing: {missing_from_manifest}; "
+            f"extra: {extra_in_manifest})",
+            errors,
+        )
+
+    if eligible_files != checksum_paths:
+        missing_from_checksums = sorted(eligible_files - checksum_paths)
+        extra_in_checksums = sorted(checksum_paths - eligible_files)
+        fail(
+            "SHA-256 inventory does not match independently reconstructed inventory "
+            f"(missing: {missing_from_checksums}; "
+            f"extra: {extra_in_checksums})",
             errors,
         )
 
@@ -284,10 +355,10 @@ def validate_metadata(errors: list[str]) -> None:
     ):
         fail("C3X control/target metadata mismatch", errors)
 
+    # A05: exact canonical sequence comparison, not a length-only check.
     gate_sequence = metadata.get("gate_sequence")
-
-    if not isinstance(gate_sequence, list) or len(gate_sequence) != 5:
-        fail("gate sequence missing or incomplete", errors)
+    if gate_sequence != GATE_SEQUENCE:
+        fail("gate sequence mismatch with canonical GATE_SEQUENCE", errors)
 
     for key in (
         "python_version",
@@ -385,121 +456,162 @@ def validate_arrays(errors: list[str]) -> None:
         )
 
 
-def validate_reports(errors: list[str]) -> None:
-    residuals = load_json(
-        REPORTS / "residuals.json",
-        "residual report",
-        errors,
-    )
+def validate_residual_report(
+    residuals: dict[str, Any],
+    errors: list[str],
+) -> None:
+    if residuals.get("status") != "PASS":
+        fail("residual report status is not PASS", errors)
 
-    independent = load_json(
-        REPORTS / "independent_agreement.json",
-        "independent agreement report",
-        errors,
-    )
+    if residuals.get("all_checks_pass") is not True:
+        fail("residual report all_checks_pass is not true", errors)
 
-    test_log = load_json(
-        REPORTS / "test_log.json",
-        "test log",
-        errors,
-    )
+    tolerance = residuals.get("numerical_tolerance")
+    if (
+        not is_valid_numeric(tolerance)
+        or tolerance != NUMERICAL_TOLERANCE
+    ):
+        fail("residual tolerance invalid or mismatched", errors)
 
-    if residuals is not None:
-        if not isinstance(residuals, dict):
-            fail("residual report root must be a JSON object", errors)
-        else:
-            if (
-                residuals.get("status") != "PASS"
-                or residuals.get("all_checks_pass") is not True
-            ):
-                fail("residual report is not PASS", errors)
+    finite_checks = residuals.get("finite_checks")
+    if not isinstance(finite_checks, dict):
+        fail("residual finite_checks must be an object", errors)
+        finite_checks = {}
 
-            if residuals.get("numerical_tolerance") != NUMERICAL_TOLERANCE:
-                fail("residual tolerance mismatch", errors)
+    for key in FINITE_CHECK_KEYS:
+        value = finite_checks.get(key)
+        if value is not True:
+            fail(f"residual finite check missing or false: {key}", errors)
 
-    if independent is not None:
-        if not isinstance(independent, dict):
+    for key in RESIDUAL_KEYS:
+        value = residuals.get(key)
+        if not is_valid_numeric(value):
+            fail(f"residual metric invalid or non-finite: {key}", errors)
+        elif value < 0 or value > NUMERICAL_TOLERANCE:
+            fail(f"residual metric outside tolerance: {key}", errors)
+
+    checks = residuals.get("checks")
+    if not isinstance(checks, dict) or not checks:
+        fail("residual report checks missing or invalid", errors)
+    else:
+        expected_keys = set(FINITE_CHECK_KEYS) | set(RESIDUAL_KEYS)
+        if set(checks) != expected_keys:
+            fail("residual report checks schema mismatch", errors)
+
+        for key, value in checks.items():
+            if value is not True:
+                fail(f"residual report check missing, invalid, or false: {key}", errors)
+
+
+def validate_independent_report(
+    independent: dict[str, Any],
+    errors: list[str],
+) -> None:
+    if independent.get("status") != "PASS":
+        fail("independent agreement is not PASS", errors)
+
+    if independent.get("all_checks_pass") is not True:
+        fail("independent agreement all_checks_pass is not true", errors)
+
+    tolerance = independent.get("numerical_tolerance")
+    if (
+        not is_valid_numeric(tolerance)
+        or tolerance != NUMERICAL_TOLERANCE
+    ):
+        fail("independent tolerance invalid or mismatched", errors)
+
+    checks = independent.get("checks")
+    if not isinstance(checks, dict) or not checks:
+        fail("independent agreement checks missing or invalid", errors)
+    else:
+        for key, value in checks.items():
+            if value is not True:
+                fail(
+                    f"independent agreement check missing, invalid, or false: {key}",
+                    errors,
+                )
+
+    for key in INDEPENDENT_METRIC_KEYS:
+        value = independent.get(key)
+        if not is_valid_numeric(value):
+            fail(f"independent metric invalid or non-finite: {key}", errors)
+        elif value < 0 or value > NUMERICAL_TOLERANCE:
             fail(
-                "independent agreement report root must be a JSON object",
+                f"independent metric outside tolerance: {key}",
                 errors,
             )
-        else:
-            if (
-                independent.get("status") != "PASS"
-                or independent.get("all_checks_pass") is not True
-            ):
-                fail("independent agreement is not PASS", errors)
 
-            if (
-                independent.get("numerical_tolerance")
-                != NUMERICAL_TOLERANCE
-            ):
-                fail("independent tolerance mismatch", errors)
 
-            for key in (
-                "operator_difference_frobenius",
-                "state_difference_l2",
-                "state_fidelity_error",
-            ):
-                value = independent.get(key)
-
-                if (
-                    not isinstance(value, (int, float))
-                    or not math.isfinite(float(value))
-                    or value < 0
-                    or value > NUMERICAL_TOLERANCE
-                ):
-                    fail(
-                        f"independent metric invalid or out of tolerance: {key}",
-                        errors,
-                    )
-
-    if test_log is None:
-        return
-
-    if not isinstance(test_log, dict):
-        fail("test log root must be a JSON object", errors)
-        return
-
-    checks = test_log.get("checks", {})
-
+def validate_test_log(
+    test_log: dict[str, Any],
+    errors: list[str],
+) -> None:
     if test_log.get("verdict") != "P1_PENDING_PACKAGE_INTEGRITY":
         fail(
             "test log is rejected or not pending package integrity",
             errors,
         )
 
-    if not isinstance(checks, dict) or not checks or not all(
-        value is True for value in checks.values()
+    tolerance = test_log.get("numerical_tolerance")
+    if (
+        not is_valid_numeric(tolerance)
+        or tolerance != NUMERICAL_TOLERANCE
     ):
-        fail(
-            "one or more aggregated test-log checks failed",
-            errors,
-        )
+        fail("test-log numerical tolerance invalid or mismatched", errors)
 
-    pytest = test_log.get("pytest", {})
+    checks = test_log.get("checks")
+    if not isinstance(checks, dict) or not checks:
+        fail("test-log checks missing or invalid", errors)
+    else:
+        missing_checks = sorted(set(TEST_LOG_CHECK_KEYS) - set(checks))
+        if missing_checks:
+            fail(
+                "test-log required checks missing: "
+                + ", ".join(missing_checks),
+                errors,
+            )
 
+        for key, value in checks.items():
+            if value is not True:
+                fail(
+                    f"one or more aggregated test-log checks failed: {key}",
+                    errors,
+                )
+
+    pytest = test_log.get("pytest")
     if not isinstance(pytest, dict):
         fail("pytest section missing or invalid", errors)
         return
 
-    if pytest.get("exit_code") != 0 or pytest.get("tests", 0) <= 0:
-        fail(
-            "pytest exit code or test count invalid",
-            errors,
-        )
+    exit_code = pytest.get("exit_code")
+    tests = pytest.get("tests")
+    failures = pytest.get("failures")
+    test_errors = pytest.get("errors")
+    skipped = pytest.get("skipped")
 
-    if (
-        pytest.get("failures") != 0
-        or pytest.get("errors") != 0
-        or pytest.get("skipped") != 0
+    if not is_valid_integer(exit_code) or exit_code != 0:
+        fail("pytest exit code invalid or nonzero", errors)
+
+    if not is_valid_integer(tests) or tests <= 0:
+        fail("pytest test count invalid or zero", errors)
+
+    for key, value in (
+        ("failures", failures),
+        ("errors", test_errors),
+        ("skipped", skipped),
     ):
-        fail(
-            "pytest failures/errors/skips must all be zero",
-            errors,
-        )
+        if not is_valid_integer(value) or value != 0:
+            fail(f"pytest {key} must be integer zero", errors)
 
-    observed_cases = set(pytest.get("test_cases", []))
+    test_cases = pytest.get("test_cases")
+    if (
+        not isinstance(test_cases, list)
+        or not all(isinstance(item, str) for item in test_cases)
+    ):
+        fail("pytest test_cases must be a list of strings", errors)
+        observed_cases: set[str] = set()
+    else:
+        observed_cases = set(test_cases)
 
     required_case_suffixes = {
         "test_density_matrix_trace_is_one",
@@ -529,10 +641,7 @@ def validate_reports(errors: list[str]) -> None:
         for entry in observed_cases
     }
 
-    missing_cases = sorted(
-        required_case_suffixes - observed_names
-    )
-
+    missing_cases = sorted(required_case_suffixes - observed_names)
     if missing_cases:
         fail(
             "required acceptance test cases missing: "
@@ -541,18 +650,56 @@ def validate_reports(errors: list[str]) -> None:
         )
 
 
+def validate_reports(errors: list[str]) -> None:
+    residuals = load_json(
+        REPORTS / "residuals.json",
+        "residual report",
+        errors,
+    )
+
+    independent = load_json(
+        REPORTS / "independent_agreement.json",
+        "independent agreement report",
+        errors,
+    )
+
+    test_log = load_json(
+        REPORTS / "test_log.json",
+        "test log",
+        errors,
+    )
+
+    if residuals is not None:
+        if not isinstance(residuals, dict):
+            fail("residual report root must be a JSON object", errors)
+        else:
+            validate_residual_report(residuals, errors)
+
+    if independent is not None:
+        if not isinstance(independent, dict):
+            fail(
+                "independent agreement report root must be a JSON object",
+                errors,
+            )
+        else:
+            validate_independent_report(independent, errors)
+
+    if test_log is not None:
+        if not isinstance(test_log, dict):
+            fail("test log root must be a JSON object", errors)
+        else:
+            validate_test_log(test_log, errors)
+
+
 def main() -> None:
     errors: list[str] = []
 
-    # Required artifact and report files must exist physically.
     for rel in REQUIRED:
         if not (ROOT / rel).is_file():
             fail(f"missing required file: {rel}", errors)
 
-    # Validate inventories independently from tracked-file requirements.
     manifest, checksum_map = validate_inventory(errors)
 
-    # Validate canonical metadata, numerical artifacts, and evidence reports.
     validate_metadata(errors)
     validate_arrays(errors)
     validate_reports(errors)
