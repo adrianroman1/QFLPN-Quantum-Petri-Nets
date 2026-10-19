@@ -6,7 +6,6 @@ import argparse
 import hashlib
 import os
 import re
-
 from pathlib import Path
 
 P2_ROOT = Path(__file__).resolve().parents[1]
@@ -23,7 +22,6 @@ EXCLUDED_DIRS = {
     ".venv",
     "venv",
     "site-packages",
-    "reports",
     "results",
 }
 
@@ -35,6 +33,10 @@ EXCLUDED_NAMES = {
 EXCLUDED_SUFFIXES = {
     ".pyc",
     ".pyo",
+}
+
+PROTECTED_REPORT_FILES = {
+    "reports/reference_config.json",
 }
 
 
@@ -51,8 +53,29 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def is_excluded(relative: Path) -> bool:
+    normalized = relative.as_posix()
+
+    if normalized in PROTECTED_REPORT_FILES:
+        return False
+
+    if relative.name in EXCLUDED_NAMES:
+        return True
+
+    if relative.suffix.lower() in EXCLUDED_SUFFIXES:
+        return True
+
+    if any(part in EXCLUDED_DIRS for part in relative.parts):
+        return True
+
+    if "reports" in relative.parts:
+        return True
+
+    return False
+
+
 def collect_expected_paths(root: Path) -> set[str]:
-    root = root.resolve()
+    root = root.resolve(strict=True)
     expected: set[str] = set()
 
     for current, directories, filenames in os.walk(
@@ -86,36 +109,63 @@ def collect_expected_paths(root: Path) -> set[str]:
 
             relative = candidate.relative_to(root)
 
-            if filename in EXCLUDED_NAMES:
-                continue
-
-            if candidate.suffix.lower() in EXCLUDED_SUFFIXES:
-                continue
-
-            if any(part in EXCLUDED_DIRS for part in relative.parts):
+            if is_excluded(relative):
                 continue
 
             if candidate.is_file():
                 expected.add(relative.as_posix())
+
+    protected_config = "reports/reference_config.json"
+
+    if protected_config not in expected:
+        raise ValueError(
+            "Required protected configuration is missing: "
+            f"{protected_config}"
+        )
 
     return expected
 
 
 def parse_manifest(
     manifest: Path,
-) -> tuple[dict[str, str], list[str]]:
+) -> tuple[dict[str, str], list[str], int | None]:
     entries: dict[str, str] = {}
     errors: list[str] = []
+    declared_count: int | None = None
 
     try:
-        lines = manifest.read_text(encoding="utf-8").splitlines()
+        lines = manifest.read_text(
+            encoding="utf-8"
+        ).splitlines()
     except (OSError, UnicodeError) as exc:
-        return {}, [f"Cannot read manifest: {exc}"]
+        return {}, [f"Cannot read manifest: {exc}"], None
 
     for line_number, line in enumerate(lines, start=1):
         stripped = line.strip()
 
-        if not stripped or stripped.startswith("#"):
+        if not stripped:
+            continue
+
+        if stripped.startswith("#"):
+            prefix = "# File count:"
+
+            if stripped.startswith(prefix):
+                if declared_count is not None:
+                    errors.append(
+                        f"Line {line_number}: duplicate file count header"
+                    )
+                    continue
+
+                value = stripped[len(prefix):].strip()
+
+                if not value.isdigit():
+                    errors.append(
+                        f"Line {line_number}: invalid file count header"
+                    )
+                    continue
+
+                declared_count = int(value)
+
             continue
 
         parts = stripped.split(maxsplit=1)
@@ -137,12 +187,14 @@ def parse_manifest(
 
         if (
             candidate.is_absolute()
-            or ".." in candidate.parts
             or not candidate.parts
+            or ".." in candidate.parts
+            or "." in candidate.parts
             or "\\" in relative_path
+            or candidate.as_posix() != relative_path
         ):
             errors.append(
-                f"Line {line_number}: unsafe path"
+                f"Line {line_number}: unsafe or non-normalized path"
             )
             continue
 
@@ -154,11 +206,7 @@ def parse_manifest(
             )
             continue
 
-        if (
-            candidate.name in EXCLUDED_NAMES
-            or candidate.suffix.lower() in EXCLUDED_SUFFIXES
-            or any(part in EXCLUDED_DIRS for part in candidate.parts)
-        ):
+        if is_excluded(candidate):
             errors.append(
                 f"Line {line_number}: excluded path listed"
             )
@@ -166,17 +214,25 @@ def parse_manifest(
 
         entries[normalized] = expected_hash
 
+    if declared_count is None:
+        errors.append("Manifest is missing the file count header")
+    elif declared_count != len(entries):
+        errors.append(
+            "Manifest file count mismatch: "
+            f"declared={declared_count}, parsed={len(entries)}"
+        )
+
     if not entries and not errors:
         errors.append("Manifest contains no entries")
 
-    return entries, errors
+    return entries, errors, declared_count
 
 
 def verify_manifest(
     root: Path,
     manifest: Path,
 ) -> tuple[int, int, list[str]]:
-    entries, errors = parse_manifest(manifest)
+    entries, errors, _ = parse_manifest(manifest)
 
     passed = 0
     failed = len(errors)
@@ -189,37 +245,49 @@ def verify_manifest(
     manifest_paths = set(entries)
 
     for relative in sorted(expected_paths - manifest_paths):
-        errors.append(f"Missing from manifest: {relative}")
+        errors.append(
+            f"Missing from manifest: {relative}"
+        )
         failed += 1
 
     for relative in sorted(manifest_paths - expected_paths):
-        errors.append(f"Unexpected manifest path: {relative}")
+        errors.append(
+            f"Unexpected manifest path: {relative}"
+        )
         failed += 1
 
-    root_resolved = root.resolve()
+    root_resolved = root.resolve(strict=True)
 
     for relative, expected_hash in sorted(entries.items()):
         candidate = root / relative
 
         try:
             if candidate.is_symlink():
-                raise ValueError("Symbolic links are forbidden")
+                raise ValueError(
+                    "Symbolic links are forbidden"
+                )
 
             resolved = candidate.resolve(strict=True)
             resolved.relative_to(root_resolved)
 
             if not resolved.is_file():
-                raise ValueError("Not a regular file")
+                raise ValueError(
+                    "Not a regular file"
+                )
 
             actual_hash = sha256_file(resolved)
 
         except (OSError, ValueError) as exc:
-            errors.append(f"{relative}: {exc}")
+            errors.append(
+                f"{relative}: {exc}"
+            )
             failed += 1
             continue
 
         if actual_hash != expected_hash:
-            errors.append(f"{relative}: SHA-256 mismatch")
+            errors.append(
+                f"{relative}: SHA-256 mismatch"
+            )
             failed += 1
         else:
             passed += 1
@@ -228,9 +296,19 @@ def verify_manifest(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--root", type=Path, default=P2_ROOT)
-    parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
+    parser = argparse.ArgumentParser(
+        description="Verify the P2 SHA-256 source manifest."
+    )
+    parser.add_argument(
+        "--root",
+        type=Path,
+        default=P2_ROOT,
+    )
+    parser.add_argument(
+        "--manifest",
+        type=Path,
+        default=DEFAULT_MANIFEST,
+    )
     args = parser.parse_args()
 
     root = args.root.resolve()
@@ -250,7 +328,10 @@ def main() -> int:
         print("FAIL: manifest must be inside P2 root")
         return 2
 
-    passed, failed, errors = verify_manifest(root, manifest)
+    passed, failed, errors = verify_manifest(
+        root,
+        manifest,
+    )
 
     for error in errors:
         print("FAIL:", error)
