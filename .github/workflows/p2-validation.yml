@@ -53,16 +53,53 @@ jobs:
 
       - name: Validate required P2 files
         run: |
+          set -eu
+
           test -f P2/code/qflpn_reference.py
+
+          test -f P2/reports/reference_config.json
+
+          test -f P2/tests/test_reference.py
           test -f P2/tests/test_manuscript_alignment.py
           test -f P2/tests/test_ordering_sensitivity.py
           test -f P2/tests/test_reference_invariants.py
+          test -f P2/tests/test_entanglement.py
+          test -f P2/tests/test_entanglement_metrics.py
           test -f P2/tests/test_pennylane_parity.py
           test -f P2/tests/qflpn_validation.py
+
+          test -f P2/tests/test_published_tables.py
+          test -f P2/tests/test_reference_artifacts.py
+
           test -f P2/tools/run_all_tests.py
           test -f P2/tools/validate_reports.py
           test -f P2/tools/generate_manifest.py
           test -f P2/tools/verify_sha256.py
+          test -f P2/tools/generate_reference_artifacts.py
+
+          test -f P2/REPRODUCIBILITY.md
+
+      - name: Validate reference configuration
+        run: |
+          python -c "
+          import json
+          from pathlib import Path
+
+          path = Path('P2/reports/reference_config.json')
+          config = json.loads(path.read_text(encoding='utf-8'))
+
+          assert config['schema_version'] == 1
+          assert config['qubits'] == 4
+          assert config['hilbert_dimension'] == 16
+          assert config['basis_order'] == 'big-endian'
+          assert config['activation_vector'] == [0.85, 0.90, 0.45, 0.70]
+          assert config['controlled_gate'] == 'C3X'
+          assert config['controlled_gate_basis_indices'] == [14, 15]
+          assert config['operator_order'] == 'U = C3X @ U_rot'
+          assert config['entropy_unit'] == 'bits'
+
+          print('PASS: P2 reference configuration')
+          "
 
       - name: Run complete P2 test suite
         run: |
@@ -70,10 +107,82 @@ jobs:
 
       - name: Run standalone mathematical validation
         run: |
-          set -o pipefail
+          set -eu
           export PYTHONPATH="$GITHUB_WORKSPACE/P2/code${PYTHONPATH:+:$PYTHONPATH}"
           python P2/tests/qflpn_validation.py \
             2>&1 | tee P2/reports/qflpn-validation.log
+
+      - name: Generate manuscript-aligned reference artifacts
+        run: |
+          python P2/tools/generate_reference_artifacts.py \
+            --config P2/reports/reference_config.json \
+            --output P2/reports/reference_artifacts
+
+      - name: Validate generated reference artifacts
+        run: |
+          python -c "
+          import csv
+          import json
+          from pathlib import Path
+          import numpy as np
+
+          root = Path('P2/reports/reference_artifacts')
+
+          expected = {
+              'state_vector.csv',
+              'probabilities.csv',
+              'density_matrix.csv',
+              'reduced_density_q4.csv',
+              'reduced_density_q123.csv',
+              'metadata.json',
+          }
+
+          actual = {p.name for p in root.iterdir() if p.is_file()}
+          missing = expected - actual
+
+          assert not missing, f'Missing artifacts: {sorted(missing)}'
+
+          with (root / 'probabilities.csv').open(
+              newline='',
+              encoding='utf-8'
+          ) as stream:
+              rows = list(csv.DictReader(stream))
+
+          probabilities = np.array(
+              [float(row['probability']) for row in rows],
+              dtype=np.float64
+          )
+
+          assert probabilities.shape == (16,)
+          assert np.all(np.isfinite(probabilities))
+          assert np.all(probabilities >= 0.0)
+          assert np.isclose(
+              probabilities.sum(),
+              1.0,
+              atol=1e-12,
+              rtol=0.0
+          )
+
+          metadata = json.loads(
+              (root / 'metadata.json').read_text(encoding='utf-8')
+          )
+
+          assert metadata['state_dimension'] == 16
+          assert np.isclose(
+              metadata['state_norm'],
+              1.0,
+              atol=1e-12,
+              rtol=0.0
+          )
+          assert np.isclose(
+              metadata['probability_sum'],
+              1.0,
+              atol=1e-12,
+              rtol=0.0
+          )
+
+          print('PASS: generated reference artifacts')
+          "
 
       - name: Validate machine-readable test evidence
         if: always()
