@@ -1,7 +1,10 @@
 package hpc.csr;
 
+import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.SeekableByteChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -12,11 +15,7 @@ import java.util.Locale;
  * Persists QFLPN CSR benchmark results in CSV format.
  *
  * Default output:
- *
  * benchmarks/benchmark_results.csv
- *
- * The writer creates the parent directory and CSV header
- * automatically when necessary.
  */
 public final class BenchmarkResultWriter {
 
@@ -45,46 +44,22 @@ public final class BenchmarkResultWriter {
                     + "notes";
 
     private static final Path DEFAULT_OUTPUT =
-            Path.of(
-                    "benchmarks",
-                    "benchmark_results.csv");
+            Path.of("benchmarks", "benchmark_results.csv");
 
     private BenchmarkResultWriter() {
         // Utility class.
     }
 
-    /**
-     * Returns the default benchmark result file.
-     */
     public static Path defaultOutputPath() {
         return DEFAULT_OUTPUT;
     }
 
-    /**
-     * Appends one benchmark result to the default CSV file.
-     *
-     * @param result benchmark result to persist
-     * @throws IOException if the file cannot be written
-     */
-    public static void append(
-            BenchmarkResult result)
+    public static void append(BenchmarkResult result)
             throws IOException {
 
-        append(
-                DEFAULT_OUTPUT,
-                result);
+        append(DEFAULT_OUTPUT, result);
     }
 
-    /**
-     * Appends one benchmark result to the specified CSV file.
-     *
-     * The CSV header is written automatically if the file does
-     * not exist or is empty.
-     *
-     * @param outputPath target CSV file
-     * @param result benchmark result to persist
-     * @throws IOException if the file cannot be written
-     */
     public static void append(
             Path outputPath,
             BenchmarkResult result)
@@ -100,11 +75,8 @@ public final class BenchmarkResultWriter {
                     "result must not be null");
         }
 
-        Path absolutePath =
-                outputPath.toAbsolutePath();
-
-        Path parent =
-                absolutePath.getParent();
+        Path absolutePath = outputPath.toAbsolutePath();
+        Path parent = absolutePath.getParent();
 
         if (parent != null) {
             Files.createDirectories(parent);
@@ -113,6 +85,10 @@ public final class BenchmarkResultWriter {
         boolean writeHeader =
                 !Files.exists(absolutePath)
                         || Files.size(absolutePath) == 0L;
+
+        if (!writeHeader) {
+            validateExistingCsv(absolutePath);
+        }
 
         try (BufferedWriter writer =
                      Files.newBufferedWriter(
@@ -127,18 +103,67 @@ public final class BenchmarkResultWriter {
                 writer.newLine();
             }
 
-            writer.write(
-                    toCsvRow(result));
-
+            writer.write(toCsvRow(result));
             writer.newLine();
         }
     }
 
     /**
-     * Creates the CSV representation of one result.
+     * Validates the existing CSV before appending.
+     *
+     * The file must contain the exact expected header and
+     * its final record must be terminated by CR or LF.
      */
-    public static String toCsvRow(
-            BenchmarkResult result) {
+    private static void validateExistingCsv(Path path)
+            throws IOException {
+
+        try (BufferedReader reader =
+                     Files.newBufferedReader(
+                             path,
+                             StandardCharsets.UTF_8)) {
+
+            String header = reader.readLine();
+
+            if (!CSV_HEADER.equals(header)) {
+                throw new IOException(
+                        "Cannot append: invalid benchmark CSV header.");
+            }
+        }
+
+        long size = Files.size(path);
+
+        if (size == 0L) {
+            throw new IOException(
+                    "Cannot append: benchmark CSV is empty.");
+        }
+
+        try (SeekableByteChannel channel =
+                     Files.newByteChannel(
+                             path,
+                             StandardOpenOption.READ)) {
+
+            channel.position(size - 1L);
+
+            ByteBuffer buffer = ByteBuffer.allocate(1);
+
+            int bytesRead = channel.read(buffer);
+
+            if (bytesRead != 1) {
+                throw new IOException(
+                        "Cannot inspect the final CSV byte.");
+            }
+
+            byte lastByte = buffer.array()[0];
+
+            if (lastByte != '\n' && lastByte != '\r') {
+                throw new IOException(
+                        "Cannot append: existing CSV does not end "
+                                + "with a record terminator.");
+            }
+        }
+    }
+
+    public static String toCsvRow(BenchmarkResult result) {
 
         if (result == null) {
             throw new IllegalArgumentException(
@@ -149,51 +174,33 @@ public final class BenchmarkResultWriter {
                 ",",
                 csv(result.timestamp()),
                 csv(result.benchmarkId()),
-                Integer.toString(
-                        result.dimension()),
-                Long.toString(
-                        result.nonZeroCount()),
-                Integer.toString(
-                        result.parallelism()),
-                Integer.toString(
-                        result.threshold()),
-                Integer.toString(
-                        result.warmupIterations()),
-                Integer.toString(
-                        result.measuredIterations()),
+                Integer.toString(result.dimension()),
+                Long.toString(result.nonZeroCount()),
+                Integer.toString(result.parallelism()),
+                Integer.toString(result.threshold()),
+                Integer.toString(result.warmupIterations()),
+                Integer.toString(result.measuredIterations()),
                 format(result.sequentialMs()),
                 format(result.parallelMs()),
                 format(result.speedup()),
-                format(
-                        result.sequentialThroughput()),
-                format(
-                        result.parallelThroughput()),
-                format(
-                        result.sequentialExpectedError()),
-                format(
-                        result.parallelExpectedError()),
-                format(
-                        result.maxAbsoluteError()),
-                format(
-                        result.setupTimeMs()),
+                format(result.sequentialThroughput()),
+                format(result.parallelThroughput()),
+                format(result.sequentialExpectedError()),
+                format(result.parallelExpectedError()),
+                format(result.maxAbsoluteError()),
+                format(result.setupTimeMs()),
                 csv(result.cpu()),
-                Long.toString(
-                        result.availableMemoryBytes()),
+                Long.toString(result.availableMemoryBytes()),
                 csv(result.javaVersion()),
                 csv(result.operatingSystem()),
                 csv(result.notes()));
     }
 
-    /**
-     * Returns the CSV header.
-     */
     public static String csvHeader() {
         return CSV_HEADER;
     }
 
-    private static String format(
-            double value) {
-
+    private static String format(double value) {
         return String.format(
                 Locale.ROOT,
                 "%.12e",
@@ -201,10 +208,9 @@ public final class BenchmarkResultWriter {
     }
 
     /**
-     * Escapes a value according to RFC-style CSV rules.
+     * Escapes a value according to CSV rules.
      */
-    private static String csv(
-            String value) {
+    private static String csv(String value) {
 
         if (value == null) {
             return "";
@@ -221,9 +227,7 @@ public final class BenchmarkResultWriter {
         }
 
         return "\""
-                + value.replace(
-                        "\"",
-                        "\"\"")
+                + value.replace("\"", "\"\"")
                 + "\"";
     }
 }
