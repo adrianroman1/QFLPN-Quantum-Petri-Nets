@@ -1,11 +1,12 @@
-"""Fail-closed SHA-256 and manifest completeness verification."""
+"""Fail-closed SHA-256 manifest verification for P2."""
 
 from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 import re
-import sys
+
 from pathlib import Path
 
 P2_ROOT = Path(__file__).resolve().parents[1]
@@ -13,12 +14,7 @@ DEFAULT_MANIFEST = P2_ROOT / "MANIFEST.txt"
 
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
-EXCLUDED_NAMES = {
-    "MANIFEST.txt",
-    "SHA256SUMS.txt",
-}
-
-EXCLUDED_DIRECTORIES = {
+EXCLUDED_DIRS = {
     "__pycache__",
     ".pytest_cache",
     ".mypy_cache",
@@ -27,6 +23,13 @@ EXCLUDED_DIRECTORIES = {
     ".venv",
     "venv",
     "site-packages",
+    "reports",
+    "results",
+}
+
+EXCLUDED_NAMES = {
+    "MANIFEST.txt",
+    "SHA256SUMS.txt",
 }
 
 EXCLUDED_SUFFIXES = {
@@ -48,35 +51,52 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def is_excluded(path: Path) -> bool:
-    return (
-        path.name in EXCLUDED_NAMES
-        or path.suffix.lower() in EXCLUDED_SUFFIXES
-        or any(
-            part in EXCLUDED_DIRECTORIES
-            for part in path.parts
-        )
-    )
-
-
 def collect_expected_paths(root: Path) -> set[str]:
+    root = root.resolve()
     expected: set[str] = set()
 
-    for path in root.rglob("*"):
-        if not path.is_file():
-            continue
+    for current, directories, filenames in os.walk(
+        root,
+        topdown=True,
+        followlinks=False,
+    ):
+        current_path = Path(current)
+        retained_directories = []
 
-        relative = path.relative_to(root)
+        for directory in directories:
+            candidate = current_path / directory
 
-        if is_excluded(relative):
-            continue
+            if candidate.is_symlink():
+                raise ValueError(
+                    f"Symbolic directory forbidden: {candidate}"
+                )
 
-        if path.is_symlink():
-            raise ValueError(
-                f"Symbolic links are forbidden: {relative}"
-            )
+            if directory not in EXCLUDED_DIRS:
+                retained_directories.append(directory)
 
-        expected.add(relative.as_posix())
+        directories[:] = retained_directories
+
+        for filename in filenames:
+            candidate = current_path / filename
+
+            if candidate.is_symlink():
+                raise ValueError(
+                    f"Symbolic file forbidden: {candidate}"
+                )
+
+            relative = candidate.relative_to(root)
+
+            if filename in EXCLUDED_NAMES:
+                continue
+
+            if candidate.suffix.lower() in EXCLUDED_SUFFIXES:
+                continue
+
+            if any(part in EXCLUDED_DIRS for part in relative.parts):
+                continue
+
+            if candidate.is_file():
+                expected.add(relative.as_posix())
 
     return expected
 
@@ -88,10 +108,8 @@ def parse_manifest(
     errors: list[str] = []
 
     try:
-        lines = manifest.read_text(
-            encoding="utf-8"
-        ).splitlines()
-    except OSError as exc:
+        lines = manifest.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError) as exc:
         return {}, [f"Cannot read manifest: {exc}"]
 
     for line_number, line in enumerate(lines, start=1):
@@ -104,7 +122,7 @@ def parse_manifest(
 
         if len(parts) != 2:
             errors.append(
-                f"Line {line_number}: invalid manifest entry"
+                f"Line {line_number}: invalid entry"
             )
             continue
 
@@ -121,23 +139,28 @@ def parse_manifest(
             candidate.is_absolute()
             or ".." in candidate.parts
             or not candidate.parts
+            or "\\" in relative_path
         ):
             errors.append(
-                f"Line {line_number}: unsafe relative path"
+                f"Line {line_number}: unsafe path"
             )
             continue
 
         normalized = candidate.as_posix()
 
-        if is_excluded(candidate):
-            errors.append(
-                f"Line {line_number}: excluded file listed"
-            )
-            continue
-
         if normalized in entries:
             errors.append(
                 f"Line {line_number}: duplicate path {normalized}"
+            )
+            continue
+
+        if (
+            candidate.name in EXCLUDED_NAMES
+            or candidate.suffix.lower() in EXCLUDED_SUFFIXES
+            or any(part in EXCLUDED_DIRS for part in candidate.parts)
+        ):
+            errors.append(
+                f"Line {line_number}: excluded path listed"
             )
             continue
 
@@ -165,23 +188,25 @@ def verify_manifest(
 
     manifest_paths = set(entries)
 
-    missing = expected_paths - manifest_paths
-    unexpected = manifest_paths - expected_paths
-
-    for path in sorted(missing):
-        errors.append(f"Missing from manifest: {path}")
+    for relative in sorted(expected_paths - manifest_paths):
+        errors.append(f"Missing from manifest: {relative}")
         failed += 1
 
-    for path in sorted(unexpected):
-        errors.append(f"Unexpected manifest entry: {path}")
+    for relative in sorted(manifest_paths - expected_paths):
+        errors.append(f"Unexpected manifest path: {relative}")
         failed += 1
 
-    for relative_path, expected_hash in sorted(entries.items()):
-        candidate = root / relative_path
+    root_resolved = root.resolve()
+
+    for relative, expected_hash in sorted(entries.items()):
+        candidate = root / relative
 
         try:
+            if candidate.is_symlink():
+                raise ValueError("Symbolic links are forbidden")
+
             resolved = candidate.resolve(strict=True)
-            resolved.relative_to(root.resolve())
+            resolved.relative_to(root_resolved)
 
             if not resolved.is_file():
                 raise ValueError("Not a regular file")
@@ -189,16 +214,12 @@ def verify_manifest(
             actual_hash = sha256_file(resolved)
 
         except (OSError, ValueError) as exc:
-            errors.append(
-                f"{relative_path}: invalid file: {exc}"
-            )
+            errors.append(f"{relative}: {exc}")
             failed += 1
             continue
 
         if actual_hash != expected_hash:
-            errors.append(
-                f"{relative_path}: SHA-256 mismatch"
-            )
+            errors.append(f"{relative}: SHA-256 mismatch")
             failed += 1
         else:
             passed += 1
@@ -209,11 +230,7 @@ def verify_manifest(
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, default=P2_ROOT)
-    parser.add_argument(
-        "--manifest",
-        type=Path,
-        default=DEFAULT_MANIFEST,
-    )
+    parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     args = parser.parse_args()
 
     root = args.root.resolve()
@@ -223,20 +240,17 @@ def main() -> int:
         print("FAIL: P2 root does not exist")
         return 2
 
+    if not manifest.is_file():
+        print("FAIL: manifest does not exist:", manifest)
+        return 2
+
     try:
         manifest.relative_to(root)
     except ValueError:
         print("FAIL: manifest must be inside P2 root")
         return 2
 
-    if not manifest.is_file():
-        print("FAIL: manifest does not exist")
-        return 2
-
-    passed, failed, errors = verify_manifest(
-        root,
-        manifest,
-    )
+    passed, failed, errors = verify_manifest(root, manifest)
 
     for error in errors:
         print("FAIL:", error)
@@ -244,14 +258,14 @@ def main() -> int:
     print("=" * 72)
     print("SHA-256 PASS:", passed)
     print("SHA-256 FAIL:", failed)
-    print(
-        "VERDICT:",
-        "P2_INTEGRITY_ACCEPTED" if failed == 0
-        else "P2_REJECTED",
-    )
 
-    return 0 if failed == 0 else 1
+    if failed:
+        print("VERDICT: P2_INTEGRITY_REJECTED")
+        return 1
+
+    print("VERDICT: P2_INTEGRITY_ACCEPTED")
+    return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())
