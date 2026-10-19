@@ -1,15 +1,17 @@
-```markdown
 # P3 — Manuscript, Source Code and Evidence Traceability
 
 ## 1. Objective
 
-This document maps the mathematical definitions and
-algorithmic claims in the P3 manuscript to their Java
-implementation, tests, and available execution evidence.
+This document maps P3 manuscript claims to:
 
-A mapping does not automatically establish acceptance.
-Each claim must be supported by the corresponding test,
-analysis, or measured artifact.
+1. mathematical definitions;
+2. Java implementation;
+3. automated tests;
+4. CI execution evidence;
+5. experimental artifacts.
+
+A source-code mapping alone does not establish that
+a performance claim has been experimentally validated.
 
 ## 2. Manuscript-to-code mapping
 
@@ -19,27 +21,27 @@ analysis, or measured artifact.
 | Section 13, Eqs. (15)-(17) | values, col_idx, row_ptr | SparseMatrixCSR.java | Exact CSR array assertions | PASS |
 | Section 13, Eqs. (18)-(19) | Matrix-vector result | SparseMatrixCSR.multiply() | Dense oracle comparison | PASS |
 | CSR representation | Compressed Sparse Row storage | SparseMatrixCSR.java | SparseMatrixCSRTest.java | CI PASS |
-| Sequential SpMV | y = A*x | SparseMatrixCSR.multiplyInto() | CSRvsDenseOracleTest.java and existing unit tests | CI PASS |
+| Sequential SpMV | y = A*x | SparseMatrixCSR.multiplyInto() | CSRvsDenseOracleTest.java and unit tests | CI PASS |
 | Parallel SpMV | Row-parallel multiplication | SparseMatrixCSR.multiplyParallelInto() | Existing parallel tests | CI PASS |
 | Fork/Join decomposition | Recursive row-range splitting | MultiplyTask.java | MultiplyTaskTest.java | CI PASS |
-| Large-scale matrix generation | Deterministic synthetic matrix with NNZ=2N | BenchmarkRunner.createBenchmarkMatrix() | Benchmark execution required | IMPLEMENTED |
-| Input-vector generation | x[i]=1.0 | BenchmarkRunner.createInputVector() | Benchmark numerical validation | IMPLEMENTED |
+| Synthetic matrix generation | Deterministic matrix with NNZ=2N | BenchmarkRunner.createBenchmarkMatrix() | Source inspection | IMPLEMENTED |
+| Input vector | x[i]=1.0 | BenchmarkRunner.createInputVector() | Benchmark numerical validation | IMPLEMENTED |
 | Expected synthetic output | y[i]=1.5 | BenchmarkRunner numerical checks | Benchmark execution required | IMPLEMENTED |
 | Sequential timing | System.nanoTime() | BenchmarkRunner.measureSequential() | Raw benchmark log and CSV | PENDING |
 | Parallel timing | System.nanoTime() | BenchmarkRunner.measureParallel() | Raw benchmark log and CSV | PENDING |
 | Speedup | S=T_seq/T_par | BenchmarkRunner.calculateSpeedup() | Raw CSV and independent calculation | PENDING |
 | Time reduction | R=1-T_par/T_seq | Derived from measured CSV values | Results.md and raw CSV | PENDING |
 | Result persistence | CSV output | BenchmarkResultWriter.java | BenchmarkResultWriterTest.java | CI PASS |
-| Environment metadata | JVM, OS, CPU-visible properties | BenchmarkEnvironment.java and BenchmarkRunner.java | Environment capture | PARTIAL |
-| Reproducibility | Exact command and environment | Reproducibility.md | Raw log, environment file, SHA-256 | PENDING |
+| Environment metadata | JVM, OS, CPU-visible properties | BenchmarkRunner.java and BenchmarkEnvironment.java | Environment capture | PARTIAL |
+| Reproducibility | Exact command and environment | Reproducibility.md and run_benchmark.sh | Raw log, environment, SHA-256 | PENDING |
 
-## 3. CSR storage complexity
+## 3. CSR representation and storage complexity
 
 Let:
 
-- N be the number of matrix rows;
-- M be the number of matrix columns;
-- NNZ be the number of stored non-zero entries.
+- N = number of matrix rows;
+- M = number of matrix columns;
+- NNZ = number of stored non-zero entries.
 
 The CSR representation stores:
 
@@ -47,164 +49,247 @@ The CSR representation stores:
 - columnIndices: NNZ elements;
 - rowPointers: N+1 elements.
 
-Therefore, the matrix storage requirement is:
-
-O(NNZ + N)
-
-For a square matrix where N=M, the input and output vectors
-require an additional O(N) storage.
-
-The total storage requirement for the matrix and vectors is:
+Therefore, matrix storage is:
 
 O(N + NNZ)
 
-The constructor performs defensive copies of the three CSR
-arrays. This is also O(N + NNZ) time and storage during
-construction.
+For a square matrix, the input and output vectors
+require an additional O(N) storage.
+
+The total storage requirement remains:
+
+O(N + NNZ)
+
+The constructor performs defensive copies of the CSR arrays.
+This requires O(N + NNZ) additional time and temporary storage
+during construction.
+
+The implementation uses Java heap arrays.
+It does not establish off-heap or GPU memory usage.
 
 ## 4. Sequential SpMV complexity
 
-The sequential implementation iterates over every matrix row.
+The sequential implementation iterates over all rows.
 
-For each row, it traverses the stored CSR entries between:
+For each row, it traverses the CSR interval:
 
-rowPointers[row] and rowPointers[row+1]
+rowPointers[row] ... rowPointers[row+1]
 
-Every stored non-zero entry is visited once.
+Every stored non-zero element is visited once.
 
-The row loop contributes O(N), and the non-zero traversal
-contributes O(NNZ).
+The row traversal contributes O(N).
+
+The non-zero traversal contributes O(NNZ).
 
 Therefore:
 
 T_seq = O(N + NNZ)
 
-For a square sparse matrix with at least one stored entry
-per row, this is commonly written as O(NNZ), but the
-general expression is O(N + NNZ).
+The bound is stated in its general form.
+For common sparse matrices with NNZ >= N, it is also
+frequently expressed as O(NNZ).
 
 ## 5. Parallel SpMV complexity
 
 The parallel implementation partitions row intervals
 using Fork/Join tasks.
 
-Each row is assigned to one task interval. Each output
-row is written independently by the task responsible
-for that row.
-
 The total arithmetic work remains:
 
 O(N + NNZ)
 
-The parallel implementation introduces task scheduling,
-splitting, and synchronization overhead.
+Parallel execution adds task creation, splitting,
+scheduling, and synchronization overhead.
 
-The observed elapsed time depends on:
+The actual elapsed time depends on:
 
-- matrix size;
+- N;
+- NNZ;
 - sparsity distribution;
 - Fork/Join threshold;
-- parallelism;
+- configured parallelism;
 - CPU architecture;
 - JVM runtime;
 - memory bandwidth;
 - scheduling overhead.
 
-The theoretical work bound must not be confused with
-a measured speedup claim.
+The work complexity does not establish a speedup.
 
-## 6. Fork/Join independence
+Speedup must be established experimentally from
+the recorded sequential and parallel execution times.
 
-`MultiplyTask.compute()` splits a row interval into
-two disjoint subintervals.
+## 6. Fork/Join row independence
 
-The left task receives:
+The Fork/Join implementation splits a row interval
+into two disjoint subintervals.
+
+Left interval:
 
 [startRow, middle)
 
-The right task receives:
+Right interval:
 
 [middle, endRow)
 
 The intervals do not overlap.
 
-Each task writes only output rows inside its own interval.
+Each task writes output rows belonging to its own interval.
 
-This design avoids concurrent writes to the same output
-row, provided the task partitioning remains disjoint.
+This design prevents two tasks from writing the same
+output row, provided the recursive partition remains disjoint.
 
-The corresponding source is:
+Source:
 
 `P3/code/MultiplyTask.java`
 
-The corresponding test class is:
+Tests:
 
 `P3/tests/MultiplyTaskTest.java`
 
-The CI run executed the P3 test suite successfully.
-A separate formal concurrency proof is not claimed by
-the JUnit result alone.
+CI execution proves that the existing JUnit tests passed.
+It is not presented as a separate formal concurrency proof.
 
-## 7. Speedup and reduction traceability
+## 7. Manuscript correctness oracle
 
-For measured average times:
+The independent dense oracle uses the matrix in
+Section 13, equation (14).
+
+The test explicitly defines:
+
+x = (1, 2, 3, 4)^T
+
+The expected vector is:
+
+y = (12, 6, 16, 30)^T
+
+The selected input vector is a test fixture.
+The manuscript defines x symbolically.
+
+The test checks:
+
+- CSR values;
+- CSR column indices;
+- CSR row pointers;
+- matrix dimensions;
+- NNZ;
+- independent dense multiplication;
+- sequential CSR multiplication;
+- parallel CSR multiplication.
+
+Source:
+
+`P3/tests/CSRvsDenseOracleTest.java`
+
+This correctness test does not constitute a
+large-scale performance benchmark.
+
+## 8. Large-scale benchmark distinction
+
+The performance benchmark uses a deterministic synthetic
+matrix generated by:
+
+`BenchmarkRunner.createBenchmarkMatrix(int n)`
+
+For N > 1:
+
+NNZ = 2N
+
+The input vector is:
+
+x[i] = 1.0
+
+The expected output is:
+
+y[i] = 1.5
+
+The synthetic matrix must not be identified as the
+4 x 4 manuscript correctness matrix.
+
+## 9. Speedup and time reduction
+
+Let:
+
+T_seq = measured average sequential time
+
+T_par = measured average parallel time
+
+Speedup:
 
 S = T_seq / T_par
 
+Time reduction:
+
 R = 1 - T_par / T_seq
 
-The speedup is stored in the benchmark CSV.
+The same measured averages must be used in both calculations.
 
-The time reduction is derived from the same CSV row.
+The stored CSV speedup is independently checked by:
 
-The two values must satisfy:
+`P3/results/validate_benchmark.py`
 
-R = 1 - 1/S
+No speedup or reduction claim is accepted without
+the corresponding raw CSV row.
 
-up to floating-point rounding.
+## 10. Memory model
 
-No speedup or reduction value is accepted without
-the underlying sequential and parallel measurements.
+For the synthetic benchmark:
 
-## 8. Evidence hierarchy
+NNZ = 2N
 
-Evidence is classified as follows:
+CSR arrays require:
 
-1. Source inspection:
-   establishes what the code currently implements.
+values:
+2N * 8 bytes
 
-2. Unit test:
-   establishes the behavior exercised by that test.
+columnIndices:
+2N * 4 bytes
 
-3. CI execution:
-   establishes that the test was compiled, discovered,
-   and executed in the recorded workflow run.
+rowPointers:
+(N+1) * 4 bytes
 
-4. Raw benchmark output:
-   establishes the measured values for one execution.
+Input vector:
 
-5. Independent reproduction:
-   establishes that the measurement procedure can be
-   repeated under a separately recorded execution.
+N * 8 bytes
 
-A higher evidence level does not remove the need to
-preserve the lower-level source and configuration.
+Output vector:
 
-## 9. Current CI evidence
+N * 8 bytes
+
+The benchmark also creates defensive copies of the
+three CSR arrays in the SparseMatrixCSR constructor.
+
+The source-level estimate excludes:
+
+- Java object headers;
+- array headers;
+- JVM metadata;
+- thread stacks;
+- ForkJoin task objects;
+- runtime allocation overhead;
+- garbage collector overhead.
+
+The printed estimate is therefore a model of array
+storage, not a measured peak resident memory value.
+
+## 11. CI evidence
 
 Workflow:
 
 `.github/workflows/p3-validation.yml`
 
-Run:
+Latest inspected run:
 
-https://github.com/adrianroman1/QFLPN-Quantum-Petri-Nets/actions/runs/39331045606
+https://github.com/adrianroman1/QFLPN-Quantum-Petri-Nets/actions/runs/39332171230
 
 Commit:
 
-`16f76d8990d1b1e6d41ce4e14a869a000fea3655`
+`59a45ec375f5b53b9bb466180d8e345044ee7978`
 
-Observed test result:
+Job:
+
+`P3 CSR, SpMV and JUnit Validation`
+
+Observed result:
 
 ```text
 Tests run: 126
