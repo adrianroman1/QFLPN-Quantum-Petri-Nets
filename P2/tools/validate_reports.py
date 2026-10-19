@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import sys
 import xml.etree.ElementTree as ET
 
@@ -14,27 +15,35 @@ from typing import Any
 
 P2_ROOT = Path(__file__).resolve().parents[1]
 REPORTS_DIR = P2_ROOT / "reports"
-PYTEST_REPORT = REPORTS_DIR / "pytest-run.json"
 
 EXPECTED_SCHEMA_VERSION = 2
 EXPECTED_RUNNER = "pytest"
 
+PYTEST_FAILURE_SUMMARY = re.compile(
+    r"(?:^|[\s,])\d+\s+(?:failed|error|errors)(?=[\s,]|$)",
+    re.IGNORECASE,
+)
+
 
 def reject_constant(value: str) -> None:
-    """Reject non-standard JSON constants such as NaN and Infinity."""
-    raise ValueError(f"Non-standard JSON constant: {value}")
+    """Reject non-standard JSON constants."""
+    raise ValueError(
+        f"Non-standard JSON constant: {value}"
+    )
 
 
 def validate_finite_values(
     value: Any,
     location: str = "$",
 ) -> list[str]:
-    """Reject non-finite floating-point values recursively."""
+    """Reject NaN and infinite floating-point values."""
     errors: list[str] = []
 
     if isinstance(value, float):
         if not math.isfinite(value):
-            errors.append(f"{location}: non-finite number")
+            errors.append(
+                f"{location}: non-finite number"
+            )
 
     elif isinstance(value, list):
         for index, item in enumerate(value):
@@ -57,15 +66,15 @@ def validate_finite_values(
     return errors
 
 
-def validate_pytest_report(data: Any) -> list[str]:
-    """
-    Validate a pytest report dictionary against schema version 2.
+def validate_pytest_report(
+    data: Any,
+) -> list[str]:
+    """Validate a pytest report dictionary against schema v2."""
 
-    This function is intentionally independent of file I/O so that
-    report validation can be tested directly.
-    """
     if not isinstance(data, dict):
-        return ["Pytest report root must be a JSON object"]
+        return [
+            "Pytest report root must be a JSON object"
+        ]
 
     errors: list[str] = []
 
@@ -110,12 +119,13 @@ def validate_pytest_report(data: Any) -> list[str]:
         not isinstance(command, list)
         or not command
         or any(
-            not isinstance(argument, str) or not argument
-            for argument in command
+            not isinstance(item, str) or not item.strip()
+            for item in command
         )
     ):
         errors.append(
-            "command must be a non-empty list of non-empty strings"
+            "command must be a non-empty list "
+            "of non-empty strings"
         )
 
     string_fields = (
@@ -129,18 +139,27 @@ def validate_pytest_report(data: Any) -> list[str]:
 
     for field in string_fields:
         if not isinstance(data[field], str):
-            errors.append(f"{field} must be a string")
+            errors.append(
+                f"{field} must be a string"
+            )
 
-    for field in (
+    non_empty_fields = (
         "python_version",
         "working_directory",
         "test_directory",
         "junit_report",
-    ):
+    )
+
+    for field in non_empty_fields:
         value = data[field]
 
-        if isinstance(value, str) and not value.strip():
-            errors.append(f"{field} must not be empty")
+        if (
+            isinstance(value, str)
+            and not value.strip()
+        ):
+            errors.append(
+                f"{field} must not be empty"
+            )
 
     if (
         type(data["exit_code"]) is not int
@@ -159,27 +178,36 @@ def validate_pytest_report(data: Any) -> list[str]:
 
     if isinstance(stdout, str):
         if not stdout.strip():
-            errors.append("stdout must not be empty")
+            errors.append(
+                "stdout must not be empty"
+            )
 
         if "no tests ran" in stdout.lower():
             errors.append(
                 "pytest reports that no tests ran"
             )
 
-        if "failed" in stdout.lower():
+        if PYTEST_FAILURE_SUMMARY.search(stdout):
             errors.append(
-                "pytest output contains a failure indicator"
+                "pytest summary reports failures or errors"
             )
 
-    errors.extend(validate_finite_values(data))
+    errors.extend(
+        validate_finite_values(data)
+    )
 
     return errors
 
 
-def validate_pytest_json(path: Path) -> list[str]:
-    """Read and validate a schema-version-2 pytest JSON report."""
+def validate_pytest_json(
+    path: Path,
+) -> list[str]:
+    """Read and validate a schema-v2 pytest JSON report."""
+
     try:
-        raw = path.read_text(encoding="utf-8")
+        raw = path.read_text(
+            encoding="utf-8"
+        )
 
         data = json.loads(
             raw,
@@ -199,8 +227,11 @@ def validate_pytest_json(path: Path) -> list[str]:
     return validate_pytest_report(data)
 
 
-def validate_junit(path: Path) -> list[str]:
+def validate_junit(
+    path: Path,
+) -> list[str]:
     """Validate JUnit XML structure and execution counters."""
+
     errors: list[str] = []
 
     if not path.is_file():
@@ -211,7 +242,10 @@ def validate_junit(path: Path) -> list[str]:
     try:
         root = ET.parse(path).getroot()
 
-    except (OSError, ET.ParseError) as exc:
+    except (
+        OSError,
+        ET.ParseError,
+    ) as exc:
         return [
             f"Invalid JUnit XML: {exc}"
         ]
@@ -242,10 +276,18 @@ def validate_junit(path: Path) -> list[str]:
 
     for suite in suites:
         try:
-            tests = int(suite.attrib.get("tests", "0"))
-            failures = int(suite.attrib.get("failures", "0"))
-            suite_errors = int(suite.attrib.get("errors", "0"))
-            skipped = int(suite.attrib.get("skipped", "0"))
+            tests = int(
+                suite.attrib.get("tests", "0")
+            )
+            failures = int(
+                suite.attrib.get("failures", "0")
+            )
+            suite_errors = int(
+                suite.attrib.get("errors", "0")
+            )
+            skipped = int(
+                suite.attrib.get("skipped", "0")
+            )
 
         except (TypeError, ValueError):
             errors.append(
@@ -253,7 +295,12 @@ def validate_junit(path: Path) -> list[str]:
             )
             continue
 
-        if min(tests, failures, suite_errors, skipped) < 0:
+        if min(
+            tests,
+            failures,
+            suite_errors,
+            skipped,
+        ) < 0:
             errors.append(
                 "JUnit counters must not be negative"
             )
@@ -263,6 +310,17 @@ def validate_junit(path: Path) -> list[str]:
         failure_count += failures
         error_count += suite_errors
         skipped_count += skipped
+
+        actual_testcases = len(
+            suite.findall("testcase")
+        )
+
+        if actual_testcases != tests:
+            errors.append(
+                "JUnit tests counter does not match "
+                f"testcase elements: declared={tests}, "
+                f"actual={actual_testcases}"
+            )
 
     if test_count <= 0:
         errors.append(
@@ -315,11 +373,21 @@ def main() -> int:
         )
         return 2
 
-    pytest_report = directory / "pytest-run.json"
-    junit_report = directory / "junit.xml"
+    pytest_report = (
+        directory / "pytest-run.json"
+    )
 
-    errors = validate_pytest_json(pytest_report)
-    errors.extend(validate_junit(junit_report))
+    junit_report = (
+        directory / "junit.xml"
+    )
+
+    errors = validate_pytest_json(
+        pytest_report
+    )
+
+    errors.extend(
+        validate_junit(junit_report)
+    )
 
     print("=" * 72)
 
@@ -327,13 +395,23 @@ def main() -> int:
         for error in errors:
             print("FAIL:", error)
 
-        print("VERDICT: P2_REPORTS_REJECTED")
+        print(
+            "VERDICT: P2_REPORTS_REJECTED"
+        )
         return 1
 
-    print("PASS: JSON schema version 2")
-    print("PASS: pytest execution status")
-    print("PASS: JUnit test evidence")
-    print("VERDICT: P2_REPORTS_ACCEPTED")
+    print(
+        "PASS: JSON schema version 2"
+    )
+    print(
+        "PASS: pytest execution status"
+    )
+    print(
+        "PASS: JUnit test evidence"
+    )
+    print(
+        "VERDICT: P2_REPORTS_ACCEPTED"
+    )
 
     return 0
 
