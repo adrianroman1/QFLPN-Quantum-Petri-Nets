@@ -604,7 +604,16 @@ public final class BenchmarkRunner {
                 / (averageMs / 1000.0);
     }
 
-    private static double maxAbsoluteError(
+    /**
+     * Calculează eroarea absolută maximă dintre doi vectori.
+     *
+     * Orice valoare de intrare nefinita sau eroare calculată
+     * nefinita invalidează rezultatul benchmark-ului.
+     *
+     * Vizibilitatea package-private permite testarea directă
+     * din testele JUnit aflate în același pachet.
+     */
+    static double maxAbsoluteError(
             double[] first,
             double[] second) {
 
@@ -619,10 +628,25 @@ public final class BenchmarkRunner {
              i < first.length;
              i++) {
 
+            if (!Double.isFinite(first[i])
+                    || !Double.isFinite(second[i])) {
+
+                throw new IllegalStateException(
+                        "Non-finite benchmark output value "
+                                + "at index " + i + ".");
+            }
+
             double error =
                     Math.abs(
                             first[i]
                                     - second[i]);
+
+            if (!Double.isFinite(error)) {
+
+                throw new IllegalStateException(
+                        "Non-finite benchmark error "
+                                + "at index " + i + ".");
+            }
 
             if (error > maxError) {
                 maxError =
@@ -633,19 +657,50 @@ public final class BenchmarkRunner {
         return maxError;
     }
 
-    private static double maxExpectedError(
+    /**
+     * Calculează eroarea absolută maximă față de valoarea așteptată.
+     *
+     * Orice valoare de intrare, valoare așteptată sau eroare
+     * calculată nefinita invalidează rezultatul benchmark-ului.
+     *
+     * Vizibilitatea package-private permite testarea directă
+     * din testele JUnit aflate în același pachet.
+     */
+    static double maxExpectedError(
             double[] values,
             double expected) {
+
+        if (!Double.isFinite(expected)) {
+
+            throw new IllegalStateException(
+                    "Non-finite benchmark expected value.");
+        }
 
         double maxError =
                 0.0;
 
-        for (double value : values) {
+        for (int i = 0;
+             i < values.length;
+             i++) {
+
+            if (!Double.isFinite(values[i])) {
+
+                throw new IllegalStateException(
+                        "Non-finite benchmark output value "
+                                + "at index " + i + ".");
+            }
 
             double error =
                     Math.abs(
-                            value
+                            values[i]
                                     - expected);
+
+            if (!Double.isFinite(error)) {
+
+                throw new IllegalStateException(
+                        "Non-finite benchmark error "
+                                + "at index " + i + ".");
+            }
 
             if (error > maxError) {
                 maxError =
