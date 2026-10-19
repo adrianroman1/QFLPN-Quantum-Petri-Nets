@@ -1,41 +1,29 @@
-"""Run the complete P2 pytest suite and preserve JSON evidence."""
+"""Run the complete P2 pytest suite and preserve machine-readable evidence."""
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 P2_ROOT = Path(__file__).resolve().parents[1]
+CODE_DIR = P2_ROOT / "code"
 TESTS_DIR = P2_ROOT / "tests"
 REPORTS_DIR = P2_ROOT / "reports"
 REPORT_FILE = REPORTS_DIR / "pytest-run.json"
+JUNIT_FILE = REPORTS_DIR / "junit.xml"
 
 
-def write_report(
-    command: list[str],
-    exit_code: int,
-    stdout: str,
-    stderr: str,
-) -> bool:
-    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+def atomic_write_json(path: Path, data: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
 
-    report = {
-        "schema_version": 1,
-        "runner": "pytest",
-        "command": command,
-        "python_version": sys.version.split()[0],
-        "exit_code": exit_code,
-        "status": "PASS" if exit_code == 0 else "FAIL",
-        "stdout": stdout,
-        "stderr": stderr,
-    }
-
-    REPORT_FILE.write_text(
+    temporary.write_text(
         json.dumps(
-            report,
+            data,
             indent=2,
             sort_keys=True,
             allow_nan=False,
@@ -43,31 +31,36 @@ def write_report(
         encoding="utf-8",
     )
 
-    return True
+    temporary.replace(path)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Run all QFLPN P2 tests."
+        description="Run the complete QFLPN P2 pytest suite."
     )
-
-    parser.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-    )
-
-    parser.add_argument(
-        "-x",
-        "--stop-on-first-failure",
-        action="store_true",
-    )
-
+    parser.add_argument("-v", "--verbose", action="store_true")
+    parser.add_argument("-x", "--stop-on-first-failure", action="store_true")
     args = parser.parse_args()
 
-    if not TESTS_DIR.is_dir():
-        print(f"ERROR: Test directory not found: {TESTS_DIR}")
+    if not CODE_DIR.is_dir():
+        print(f"FAIL: code directory not found: {CODE_DIR}")
         return 2
+
+    if not TESTS_DIR.is_dir():
+        print(f"FAIL: test directory not found: {TESTS_DIR}")
+        return 2
+
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+
+    env = os.environ.copy()
+    existing_pythonpath = env.get("PYTHONPATH", "")
+    code_path = str(CODE_DIR.resolve())
+
+    env["PYTHONPATH"] = (
+        code_path
+        if not existing_pythonpath
+        else code_path + os.pathsep + existing_pythonpath
+    )
 
     command = [
         sys.executable,
@@ -75,6 +68,8 @@ def main() -> int:
         "pytest",
         str(TESTS_DIR),
         "--strict-markers",
+        "-ra",
+        f"--junitxml={JUNIT_FILE}",
     ]
 
     if args.verbose:
@@ -84,7 +79,9 @@ def main() -> int:
         command.append("-x")
 
     print("P2 root:", P2_ROOT)
+    print("Code directory:", CODE_DIR)
     print("Test directory:", TESTS_DIR)
+    print("Report directory:", REPORTS_DIR)
     print("Command:", " ".join(command))
     print("=" * 72)
 
@@ -92,6 +89,7 @@ def main() -> int:
         result = subprocess.run(
             command,
             cwd=P2_ROOT,
+            env=env,
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -114,21 +112,30 @@ def main() -> int:
     if stderr:
         print(stderr, file=sys.stderr, end="")
 
-    print("=" * 72)
-    print("Pytest exit code:", exit_code)
+    report = {
+        "schema_version": 2,
+        "runner": "pytest",
+        "command": command,
+        "python_version": sys.version.split()[0],
+        "working_directory": str(P2_ROOT),
+        "test_directory": str(TESTS_DIR),
+        "junit_report": str(JUNIT_FILE.relative_to(P2_ROOT)),
+        "exit_code": exit_code,
+        "status": "PASS" if exit_code == 0 else "FAIL",
+        "stdout": stdout,
+        "stderr": stderr,
+    }
 
     try:
-        write_report(
-            command,
-            exit_code,
-            stdout,
-            stderr,
-        )
+        atomic_write_json(REPORT_FILE, report)
     except (OSError, TypeError, ValueError) as exc:
-        print(f"ERROR: Could not write JSON evidence: {exc}")
+        print(f"FAIL: could not write test report: {exc}")
         return 2
 
+    print("=" * 72)
+    print("Pytest exit code:", exit_code)
     print("JSON evidence:", REPORT_FILE)
+    print("JUnit evidence:", JUNIT_FILE)
     print("STATUS:", "PASS" if exit_code == 0 else "FAIL")
 
     return exit_code
