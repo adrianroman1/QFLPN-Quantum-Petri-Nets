@@ -1,157 +1,112 @@
-"""
-QFLPN Validation
-================
-
-Mathematical and numerical validation of the 4-qubit QFLPN reference model.
-
-Checks:
-- fuzzy -> quantum mapping
-- normalization
-- probability conservation
-- density matrix properties
-- fidelity
-- numerical errors
-
-No Monte Carlo.
-"""
+"""Mathematical validation of the canonical QFLPN four-qubit model."""
 
 from __future__ import annotations
 
 import numpy as np
 
 from qflpn_reference import (
-    computational_basis_probabilities,
+    DEFAULT_ACTIVATIONS,
+    HILBERT_DIM,
     density_matrix,
     fuzzy_to_angle,
-    pure_state_fidelity,
     reference_state,
-    ry_state,
+    validate_activations,
 )
 
+ATOL = 1e-12
 
-REFERENCE_MEMBERSHIPS = np.array(
-    [0.85, 0.90, 0.45, 0.70],
-    dtype=float,
-)
+
+def computational_basis_probabilities(state: np.ndarray) -> np.ndarray:
+    vector = np.asarray(state, dtype=np.complex128)
+    if vector.shape != (HILBERT_DIM,):
+        raise ValueError("State must have shape (16,).")
+    if not np.all(np.isfinite(vector)):
+        raise ValueError("State contains non-finite values.")
+    return np.abs(vector) ** 2
+
+
+def pure_state_fidelity(
+    state_a: np.ndarray, state_b: np.ndarray
+) -> float:
+    a = np.asarray(state_a, dtype=np.complex128)
+    b = np.asarray(state_b, dtype=np.complex128)
+    if a.shape != (HILBERT_DIM,) or b.shape != (HILBERT_DIM,):
+        raise ValueError("Both states must have shape (16,).")
+    if not np.all(np.isfinite(a)) or not np.all(np.isfinite(b)):
+        raise ValueError("States must contain only finite values.")
+    if not np.isclose(np.linalg.norm(a), 1.0, atol=ATOL, rtol=0.0):
+        raise ValueError("First state must be normalized.")
+    if not np.isclose(np.linalg.norm(b), 1.0, atol=ATOL, rtol=0.0):
+        raise ValueError("Second state must be normalized.")
+    return float(abs(np.vdot(a, b)) ** 2)
 
 
 def validate_fuzzy_quantum_mapping(
     memberships: np.ndarray,
 ) -> float:
+    values = validate_activations(memberships)
     errors = []
-
-    print("\n[1] Fuzzy -> quantum mapping")
-
-    for mu in memberships:
-        state = ry_state(float(mu))
-        probability_one = abs(state[1]) ** 2
-        error = abs(probability_one - mu)
-        errors.append(error)
-
-        print(
-            f"mu={mu:.6f} | "
-            f"P(|1>)={probability_one:.12f} | "
-            f"error={error:.3e}"
-        )
-
-    return float(max(errors))
+    for mu in values:
+        theta = fuzzy_to_angle(mu)
+        probability_one = float(np.sin(theta / 2.0) ** 2)
+        errors.append(abs(probability_one - mu))
+    return max(errors, default=0.0)
 
 
 def validate_state(state: np.ndarray) -> tuple[float, float]:
-    norm = np.linalg.norm(state)
     probabilities = computational_basis_probabilities(state)
-    probability_sum = float(probabilities.sum())
-
-    norm_error = abs(norm - 1.0)
-    probability_error = abs(probability_sum - 1.0)
-
-    print("\n[2] State validation")
-    print(f"Norm                 = {norm:.15f}")
-    print(f"Normalization error  = {norm_error:.3e}")
-    print(f"Probability sum      = {probability_sum:.15f}")
-    print(f"Probability error    = {probability_error:.3e}")
-
+    norm_error = abs(float(np.linalg.norm(state)) - 1.0)
+    probability_error = abs(float(probabilities.sum()) - 1.0)
     return norm_error, probability_error
 
 
 def validate_density_matrix(
     state: np.ndarray,
-) -> tuple[float, float]:
+) -> tuple[float, float, float]:
     rho = density_matrix(state)
-
-    hermiticity_error = np.linalg.norm(
-        rho - rho.conj().T,
-        ord="fro",
+    hermiticity_error = float(
+        np.linalg.norm(rho - rho.conj().T, ord="fro")
     )
-
-    trace_error = abs(np.trace(rho) - 1.0)
-
-    print("\n[3] Density matrix validation")
-    print(f"Shape                = {rho.shape}")
-    print(f"Hermiticity error    = {hermiticity_error:.3e}")
-    print(f"Trace                 = {np.trace(rho).real:.15f}")
-    print(f"Trace error           = {trace_error:.3e}")
-
-    return float(hermiticity_error), float(trace_error)
+    trace_error = float(abs(np.trace(rho) - 1.0))
+    minimum_eigenvalue = float(np.min(np.linalg.eigvalsh(rho)))
+    return hermiticity_error, trace_error, minimum_eigenvalue
 
 
 def validate_fidelity(state: np.ndarray) -> float:
-    fidelity = pure_state_fidelity(state, state)
-    fidelity_error = abs(fidelity - 1.0)
-
-    print("\n[4] Fidelity validation")
-    print(f"Self-fidelity        = {fidelity:.15f}")
-    print(f"Fidelity error       = {fidelity_error:.3e}")
-
-    return fidelity_error
+    return abs(pure_state_fidelity(state, state) - 1.0)
 
 
-def main() -> None:
-    print("=" * 60)
-    print("QFLPN 4-QUBIT MATHEMATICAL VALIDATION")
-    print("=" * 60)
+def main() -> int:
+    memberships = np.asarray(DEFAULT_ACTIVATIONS, dtype=float)
+    state = reference_state(memberships)
 
-    print("\nReference memberships:")
-    print(REFERENCE_MEMBERSHIPS)
-
-    mapping_error = validate_fuzzy_quantum_mapping(
-        REFERENCE_MEMBERSHIPS
-    )
-
-    state = reference_state(
-        REFERENCE_MEMBERSHIPS
-    )
-
-    norm_error, probability_error = validate_state(
-        state
-    )
-
-    hermiticity_error, trace_error = (
+    mapping_error = validate_fuzzy_quantum_mapping(memberships)
+    norm_error, probability_error = validate_state(state)
+    hermiticity_error, trace_error, min_eigenvalue = (
         validate_density_matrix(state)
     )
-
     fidelity_error = validate_fidelity(state)
 
-    max_error = max(
-        mapping_error,
-        norm_error,
-        probability_error,
-        hermiticity_error,
-        trace_error,
-        fidelity_error,
-    )
+    errors = {
+        "mapping": mapping_error,
+        "normalization": norm_error,
+        "probability conservation": probability_error,
+        "Hermiticity": hermiticity_error,
+        "trace": trace_error,
+        "self-fidelity": fidelity_error,
+    }
 
-    print("\n" + "=" * 60)
-    print("VALIDATION SUMMARY")
-    print("=" * 60)
+    for name, error in errors.items():
+        print(f"{name:28s}: {error:.3e}")
 
-    print(f"Maximum numerical error = {max_error:.3e}")
+    print(f"{'minimum density eigenvalue':28s}: {min_eigenvalue:.3e}")
 
-    if max_error <= 1e-12:
-        print("STATUS: PASS")
-    else:
-        print("STATUS: REVIEW REQUIRED")
+    failed = any(error > ATOL for error in errors.values())
+    failed |= min_eigenvalue < -ATOL
+
+    print("STATUS:", "FAIL" if failed else "PASS")
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
