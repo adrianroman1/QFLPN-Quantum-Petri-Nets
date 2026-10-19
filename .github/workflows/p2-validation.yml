@@ -14,10 +14,15 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   p2-validation:
     name: P2 Mathematical, Software and Integrity Validation
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout repository
@@ -66,12 +71,15 @@ jobs:
               "reports/reference_config.json",
               "tests/conftest.py",
               "tests/qflpn_validation.py",
+              "tests/test_sha256sums.py",
               "tools/run_all_tests.py",
               "tools/generate_manifest.py",
               "tools/verify_sha256.py",
               "tools/generate_sha256sums.py",
               "tools/verify_sha256sums.py",
               "tools/validate_reports.py",
+              "tools/generate_reference_artifacts.py",
+              "tests/test_reference_artifacts.py",
           ]
 
           missing = [
@@ -92,33 +100,39 @@ jobs:
         run: |
           python - <<'PY'
           import json
-          import math
           import sys
           from pathlib import Path
 
           path = Path("P2/reports/reference_config.json")
 
           try:
-              config = json.loads(path.read_text(encoding="utf-8"))
+              config = json.loads(
+                  path.read_text(encoding="utf-8")
+              )
           except Exception as exc:
               print("Invalid reference configuration:", exc)
               sys.exit(1)
 
+          if not isinstance(config, dict):
+              print("Reference configuration must be a JSON object")
+              sys.exit(1)
+
           expected = {
+              "schema_version": 1,
               "qubits": 4,
               "hilbert_dimension": 16,
               "basis_order": "big-endian",
               "activation_vector": [0.85, 0.90, 0.45, 0.70],
               "controlled_gate": "C3X",
-              "basis_indices": [14, 15],
-              "operator_order": "U=C3X @ U_rot",
+              "controlled_gate_basis_indices": [14, 15],
+              "operator_order": "U = C3X @ U_rot",
               "entropy_unit": "bits",
           }
 
           for key, value in expected.items():
               actual = config.get(key)
 
-              if actual != value:
+              if type(actual) is not type(value) or actual != value:
                   print(
                       f"Configuration mismatch for {key}: "
                       f"expected={value!r}, actual={actual!r}"
@@ -133,8 +147,11 @@ jobs:
           python P2/tools/run_all_tests.py -v
 
       - name: Run standalone mathematical validation
+        shell: bash
         run: |
-          python P2/tests/qflpn_validation.py
+          set -o pipefail
+          python P2/tests/qflpn_validation.py \
+            2>&1 | tee P2/reports/qflpn-validation.log
 
       - name: Generate manuscript-aligned reference artifacts
         run: |
@@ -170,6 +187,7 @@ jobs:
         with:
           name: p2-validation-evidence
           if-no-files-found: warn
+          retention-days: 90
           path: |
             P2/reports/
             P2/MANIFEST.txt
