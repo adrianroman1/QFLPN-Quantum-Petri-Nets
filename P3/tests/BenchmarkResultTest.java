@@ -117,6 +117,66 @@ class BenchmarkResultTest {
     }
 
     @Test
+    void shouldRejectZeroSequentialTime() {
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new BenchmarkResult(
+                        "2026-09-06T00:00:00Z",
+                        "QFLPN-test",
+                        12,
+                        24L,
+                        1,
+                        4096,
+                        0,
+                        1,
+                        0.0,
+                        1.0,
+                        1.0,
+                        1.0,
+                        1.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        1.0,
+                        "test-cpu",
+                        1L,
+                        "21",
+                        "Linux",
+                        "test"));
+    }
+
+    @Test
+    void shouldRejectZeroParallelTime() {
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new BenchmarkResult(
+                        "2026-09-06T00:00:00Z",
+                        "QFLPN-test",
+                        12,
+                        24L,
+                        1,
+                        4096,
+                        0,
+                        1,
+                        1.0,
+                        0.0,
+                        1.0,
+                        1.0,
+                        1.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        1.0,
+                        "test-cpu",
+                        1L,
+                        "21",
+                        "Linux",
+                        "test"));
+    }
+
+    @Test
     void shouldRejectInfiniteParallelTime() {
 
         assertThrows(
@@ -163,6 +223,36 @@ class BenchmarkResultTest {
                         1.0,
                         1.0,
                         Double.NaN,
+                        1.0,
+                        1.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        1.0,
+                        "test-cpu",
+                        1L,
+                        "21",
+                        "Linux",
+                        "test"));
+    }
+
+    @Test
+    void shouldRejectZeroSpeedup() {
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new BenchmarkResult(
+                        "2026-09-06T00:00:00Z",
+                        "QFLPN-test",
+                        12,
+                        24L,
+                        1,
+                        4096,
+                        0,
+                        1,
+                        1.0,
+                        1.0,
+                        0.0,
                         1.0,
                         1.0,
                         0.0,
