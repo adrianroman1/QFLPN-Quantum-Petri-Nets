@@ -1,11 +1,10 @@
-"""Generate a deterministic SHA-256 manifest for P2 source artifacts."""
+"""Generate a deterministic SHA-256 manifest for P2."""
 
 from __future__ import annotations
 
 import argparse
 import hashlib
 import os
-
 from pathlib import Path
 
 P2_ROOT = Path(__file__).resolve().parents[1]
@@ -20,7 +19,6 @@ EXCLUDED_DIRS = {
     ".venv",
     "venv",
     "site-packages",
-    "reports",
     "results",
 }
 
@@ -32,6 +30,10 @@ EXCLUDED_NAMES = {
 EXCLUDED_SUFFIXES = {
     ".pyc",
     ".pyo",
+}
+
+PROTECTED_REPORT_FILES = {
+    "reports/reference_config.json",
 }
 
 
@@ -48,20 +50,38 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _is_excluded(relative: Path) -> bool:
-    return (
-        relative.name in EXCLUDED_NAMES
-        or relative.suffix.lower() in EXCLUDED_SUFFIXES
-        or any(
-            part in EXCLUDED_DIRS
-            for part in relative.parts
-        )
-    )
+def is_excluded(relative: Path) -> bool:
+    normalized = relative.as_posix()
+
+    if normalized in PROTECTED_REPORT_FILES:
+        return False
+
+    if relative.name in EXCLUDED_NAMES:
+        return True
+
+    if relative.suffix.lower() in EXCLUDED_SUFFIXES:
+        return True
+
+    if any(part in EXCLUDED_DIRS for part in relative.parts):
+        return True
+
+    if "reports" in relative.parts:
+        return True
+
+    return False
 
 
 def collect_files(root: Path, output: Path) -> list[Path]:
-    root = root.resolve()
+    root = root.resolve(strict=True)
     output = output.resolve()
+
+    try:
+        output.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(
+            "Manifest output must be inside the P2 root"
+        ) from exc
+
     files: list[Path] = []
 
     for current, directories, filenames in os.walk(
@@ -95,7 +115,10 @@ def collect_files(root: Path, output: Path) -> list[Path]:
 
             relative = candidate.relative_to(root)
 
-            if candidate == output or _is_excluded(relative):
+            if candidate.resolve() == output:
+                continue
+
+            if is_excluded(relative):
                 continue
 
             if candidate.is_file():
@@ -110,7 +133,7 @@ def collect_files(root: Path, output: Path) -> list[Path]:
 def build_manifest(root: Path, files: list[Path]) -> str:
     """Build deterministic manifest content from an explicit file list."""
 
-    root = root.resolve()
+    root = root.resolve(strict=True)
     normalized: list[tuple[str, Path]] = []
     seen: set[str] = set()
 
@@ -138,7 +161,7 @@ def build_manifest(root: Path, files: list[Path]) -> str:
 
         relative_path = Path(relative)
 
-        if _is_excluded(relative_path):
+        if is_excluded(relative_path):
             raise ValueError(
                 f"Excluded file cannot be manifested: {relative}"
             )
@@ -178,16 +201,29 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    root = P2_ROOT.resolve()
+    root = P2_ROOT.resolve(strict=True)
     output = args.output.resolve()
 
     try:
         output.relative_to(root)
+
         files = collect_files(root, output)
 
         if not files:
-            print("FAIL: no source files found")
-            return 1
+            raise ValueError("No source files found")
+
+        protected_config = root / "reports" / "reference_config.json"
+
+        if not protected_config.is_file():
+            raise ValueError(
+                "Required protected configuration is missing: "
+                "reports/reference_config.json"
+            )
+
+        if protected_config not in files:
+            raise ValueError(
+                "Reference configuration was not included in manifest"
+            )
 
         content = build_manifest(root, files)
 
@@ -196,14 +232,21 @@ def main() -> int:
             exist_ok=True,
         )
 
-        temporary = output.with_suffix(
-            output.suffix + ".tmp"
+        temporary = output.with_name(
+            output.name + ".tmp"
         )
+
+        if temporary.is_symlink():
+            raise ValueError(
+                f"Temporary manifest path is a symbolic link: {temporary}"
+            )
 
         temporary.write_text(
             content,
             encoding="utf-8",
+            newline="\n",
         )
+
         temporary.replace(output)
 
     except (OSError, ValueError) as exc:
@@ -212,6 +255,7 @@ def main() -> int:
 
     print("Manifest:", output)
     print("Files included:", len(files))
+    print("Protected configuration: reports/reference_config.json")
     print("Manifest SHA-256:", sha256_file(output))
     print("VERDICT: MANIFEST_GENERATED")
 
