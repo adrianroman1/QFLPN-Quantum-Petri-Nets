@@ -1,6 +1,7 @@
 package hpc.csr;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -17,45 +18,33 @@ class BenchmarkResultWriterTest {
     Path temporaryDirectory;
 
     @Test
-    void shouldWriteHeaderAndOneResult() throws IOException {
+    void shouldWriteHeaderAndOneResult()
+            throws IOException {
 
         Path output =
                 temporaryDirectory.resolve(
                         "benchmark_results.csv");
 
         BenchmarkResult result =
-                sampleResult(
-                        "QFLPN-1M");
+                sampleResult("QFLPN-1M");
 
-        BenchmarkResultWriter.append(
-                output,
-                result);
+        BenchmarkResultWriter.append(output, result);
 
-        assertTrue(
-                Files.exists(output));
+        assertTrue(Files.exists(output));
 
         List<String> lines =
                 Files.readAllLines(output);
 
-        assertEquals(
-                2,
-                lines.size());
+        assertEquals(2, lines.size());
 
         assertEquals(
                 BenchmarkResultWriter.csvHeader(),
                 lines.get(0));
 
-        assertTrue(
-                lines.get(1).contains(
-                        "QFLPN-1M"));
-
-        assertTrue(
-                lines.get(1).contains(
-                        "1000000"));
-
-        assertTrue(
-                lines.get(1).contains(
-                        "1.250000000000e+01"));
+        assertTrue(lines.get(1).contains("QFLPN-1M"));
+        assertTrue(lines.get(1).contains("1000000"));
+        assertTrue(lines.get(1).contains(
+                "1.250000000000e+01"));
     }
 
     @Test
@@ -66,40 +55,25 @@ class BenchmarkResultWriterTest {
                 temporaryDirectory.resolve(
                         "benchmark_results.csv");
 
-        BenchmarkResult first =
-                sampleResult(
-                        "QFLPN-1M");
-
-        BenchmarkResult second =
-                sampleResult(
-                        "QFLPN-30M");
+        BenchmarkResultWriter.append(
+                output,
+                sampleResult("QFLPN-1M"));
 
         BenchmarkResultWriter.append(
                 output,
-                first);
-
-        BenchmarkResultWriter.append(
-                output,
-                second);
+                sampleResult("QFLPN-30M"));
 
         List<String> lines =
                 Files.readAllLines(output);
 
-        assertEquals(
-                3,
-                lines.size());
+        assertEquals(3, lines.size());
 
         assertEquals(
                 BenchmarkResultWriter.csvHeader(),
                 lines.get(0));
 
-        assertTrue(
-                lines.get(1).contains(
-                        "QFLPN-1M"));
-
-        assertTrue(
-                lines.get(2).contains(
-                        "QFLPN-30M"));
+        assertTrue(lines.get(1).contains("QFLPN-1M"));
+        assertTrue(lines.get(2).contains("QFLPN-30M"));
     }
 
     @Test
@@ -112,20 +86,12 @@ class BenchmarkResultWriterTest {
                         .resolve("nested")
                         .resolve("benchmark_results.csv");
 
-        BenchmarkResult result =
-                sampleResult(
-                        "QFLPN-12");
-
         BenchmarkResultWriter.append(
                 output,
-                result);
+                sampleResult("QFLPN-12"));
 
-        assertTrue(
-                Files.exists(output));
-
-        assertEquals(
-                2,
-                Files.readAllLines(output).size());
+        assertTrue(Files.exists(output));
+        assertEquals(2, Files.readAllLines(output).size());
     }
 
     @Test
@@ -161,18 +127,63 @@ class BenchmarkResultWriterTest {
                         "Linux",
                         "test note, with comma");
 
-        BenchmarkResultWriter.append(
-                output,
-                result);
+        BenchmarkResultWriter.append(output, result);
 
         String row =
-                Files.readAllLines(
-                        output)
-                        .get(1);
+                Files.readAllLines(output).get(1);
 
-        assertTrue(
-                row.contains(
-                        "\"test note, with comma\""));
+        assertTrue(row.contains(
+                "\"test note, with comma\""));
+    }
+
+    @Test
+    void shouldRejectExistingFileWithInvalidHeader()
+            throws IOException {
+
+        Path output =
+                temporaryDirectory.resolve("invalid-header.csv");
+
+        Files.writeString(
+                output,
+                "wrong,header" + System.lineSeparator());
+
+        String originalContent =
+                Files.readString(output);
+
+        assertThrows(
+                IOException.class,
+                () -> BenchmarkResultWriter.append(
+                        output,
+                        sampleResult("QFLPN-test")));
+
+        assertEquals(
+                originalContent,
+                Files.readString(output));
+    }
+
+    @Test
+    void shouldRejectExistingFileWithoutFinalNewline()
+            throws IOException {
+
+        Path output =
+                temporaryDirectory.resolve("truncated.csv");
+
+        String originalContent =
+                BenchmarkResultWriter.csvHeader()
+                        + System.lineSeparator()
+                        + "incomplete-record";
+
+        Files.writeString(output, originalContent);
+
+        assertThrows(
+                IOException.class,
+                () -> BenchmarkResultWriter.append(
+                        output,
+                        sampleResult("QFLPN-test")));
+
+        assertEquals(
+                originalContent,
+                Files.readString(output));
     }
 
     private static BenchmarkResult sampleResult(
