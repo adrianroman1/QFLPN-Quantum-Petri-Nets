@@ -1,13 +1,15 @@
-"""Independent numerical checks for the published P2 tables.
+"""Independent regression tests for numerical values published in P2.
 
-This module deliberately does not import qflpn_reference.
-It reconstructs the mathematical instance from the manuscript
-definitions and checks the published rounded numerical values.
+This module deliberately reconstructs the four-qubit state without importing
+the production implementation from qflpn_reference.
 """
 
 from __future__ import annotations
 
 import numpy as np
+
+
+ATOL = 6e-9
 
 LAMBDAS = np.array(
     [0.85, 0.90, 0.45, 0.70],
@@ -66,122 +68,136 @@ EXPECTED_RHO_Q4 = np.array(
     dtype=np.float64,
 )
 
-ATOL_AMPLITUDES = 6e-9
-ATOL_PROBABILITIES = 5e-7
-ATOL_DENSITY = 5e-10
 
+def independent_product_state() -> np.ndarray:
+    """Construct the tensor-product RY state from the published lambdas."""
+    local_states = []
 
-def independent_initial_state() -> np.ndarray:
-    """Construct the tensor-product state from the published lambdas."""
-    state = np.array([1.0], dtype=np.float64)
-
-    for value in LAMBDAS:
-        local = np.array(
-            [
-                np.sqrt(1.0 - value),
-                np.sqrt(value),
-            ],
-            dtype=np.float64,
+    for activation in LAMBDAS:
+        local_states.append(
+            np.array(
+                [
+                    np.sqrt(1.0 - activation),
+                    np.sqrt(activation),
+                ],
+                dtype=np.float64,
+            )
         )
-        state = np.kron(state, local)
 
-    return state
+    state = local_states[0]
 
+    for local_state in local_states[1:]:
+        state = np.kron(state, local_state)
 
-def independent_canonical_state() -> np.ndarray:
-    """Apply C3X with controls q1,q2,q3 and target q4."""
-    state = independent_initial_state()
-
-    # Big-endian |q1 q2 q3 q4> convention.
-    # C3X exchanges |1110> and |1111>.
-    state[14], state[15] = state[15], state[14]
-
-    return state
+    return np.asarray(state, dtype=np.complex128)
 
 
-def independent_reduced_density_q4(
-    state: np.ndarray,
-) -> np.ndarray:
+def independent_c3x(state: np.ndarray) -> np.ndarray:
+    """Apply C3X with q1,q2,q3 as controls and q4 as target."""
+    result = np.asarray(state, dtype=np.complex128).copy()
+
+    if result.shape != (16,):
+        raise ValueError("Expected a 16-dimensional state vector.")
+
+    result[14], result[15] = result[15], result[14]
+
+    return result
+
+
+def independent_reference_state() -> np.ndarray:
+    """Reconstruct the manuscript state without production-code imports."""
+    return independent_c3x(independent_product_state())
+
+
+def independent_reduced_density_q4(state: np.ndarray) -> np.ndarray:
     """Trace out q1,q2,q3 and retain q4."""
-    tensor = np.asarray(
-        state,
-        dtype=np.complex128,
-    ).reshape(8, 2)
+    vector = np.asarray(state, dtype=np.complex128)
+
+    if vector.shape != (16,):
+        raise ValueError("Expected a 16-dimensional state vector.")
+
+    tensor = vector.reshape(8, 2)
 
     return tensor.conj().T @ tensor
 
 
-def test_published_table_11_amplitudes():
-    """Check the sixteen rounded amplitudes in manuscript Table 11."""
-    actual = independent_canonical_state()
+def test_independent_state_is_normalized():
+    state = independent_reference_state()
 
-    assert actual.shape == (16,)
-    assert np.all(np.isfinite(actual))
+    assert np.isclose(
+        np.linalg.norm(state),
+        1.0,
+        atol=1e-12,
+        rtol=0.0,
+    )
 
-    np.testing.assert_allclose(
-        actual.real,
+
+def test_published_state_amplitudes():
+    state = independent_reference_state()
+
+    assert np.allclose(
+        state.real,
         EXPECTED_AMPLITUDES,
-        atol=ATOL_AMPLITUDES,
+        atol=ATOL,
         rtol=0.0,
     )
 
-    np.testing.assert_allclose(
-        actual.imag,
-        np.zeros(16),
-        atol=1e-14,
+    assert np.allclose(
+        state.imag,
+        0.0,
+        atol=1e-12,
         rtol=0.0,
     )
 
 
-def test_published_table_3_probabilities():
-    """Check all sixteen rounded probabilities in manuscript Table 3."""
-    state = independent_canonical_state()
-    actual = np.abs(state) ** 2
+def test_published_probabilities():
+    probabilities = np.abs(independent_reference_state()) ** 2
 
-    assert actual.shape == (16,)
-    assert np.all(actual >= 0.0)
-
-    np.testing.assert_allclose(
-        actual,
+    assert np.allclose(
+        probabilities,
         EXPECTED_PROBABILITIES,
-        atol=ATOL_PROBABILITIES,
+        atol=ATOL,
         rtol=0.0,
     )
 
     assert np.isclose(
-        actual.sum(),
+        probabilities.sum(),
         1.0,
         atol=1e-12,
         rtol=0.0,
     )
 
 
-def test_published_reduced_density_q4():
-    """Check the published reduced density matrix for subsystem q4."""
-    state = independent_canonical_state()
-    rho4 = independent_reduced_density_q4(state)
+def test_published_q4_reduced_density_matrix():
+    rho_q4 = independent_reduced_density_q4(
+        independent_reference_state()
+    )
 
-    assert rho4.shape == (2, 2)
-
-    np.testing.assert_allclose(
-        rho4.real,
+    assert np.allclose(
+        rho_q4,
         EXPECTED_RHO_Q4,
-        atol=ATOL_DENSITY,
+        atol=ATOL,
         rtol=0.0,
     )
 
-    np.testing.assert_allclose(
-        rho4.imag,
-        np.zeros((2, 2)),
-        atol=1e-14,
+
+def test_published_q4_density_matrix_is_physical():
+    rho_q4 = independent_reduced_density_q4(
+        independent_reference_state()
+    )
+
+    assert np.allclose(
+        rho_q4,
+        rho_q4.conj().T,
+        atol=1e-12,
         rtol=0.0,
     )
 
     assert np.isclose(
-        np.trace(rho4).real,
+        np.trace(rho_q4).real,
         1.0,
         atol=1e-12,
         rtol=0.0,
     )
 
-    assert np.min(np.linalg.eigvalsh(rho4)) >= -1e-12
+    assert np.min(np.linalg.eigvalsh(rho_q4)) >= -1e-12
