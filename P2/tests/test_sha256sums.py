@@ -218,14 +218,14 @@ def test_protected_configuration_is_mandatory(
     tmp_path: Path,
 ):
     root = tmp_path
-    (root / "source.py").write_text(
-        "value = 1\n",
-        encoding="utf-8",
-    )
+
+    source = root / "source.py"
+    source_bytes = b"value = 1\n"
+    source.write_bytes(source_bytes)
 
     sums = root / "SHA256SUMS.txt"
     sums.write_text(
-        f"{digest(b'value = 1\\n')}  source.py\n",
+        f"{digest(source_bytes)}  source.py\n",
         encoding="utf-8",
     )
 
