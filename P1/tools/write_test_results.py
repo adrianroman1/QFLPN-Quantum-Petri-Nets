@@ -26,6 +26,25 @@ RESIDUAL_KEYS = (
     "pure_state_density_frobenius",
 )
 
+FINITE_CHECK_KEYS = (
+    "operator_finite",
+    "initial_state_finite",
+    "final_state_finite",
+    "density_matrix_finite",
+)
+
+INDEPENDENT_CHECK_KEYS = (
+    "operator_agreement_frobenius",
+    "saved_operator_matches_production",
+    "constructive_gate_reconstruction",
+    "state_difference_l2",
+    "state_fidelity_error",
+    "saved_final_state_matches_production",
+    "big_endian_qubit0_leftmost",
+    "big_endian_qubit3_rightmost",
+    "c3x_truth_table_controls_0_1_2_target_3",
+)
+
 INDEPENDENT_METRIC_KEYS = (
     "operator_difference_frobenius",
     "state_difference_l2",
@@ -92,18 +111,16 @@ def validate_residual_report(
         valid = False
 
     finite_checks = report.get("finite_checks")
-    if not isinstance(finite_checks, dict) or not finite_checks:
-        errors.append("residuals.json: finite_checks must be a non-empty object")
+    if not isinstance(finite_checks, dict):
+        errors.append("residuals.json: finite_checks must be an object")
         valid = False
         finite_checks = {}
+    elif set(finite_checks) != set(FINITE_CHECK_KEYS):
+        errors.append("residuals.json: finite_checks keys do not match producer schema")
+        valid = False
 
     normalized_finite_checks: dict[str, bool] = {}
-    for key in (
-        "operator_finite",
-        "initial_state_finite",
-        "final_state_finite",
-        "density_matrix_finite",
-    ):
+    for key in FINITE_CHECK_KEYS:
         value = finite_checks.get(key)
         if not isinstance(value, bool):
             errors.append(f"residuals.json: finite_checks.{key} must be boolean")
@@ -139,7 +156,7 @@ def validate_residual_report(
         errors.append("residuals.json: checks must be a non-empty object")
         valid = False
     else:
-        expected_check_keys = set(finite_checks) | set(RESIDUAL_KEYS)
+        expected_check_keys = set(FINITE_CHECK_KEYS) | set(RESIDUAL_KEYS)
         if set(checks) != expected_check_keys:
             errors.append("residuals.json: checks keys do not match producer schema")
             valid = False
@@ -188,11 +205,16 @@ def validate_independent_report(
         valid = False
 
     checks = report.get("checks")
-    if not isinstance(checks, dict) or not checks:
-        errors.append("independent_agreement.json: checks must be a non-empty object")
+    if not isinstance(checks, dict):
+        errors.append("independent_agreement.json: checks must be an object")
         checks = {}
         valid = False
     else:
+        if set(checks) != set(INDEPENDENT_CHECK_KEYS):
+            errors.append(
+                "independent_agreement.json: checks keys do not match producer schema"
+            )
+            valid = False
         for key, value in checks.items():
             if not isinstance(value, bool):
                 errors.append(
@@ -242,9 +264,9 @@ def junit_counts(
 
     testcases = list(root.iter("testcase"))
     observed_tests = len(testcases)
-    observed_failures = sum(bool(case.findall("failure")) for case in testcases)
-    observed_errors = sum(bool(case.findall("error")) for case in testcases)
-    observed_skipped = sum(bool(case.findall("skipped")) for case in testcases)
+    observed_failures = sum(len(case.findall("failure")) for case in testcases)
+    observed_errors = sum(len(case.findall("error")) for case in testcases)
+    observed_skipped = sum(len(case.findall("skipped")) for case in testcases)
 
     if root.tag in ("testsuite", "testsuites") and all(
         key in root.attrib
