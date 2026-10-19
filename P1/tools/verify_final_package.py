@@ -289,8 +289,6 @@ def validate_inventory(errors: list[str]):
             errors,
         )
 
-    # A06: independently reconstruct the eligible inventory with a separate
-    # traversal implementation; do not call the producer inventory function.
     try:
         eligible_files = rebuild_eligible_inventory_independently(ROOT)
     except Exception as exc:
@@ -321,7 +319,6 @@ def validate_inventory(errors: list[str]):
             errors,
         )
 
-    # Recalculate every checksum from the actual file contents.
     for rel, expected in checksum_map.items():
         if not safe_relative(rel):
             fail(f"unsafe checksum path: {rel}", errors)
@@ -406,7 +403,6 @@ def validate_metadata(errors: list[str]) -> None:
     ):
         fail("C3X control/target metadata mismatch", errors)
 
-    # A05: exact canonical sequence comparison, not a length-only check.
     gate_sequence = metadata.get("gate_sequence")
     if gate_sequence != GATE_SEQUENCE:
         fail("gate sequence mismatch with canonical GATE_SEQUENCE", errors)
@@ -686,7 +682,9 @@ def validate_test_log(
         "test_metadata_records_canonical_instance_and_environment",
         "test_density_matrix_is_outer_product_of_saved_final_state",
         "test_sha256_helper_matches_standard_library",
-        "test_inventory_is_sorted_and_excludes_self_referential_files",
+        "test_inventory_is_sorted_and_contains_no_duplicates",
+        "test_inventory_excludes_self_referential_files",
+        "test_inventory_excludes_bytecode_and_cache_directories",
         "test_preflight_source_modules_and_report_generator_exist",
         "test_initial_state_is_the_canonical_zero_basis_vector",
     }
