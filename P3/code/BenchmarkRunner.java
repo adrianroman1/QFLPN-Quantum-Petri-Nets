@@ -227,8 +227,14 @@ public final class BenchmarkRunner {
                             parallelExpectedError,
                             maxAbsoluteError);
 
-            persistResult(result);
-
+            /*
+             * Fail closed:
+             *
+             * A benchmark result is persisted only after all
+             * numerical validation checks have passed.
+             *
+             * Invalid measurements must not enter the CSV dataset.
+             */
             if (!sequentialCorrect
                     || !parallelCorrect
                     || !resultsMatch) {
@@ -236,6 +242,8 @@ public final class BenchmarkRunner {
                 throw new IllegalStateException(
                         "Benchmark numerical validation failed.");
             }
+
+            persistResult(result);
 
         } finally {
 
