@@ -1,4 +1,4 @@
-"""Fail-closed SHA-256 manifest verification for QFLPN P2."""
+"""Fail-closed SHA-256 and manifest completeness verification."""
 
 from __future__ import annotations
 
@@ -8,33 +8,91 @@ import re
 import sys
 from pathlib import Path
 
-
 P2_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MANIFEST = P2_ROOT / "MANIFEST.txt"
+
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+
+EXCLUDED_NAMES = {
+    "MANIFEST.txt",
+    "SHA256SUMS.txt",
+}
+
+EXCLUDED_DIRECTORIES = {
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".tox",
+    ".venv",
+    "venv",
+    "site-packages",
+}
+
+EXCLUDED_SUFFIXES = {
+    ".pyc",
+    ".pyo",
+}
 
 
 def sha256_file(path: Path) -> str:
-    """Return the SHA-256 digest of a file."""
     digest = hashlib.sha256()
 
     with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+        for chunk in iter(
+            lambda: stream.read(1024 * 1024),
+            b"",
+        ):
             digest.update(chunk)
 
     return digest.hexdigest()
 
 
-def parse_manifest(path: Path) -> tuple[list[tuple[str, str]], list[str]]:
-    """Parse manifest entries and report malformed lines."""
-    entries: list[tuple[str, str]] = []
+def is_excluded(path: Path) -> bool:
+    return (
+        path.name in EXCLUDED_NAMES
+        or path.suffix.lower() in EXCLUDED_SUFFIXES
+        or any(
+            part in EXCLUDED_DIRECTORIES
+            for part in path.parts
+        )
+    )
+
+
+def collect_expected_paths(root: Path) -> set[str]:
+    expected: set[str] = set()
+
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+
+        relative = path.relative_to(root)
+
+        if is_excluded(relative):
+            continue
+
+        if path.is_symlink():
+            raise ValueError(
+                f"Symbolic links are forbidden: {relative}"
+            )
+
+        expected.add(relative.as_posix())
+
+    return expected
+
+
+def parse_manifest(
+    manifest: Path,
+) -> tuple[dict[str, str], list[str]]:
+    entries: dict[str, str] = {}
     errors: list[str] = []
-    seen: set[str] = set()
 
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        lines = manifest.read_text(
+            encoding="utf-8"
+        ).splitlines()
     except OSError as exc:
-        return [], [f"Cannot read manifest: {exc}"]
+        return {}, [f"Cannot read manifest: {exc}"]
 
     for line_number, line in enumerate(lines, start=1):
         stripped = line.strip()
@@ -46,91 +104,100 @@ def parse_manifest(path: Path) -> tuple[list[tuple[str, str]], list[str]]:
 
         if len(parts) != 2:
             errors.append(
-                f"Line {line_number}: expected SHA256 and relative path."
+                f"Line {line_number}: invalid manifest entry"
             )
             continue
 
         expected_hash, relative_path = parts
-        relative_path = relative_path.strip()
+        candidate = Path(relative_path)
 
         if not SHA256_PATTERN.fullmatch(expected_hash):
             errors.append(
-                f"Line {line_number}: invalid SHA-256 digest."
+                f"Line {line_number}: invalid SHA-256"
             )
             continue
 
-        if not relative_path:
-            errors.append(f"Line {line_number}: empty file path.")
-            continue
-
-        candidate = Path(relative_path)
-
-        if candidate.is_absolute():
+        if (
+            candidate.is_absolute()
+            or ".." in candidate.parts
+            or not candidate.parts
+        ):
             errors.append(
-                f"Line {line_number}: absolute paths are forbidden."
-            )
-            continue
-
-        if ".." in candidate.parts:
-            errors.append(
-                f"Line {line_number}: parent traversal is forbidden."
+                f"Line {line_number}: unsafe relative path"
             )
             continue
 
         normalized = candidate.as_posix()
 
-        if normalized in seen:
+        if is_excluded(candidate):
             errors.append(
-                f"Line {line_number}: duplicate path {normalized!r}."
+                f"Line {line_number}: excluded file listed"
             )
             continue
 
-        seen.add(normalized)
-        entries.append((expected_hash, normalized))
+        if normalized in entries:
+            errors.append(
+                f"Line {line_number}: duplicate path {normalized}"
+            )
+            continue
+
+        entries[normalized] = expected_hash
 
     if not entries and not errors:
-        errors.append("Manifest contains no file entries.")
+        errors.append("Manifest contains no entries")
 
     return entries, errors
 
 
-def verify_manifest(root: Path, manifest: Path) -> tuple[int, int, list[str]]:
-    """Verify all manifest entries without following paths outside root."""
+def verify_manifest(
+    root: Path,
+    manifest: Path,
+) -> tuple[int, int, list[str]]:
     entries, errors = parse_manifest(manifest)
 
     passed = 0
     failed = len(errors)
-    root_resolved = root.resolve()
 
-    for expected_hash, relative_path in entries:
+    try:
+        expected_paths = collect_expected_paths(root)
+    except (OSError, ValueError) as exc:
+        return passed, failed + 1, errors + [str(exc)]
+
+    manifest_paths = set(entries)
+
+    missing = expected_paths - manifest_paths
+    unexpected = manifest_paths - expected_paths
+
+    for path in sorted(missing):
+        errors.append(f"Missing from manifest: {path}")
+        failed += 1
+
+    for path in sorted(unexpected):
+        errors.append(f"Unexpected manifest entry: {path}")
+        failed += 1
+
+    for relative_path, expected_hash in sorted(entries.items()):
         candidate = root / relative_path
 
         try:
             resolved = candidate.resolve(strict=True)
-            resolved.relative_to(root_resolved)
-        except (OSError, ValueError):
-            errors.append(
-                f"{relative_path}: missing file or path escapes P2 root."
-            )
-            failed += 1
-            continue
+            resolved.relative_to(root.resolve())
 
-        if not resolved.is_file():
-            errors.append(f"{relative_path}: not a regular file.")
-            failed += 1
-            continue
+            if not resolved.is_file():
+                raise ValueError("Not a regular file")
 
-        try:
             actual_hash = sha256_file(resolved)
-        except OSError as exc:
-            errors.append(f"{relative_path}: read error: {exc}")
+
+        except (OSError, ValueError) as exc:
+            errors.append(
+                f"{relative_path}: invalid file: {exc}"
+            )
             failed += 1
             continue
 
         if actual_hash != expected_hash:
             errors.append(
-                f"{relative_path}: SHA-256 mismatch "
-                f"(expected {expected_hash}, got {actual_hash})."
+                f"{relative_path}: SHA-256 mismatch"
             )
             failed += 1
         else:
@@ -140,20 +207,12 @@ def verify_manifest(root: Path, manifest: Path) -> tuple[int, int, list[str]]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Verify P2 files against MANIFEST.txt."
-    )
-    parser.add_argument(
-        "--root",
-        type=Path,
-        default=P2_ROOT,
-        help="P2 root directory.",
-    )
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--root", type=Path, default=P2_ROOT)
     parser.add_argument(
         "--manifest",
         type=Path,
         default=DEFAULT_MANIFEST,
-        help="Manifest file.",
     )
     args = parser.parse_args()
 
@@ -161,31 +220,38 @@ def main() -> int:
     manifest = args.manifest.resolve()
 
     if not root.is_dir():
-        print(f"FAIL: P2 root does not exist: {root}")
+        print("FAIL: P2 root does not exist")
         return 2
 
     try:
         manifest.relative_to(root)
     except ValueError:
-        print("FAIL: Manifest must be located inside the P2 root.")
+        print("FAIL: manifest must be inside P2 root")
         return 2
 
     if not manifest.is_file():
-        print(f"FAIL: Manifest not found: {manifest}")
+        print("FAIL: manifest does not exist")
         return 2
 
-    passed, failed, errors = verify_manifest(root, manifest)
+    passed, failed, errors = verify_manifest(
+        root,
+        manifest,
+    )
 
     for error in errors:
         print("FAIL:", error)
 
-    print("-" * 72)
-    print("Files verified:", passed + failed)
-    print("PASS:", passed)
-    print("FAIL:", failed)
+    print("=" * 72)
+    print("SHA-256 PASS:", passed)
+    print("SHA-256 FAIL:", failed)
+    print(
+        "VERDICT:",
+        "P2_INTEGRITY_ACCEPTED" if failed == 0
+        else "P2_REJECTED",
+    )
 
-    return 1 if failed else 0
+    return 0 if failed == 0 else 1
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())
