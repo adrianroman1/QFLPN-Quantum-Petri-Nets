@@ -13,6 +13,9 @@ This document maps P3 manuscript claims to:
 A source-code mapping alone does not establish that
 a performance claim has been experimentally validated.
 
+The status of every claim must reflect the evidence
+actually available for the corresponding source revision.
+
 ## 2. Manuscript-to-code mapping
 
 | Manuscript item | Mathematical or algorithmic content | Java implementation | Test or evidence | Status |
@@ -32,7 +35,7 @@ a performance claim has been experimentally validated.
 | Speedup | S=T_seq/T_par | BenchmarkRunner.calculateSpeedup() | Raw CSV and independent calculation | PENDING |
 | Time reduction | R=1-T_par/T_seq | Derived from measured CSV values | Results.md and raw CSV | PENDING |
 | Result persistence | CSV output | BenchmarkResultWriter.java | BenchmarkResultWriterTest.java | CI PASS |
-| Environment metadata | JVM, OS, CPU-visible properties | BenchmarkRunner.java and BenchmarkEnvironment.java | Environment capture | PARTIAL |
+| Environment metadata | JVM, OS, CPU-visible properties | BenchmarkRunner.java and BenchmarkEnvironment.java | Environment capture tests | CI PASS |
 | Reproducibility | Exact command and environment | Reproducibility.md and run_benchmark.sh | Raw log, environment, SHA-256 | PENDING |
 
 ## 3. CSR representation and storage complexity
@@ -41,7 +44,7 @@ Let:
 
 - N = number of matrix rows;
 - M = number of matrix columns;
-- NNZ = number of stored non-zero entries.
+- NNZ = number of stored non-zero elements.
 
 The CSR representation stores:
 
@@ -228,7 +231,7 @@ The stored CSV speedup is independently checked by:
 `P3/results/validate_benchmark.py`
 
 No speedup or reduction claim is accepted without
-the corresponding raw CSV row.
+the corresponding raw CSV row and validator output.
 
 ## 10. Memory model
 
@@ -277,7 +280,7 @@ Workflow:
 
 `.github/workflows/p3-validation.yml`
 
-Latest inspected run:
+Previously inspected successful run:
 
 https://github.com/adrianroman1/QFLPN-Quantum-Petri-Nets/actions/runs/39332171230
 
@@ -297,3 +300,84 @@ Failures: 0
 Errors: 0
 Skipped: 0
 BUILD SUCCESS
+```
+
+This is historical evidence for the commit identified above.
+
+It does not establish that subsequent changes to P3
+have passed CI.
+
+A new CI run is required after new source changes.
+
+## 12. Benchmark evidence
+
+The benchmark result file is expected at:
+
+`P3/benchmarks/benchmark_results.csv`
+
+The independent validator is:
+
+`P3/results/validate_benchmark.py`
+
+The reproducibility procedure is:
+
+`P3/results/Reproducibility.md`
+
+The execution script is:
+
+`P3/results/run_benchmark.sh`
+
+The existence of these source files does not prove
+that a benchmark has been executed.
+
+Until the raw CSV, execution log, environment record,
+validator output, and checksums are available for the
+same source revision, the following remain OPEN:
+
+- M3.1 — benchmark provenance;
+- M3.3 — empirical confirmation of complexity-related claims;
+- M3.6 — measured speedup;
+- M3.7 — measured time reduction;
+- M3.10 — complete reproducibility evidence;
+- M3.11 — full manuscript-to-code-to-results alignment.
+
+## 13. Evidence acceptance rules
+
+A claim may be marked PASS only when its evidence
+supports that exact claim.
+
+The following rules apply:
+
+1. A source file proves that an implementation exists;
+   it does not prove that the implementation executed.
+2. A unit test proves only the behavior covered by that test.
+3. A CI result applies to the exact commit tested.
+4. A benchmark result must be linked to its source revision.
+5. A performance claim requires actual measured values.
+6. A validator PASS applies only to the checks performed
+   by that validator.
+7. A source-level memory estimate must not be described
+   as measured peak memory.
+8. A reproducibility claim requires retained execution
+   artifacts and checksums.
+
+## 14. Current acceptance register
+
+| ID | Criterion | Status |
+|---|---|---|
+| M3.1 | Benchmark provenance | OPEN |
+| M3.2 | CSR representation and manuscript Eq. (4) alignment | PASS |
+| M3.3 | Complexity claims and supporting evidence | OPEN |
+| M3.4 | Fork/Join implementation and tests | PASS PRELIMINARY |
+| M3.5 | CSR versus independent dense oracle | PASS |
+| M3.6 | Measured speedup | OPEN |
+| M3.7 | Measured time reduction | OPEN |
+| M3.8 | Memory accounting | PASS PRELIMINARY |
+| M3.9 | Automated tests | 126/126 PASS on inspected commit |
+| M3.10 | Reproducibility package | OPEN |
+| M3.11 | Manuscript-code-results alignment | OPEN |
+| P3_ACCEPTED | Overall acceptance | OPEN |
+
+The register must be updated only when new evidence
+has been inspected and linked to the relevant source
+revision.
