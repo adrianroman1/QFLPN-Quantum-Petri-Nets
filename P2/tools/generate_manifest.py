@@ -1,11 +1,10 @@
-"""Generate a deterministic SHA-256 manifest for the P2 directory."""
+"""Deterministic SHA-256 manifest generation for QFLPN P2."""
 
 from __future__ import annotations
 
 import argparse
 import hashlib
 from pathlib import Path
-
 
 P2_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT = P2_ROOT / "MANIFEST.txt"
@@ -15,20 +14,53 @@ EXCLUDED_NAMES = {
     "SHA256SUMS.txt",
 }
 
+EXCLUDED_DIRECTORIES = {
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".tox",
+    ".venv",
+    "venv",
+    "site-packages",
+}
+
+EXCLUDED_SUFFIXES = {
+    ".pyc",
+    ".pyo",
+}
+
 
 def sha256_file(path: Path) -> str:
-    """Calculate the SHA-256 digest of a file incrementally."""
     digest = hashlib.sha256()
 
     with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+        for chunk in iter(
+            lambda: stream.read(1024 * 1024),
+            b"",
+        ):
             digest.update(chunk)
 
     return digest.hexdigest()
 
 
+def is_excluded(path: Path) -> bool:
+    if path.name in EXCLUDED_NAMES:
+        return True
+
+    if path.suffix.lower() in EXCLUDED_SUFFIXES:
+        return True
+
+    if any(
+        part in EXCLUDED_DIRECTORIES
+        for part in path.parts
+    ):
+        return True
+
+    return False
+
+
 def collect_files(root: Path, output: Path) -> list[Path]:
-    """Collect regular files in deterministic relative-path order."""
     output_resolved = output.resolve()
     files: list[Path] = []
 
@@ -36,8 +68,13 @@ def collect_files(root: Path, output: Path) -> list[Path]:
         if not path.is_file():
             continue
 
-        if path.name in EXCLUDED_NAMES:
+        if is_excluded(path.relative_to(root)):
             continue
+
+        if path.is_symlink():
+            raise ValueError(
+                f"Symbolic links are not allowed: {path}"
+            )
 
         if path.resolve() == output_resolved:
             continue
@@ -51,7 +88,6 @@ def collect_files(root: Path, output: Path) -> list[Path]:
 
 
 def build_manifest(root: Path, files: list[Path]) -> str:
-    """Build a UTF-8 manifest with SHA-256 and relative paths."""
     lines = [
         "# QFLPN P2 SHA-256 manifest",
         "# Format: SHA256  relative/path",
@@ -59,22 +95,18 @@ def build_manifest(root: Path, files: list[Path]) -> str:
     ]
 
     for path in files:
-        relative_path = path.relative_to(root).as_posix()
-        digest = sha256_file(path)
-        lines.append(f"{digest}  {relative_path}")
+        relative = path.relative_to(root).as_posix()
+        lines.append(f"{sha256_file(path)}  {relative}")
 
     return "\n".join(lines) + "\n"
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Generate the P2 SHA-256 manifest."
-    )
+    parser = argparse.ArgumentParser()
     parser.add_argument(
         "--output",
         type=Path,
         default=DEFAULT_OUTPUT,
-        help="Manifest output path.",
     )
     args = parser.parse_args()
 
@@ -82,32 +114,34 @@ def main() -> int:
     output = args.output.resolve()
 
     if not root.is_dir():
-        print(f"ERROR: P2 directory not found: {root}")
+        print("FAIL: P2 root does not exist")
         return 2
 
     try:
         output.relative_to(root)
-    except ValueError:
-        print("ERROR: Manifest output must be inside the P2 directory.")
+        files = collect_files(root, output)
+    except (ValueError, OSError) as exc:
+        print(f"FAIL: manifest collection: {exc}")
         return 2
 
-    files = collect_files(root, output)
-
     if not files:
-        print("ERROR: No source files found; manifest not generated.")
+        print("FAIL: no files to include")
         return 1
 
     try:
         output.parent.mkdir(parents=True, exist_ok=True)
-        manifest = build_manifest(root, files)
-        output.write_text(manifest, encoding="utf-8")
+        output.write_text(
+            build_manifest(root, files),
+            encoding="utf-8",
+        )
     except OSError as exc:
-        print(f"ERROR: Manifest generation failed: {exc}")
+        print(f"FAIL: manifest write: {exc}")
         return 2
 
-    print("Manifest generated:", output)
+    print("Manifest:", output)
     print("Files included:", len(files))
     print("Manifest SHA-256:", sha256_file(output))
+    print("VERDICT: MANIFEST_GENERATED")
 
     return 0
 
