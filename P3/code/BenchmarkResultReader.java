@@ -1,6 +1,5 @@
 package hpc.csr;
 
-import java.io.BufferedReader;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -9,23 +8,23 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Reads QFLPN CSR benchmark results from CSV files.
+ * Reads benchmark results from RFC-style CSV records.
  *
- * The reader expects the CSV format produced by
- * BenchmarkResultWriter.
+ * Supports:
+ * - quoted fields;
+ * - escaped double quotes;
+ * - commas inside quoted fields;
+ * - CR, LF and CRLF inside quoted fields;
+ * - multiple physical lines inside one CSV record.
  */
 public final class BenchmarkResultReader {
+
+    private static final int EXPECTED_FIELDS = 22;
 
     private BenchmarkResultReader() {
         // Utility class.
     }
 
-    /**
-     * Reads all benchmark results from the default CSV file.
-     *
-     * @return immutable list of benchmark results
-     * @throws IOException if the file cannot be read
-     */
     public static List<BenchmarkResult> read()
             throws IOException {
 
@@ -33,13 +32,6 @@ public final class BenchmarkResultReader {
                 BenchmarkResultWriter.defaultOutputPath());
     }
 
-    /**
-     * Reads all benchmark results from the specified CSV file.
-     *
-     * @param inputPath CSV file
-     * @return immutable list of benchmark results
-     * @throws IOException if the file cannot be read
-     */
     public static List<BenchmarkResult> read(
             Path inputPath)
             throws IOException {
@@ -55,64 +47,56 @@ public final class BenchmarkResultReader {
                             + inputPath);
         }
 
+        String content = Files.readString(
+                inputPath,
+                StandardCharsets.UTF_8);
+
+        List<List<String>> records =
+                parseCsv(content);
+
+        if (records.isEmpty()) {
+            return List.of();
+        }
+
+        List<String> header = records.get(0);
+
+        if (header.size() != EXPECTED_FIELDS
+                || !String.join(",", header).equals(
+                        BenchmarkResultWriter.csvHeader())) {
+
+            throw new IOException(
+                    "Invalid benchmark CSV header.");
+        }
+
         List<BenchmarkResult> results =
                 new ArrayList<>();
 
-        try (BufferedReader reader =
-                     Files.newBufferedReader(
-                             inputPath,
-                             StandardCharsets.UTF_8)) {
+        for (int i = 1; i < records.size(); i++) {
 
-            String header =
-                    reader.readLine();
+            List<String> fields = records.get(i);
 
-            if (header == null) {
-                return List.of();
+            if (fields.size() == 1
+                    && fields.get(0).isBlank()) {
+                continue;
             }
 
-            if (!header.equals(
-                    BenchmarkResultWriter.csvHeader())) {
-
+            if (fields.size() != EXPECTED_FIELDS) {
                 throw new IOException(
-                        "Invalid benchmark CSV header.");
+                        "Invalid CSV field count at record "
+                                + (i + 1)
+                                + ": expected "
+                                + EXPECTED_FIELDS
+                                + " but found "
+                                + fields.size());
             }
 
-            String line;
-
-            int lineNumber = 1;
-
-            while ((line = reader.readLine()) != null) {
-
-                lineNumber++;
-
-                if (line.isBlank()) {
-                    continue;
-                }
-
-                List<String> fields =
-                        parseCsvLine(line);
-
-                if (fields.size() != 22) {
-
-                    throw new IOException(
-                            "Invalid CSV field count at line "
-                                    + lineNumber
-                                    + ": expected 22 but found "
-                                    + fields.size());
-                }
-
-                try {
-
-                    results.add(
-                            fromFields(fields));
-
-                } catch (RuntimeException exception) {
-
-                    throw new IOException(
-                            "Invalid benchmark data at line "
-                                    + lineNumber,
-                            exception);
-                }
+            try {
+                results.add(fromFields(fields));
+            } catch (RuntimeException exception) {
+                throw new IOException(
+                        "Invalid benchmark data at record "
+                                + (i + 1),
+                        exception);
             }
         }
 
@@ -125,95 +109,147 @@ public final class BenchmarkResultReader {
         return new BenchmarkResult(
                 fields.get(0),
                 fields.get(1),
-                Integer.parseInt(
-                        fields.get(2)),
-                Long.parseLong(
-                        fields.get(3)),
-                Integer.parseInt(
-                        fields.get(4)),
-                Integer.parseInt(
-                        fields.get(5)),
-                Integer.parseInt(
-                        fields.get(6)),
-                Integer.parseInt(
-                        fields.get(7)),
-                Double.parseDouble(
-                        fields.get(8)),
-                Double.parseDouble(
-                        fields.get(9)),
-                Double.parseDouble(
-                        fields.get(10)),
-                Double.parseDouble(
-                        fields.get(11)),
-                Double.parseDouble(
-                        fields.get(12)),
-                Double.parseDouble(
-                        fields.get(13)),
-                Double.parseDouble(
-                        fields.get(14)),
-                Double.parseDouble(
-                        fields.get(15)),
-                Double.parseDouble(
-                        fields.get(16)),
+                Integer.parseInt(fields.get(2)),
+                Long.parseLong(fields.get(3)),
+                Integer.parseInt(fields.get(4)),
+                Integer.parseInt(fields.get(5)),
+                Integer.parseInt(fields.get(6)),
+                Integer.parseInt(fields.get(7)),
+                Double.parseDouble(fields.get(8)),
+                Double.parseDouble(fields.get(9)),
+                Double.parseDouble(fields.get(10)),
+                Double.parseDouble(fields.get(11)),
+                Double.parseDouble(fields.get(12)),
+                Double.parseDouble(fields.get(13)),
+                Double.parseDouble(fields.get(14)),
+                Double.parseDouble(fields.get(15)),
+                Double.parseDouble(fields.get(16)),
                 fields.get(17),
-                Long.parseLong(
-                        fields.get(18)),
+                Long.parseLong(fields.get(18)),
                 fields.get(19),
                 fields.get(20),
                 fields.get(21));
     }
 
     /**
-     * Parses one CSV row.
+     * Parses complete CSV content.
      *
-     * Supports quoted fields and escaped double quotes.
+     * Newline characters terminate records only when
+     * the parser is outside a quoted field.
      */
-    private static List<String> parseCsvLine(
-            String line) {
+    private static List<List<String>> parseCsv(
+            String content) {
+
+        List<List<String>> records =
+                new ArrayList<>();
 
         List<String> fields =
                 new ArrayList<>();
 
-        StringBuilder current =
+        StringBuilder field =
                 new StringBuilder();
 
-        boolean quoted =
-                false;
+        boolean quoted = false;
+        boolean afterClosingQuote = false;
+        boolean fieldStarted = false;
 
-        for (int i = 0;
-             i < line.length();
-             i++) {
+        for (int i = 0; i < content.length(); i++) {
 
-            char character =
-                    line.charAt(i);
+            char c = content.charAt(i);
 
-            if (character == '"') {
+            if (quoted) {
 
-                if (quoted
-                        && i + 1 < line.length()
-                        && line.charAt(i + 1) == '"') {
+                if (c == '"') {
 
-                    current.append('"');
-                    i++;
+                    if (i + 1 < content.length()
+                            && content.charAt(i + 1) == '"') {
+
+                        field.append('"');
+                        i++;
+
+                    } else {
+
+                        quoted = false;
+                        afterClosingQuote = true;
+                    }
 
                 } else {
 
-                    quoted =
-                            !quoted;
+                    field.append(c);
                 }
 
-            } else if (character == ','
-                    && !quoted) {
+                continue;
+            }
 
-                fields.add(
-                        current.toString());
+            if (afterClosingQuote) {
 
-                current.setLength(0);
+                if (c == ',') {
+
+                    fields.add(field.toString());
+                    field.setLength(0);
+                    afterClosingQuote = false;
+                    fieldStarted = false;
+                    continue;
+                }
+
+                if (c == '\r' || c == '\n') {
+
+                    fields.add(field.toString());
+                    records.add(List.copyOf(fields));
+
+                    fields.clear();
+                    field.setLength(0);
+                    afterClosingQuote = false;
+                    fieldStarted = false;
+
+                    if (c == '\r'
+                            && i + 1 < content.length()
+                            && content.charAt(i + 1) == '\n') {
+                        i++;
+                    }
+
+                    continue;
+                }
+
+                throw new IllegalArgumentException(
+                        "Unexpected character after closing quote.");
+            }
+
+            if (c == '"') {
+
+                if (fieldStarted || field.length() != 0) {
+                    throw new IllegalArgumentException(
+                            "Unexpected quote inside unquoted field.");
+                }
+
+                quoted = true;
+                fieldStarted = true;
+
+            } else if (c == ',') {
+
+                fields.add(field.toString());
+                field.setLength(0);
+                fieldStarted = false;
+
+            } else if (c == '\r' || c == '\n') {
+
+                fields.add(field.toString());
+                records.add(List.copyOf(fields));
+
+                fields.clear();
+                field.setLength(0);
+                fieldStarted = false;
+
+                if (c == '\r'
+                        && i + 1 < content.length()
+                        && content.charAt(i + 1) == '\n') {
+                    i++;
+                }
 
             } else {
 
-                current.append(
-                        character);
+                field.append(c);
+                fieldStarted = true;
             }
         }
 
@@ -222,9 +258,15 @@ public final class BenchmarkResultReader {
                     "Unclosed quoted CSV field.");
         }
 
-        fields.add(
-                current.toString());
+        if (afterClosingQuote
+                || fieldStarted
+                || !fields.isEmpty()
+                || field.length() != 0) {
 
-        return fields;
+            fields.add(field.toString());
+            records.add(List.copyOf(fields));
+        }
+
+        return records;
     }
 }
