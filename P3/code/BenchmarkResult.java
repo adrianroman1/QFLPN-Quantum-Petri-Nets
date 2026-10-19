@@ -75,15 +75,15 @@ public record BenchmarkResult(
                     "measuredIterations must be > 0");
         }
 
-        requireFiniteNonNegative(
+        requireFinitePositive(
                 sequentialMs,
                 "sequentialMs");
 
-        requireFiniteNonNegative(
+        requireFinitePositive(
                 parallelMs,
                 "parallelMs");
 
-        requireFiniteNonNegative(
+        requireFinitePositive(
                 speedup,
                 "speedup");
 
@@ -136,6 +136,19 @@ public record BenchmarkResult(
         if (notes == null) {
             throw new IllegalArgumentException(
                     "notes must not be null");
+        }
+    }
+
+    private static void requireFinitePositive(
+            double value,
+            String fieldName) {
+
+        if (!Double.isFinite(value)
+                || value <= 0.0) {
+
+            throw new IllegalArgumentException(
+                    fieldName
+                            + " must be finite and > 0");
         }
     }
 
