@@ -22,7 +22,7 @@ jobs:
   p2-validation:
     name: P2 Mathematical, Software and Integrity Validation
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
 
     steps:
       - name: Checkout repository
@@ -47,7 +47,11 @@ jobs:
           python -m pip freeze > P2/reports/pip-freeze.txt
           python -m pip check
 
-      - name: Validate required source files
+      - name: Compile P2 source, tests and tools
+        run: |
+          python -m compileall -q P2/code P2/tests P2/tools
+
+      - name: Validate required P2 files
         run: |
           test -f P2/code/qflpn_reference.py
           test -f P2/tests/test_manuscript_alignment.py
@@ -76,13 +80,13 @@ jobs:
         run: |
           python P2/tools/validate_reports.py
 
-      - name: Generate source SHA-256 manifest
-        if: success()
+      - name: Generate P2 source manifest
+        if: always()
         run: |
           python P2/tools/generate_manifest.py
 
-      - name: Verify source SHA-256 manifest
-        if: success()
+      - name: Verify P2 source manifest and SHA-256 inventory
+        if: always()
         run: |
           python P2/tools/verify_sha256.py
 
