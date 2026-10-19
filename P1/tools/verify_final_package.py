@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import re
 import sys
 from pathlib import Path, PurePosixPath
@@ -23,7 +24,6 @@ from P1.tools.constants import (
     NUMERICAL_TOLERANCE,
     QUBIT_COUNT,
 )
-from P1.tools.compute_checksums import inventory_files
 
 P1 = ROOT / "P1"
 ART = P1 / "artifacts"
@@ -65,6 +65,18 @@ FINITE_CHECK_KEYS = (
     "initial_state_finite",
     "final_state_finite",
     "density_matrix_finite",
+)
+
+INDEPENDENT_CHECK_KEYS = (
+    "operator_agreement_frobenius",
+    "saved_operator_matches_production",
+    "constructive_gate_reconstruction",
+    "state_difference_l2",
+    "state_fidelity_error",
+    "saved_final_state_matches_production",
+    "big_endian_qubit0_leftmost",
+    "big_endian_qubit3_rightmost",
+    "c3x_truth_table_controls_0_1_2_target_3",
 )
 
 INDEPENDENT_METRIC_KEYS = (
@@ -134,6 +146,48 @@ def load_json(path: Path, label: str, errors: list[str]):
             errors,
         )
         return None
+
+
+def rebuild_eligible_inventory_independently(root: Path) -> set[str]:
+    """Rebuild the eligible file set without importing the manifest producer.
+
+    This deliberately uses os.walk rather than compute_checksums.inventory_files,
+    while independently applying the repository inventory inclusion/exclusion
+    rules to P1 and .github/workflows.
+    """
+    excluded_names = {"MANIFEST.txt", "SHA256SUMS.txt"}
+    excluded_directories = {"__pycache__", ".pytest_cache", ".mypy_cache"}
+    scan_roots = (root / "P1", root / ".github" / "workflows")
+    eligible: set[str] = set()
+
+    for scan_root in scan_roots:
+        if not scan_root.exists():
+            continue
+        if scan_root.is_symlink() or not scan_root.is_dir():
+            continue
+
+        for current, directory_names, file_names in os.walk(
+            scan_root,
+            topdown=True,
+            followlinks=False,
+        ):
+            current_path = Path(current)
+            directory_names[:] = [
+                name
+                for name in directory_names
+                if name not in excluded_directories
+                and not (current_path / name).is_symlink()
+            ]
+
+            for name in file_names:
+                candidate = current_path / name
+                if name in excluded_names or candidate.suffix == ".pyc":
+                    continue
+                if candidate.is_symlink() or not candidate.is_file():
+                    continue
+                eligible.add(candidate.relative_to(root).as_posix())
+
+    return eligible
 
 
 def validate_inventory(errors: list[str]):
@@ -235,13 +289,10 @@ def validate_inventory(errors: list[str]):
             errors,
         )
 
-    # A06: independently reconstruct the eligible inventory using the
-    # exact producer function and compare both inventories against it.
+    # A06: independently reconstruct the eligible inventory with a separate
+    # traversal implementation; do not call the producer inventory function.
     try:
-        eligible_files = {
-            path.relative_to(ROOT).as_posix()
-            for path in inventory_files(ROOT)
-        }
+        eligible_files = rebuild_eligible_inventory_independently(ROOT)
     except Exception as exc:
         fail(
             "independent inventory reconstruction failed: "
@@ -477,6 +528,8 @@ def validate_residual_report(
     if not isinstance(finite_checks, dict):
         fail("residual finite_checks must be an object", errors)
         finite_checks = {}
+    elif set(finite_checks) != set(FINITE_CHECK_KEYS):
+        fail("residual finite_checks schema mismatch", errors)
 
     for key in FINITE_CHECK_KEYS:
         value = finite_checks.get(key)
@@ -521,9 +574,11 @@ def validate_independent_report(
         fail("independent tolerance invalid or mismatched", errors)
 
     checks = independent.get("checks")
-    if not isinstance(checks, dict) or not checks:
+    if not isinstance(checks, dict):
         fail("independent agreement checks missing or invalid", errors)
     else:
+        if set(checks) != set(INDEPENDENT_CHECK_KEYS):
+            fail("independent agreement checks schema mismatch", errors)
         for key, value in checks.items():
             if value is not True:
                 fail(
