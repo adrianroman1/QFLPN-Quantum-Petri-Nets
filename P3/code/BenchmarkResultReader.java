@@ -16,6 +16,11 @@ import java.util.List;
  * - commas inside quoted fields;
  * - CR, LF and CRLF inside quoted fields;
  * - multiple physical lines inside one CSV record.
+ *
+ * An empty file is rejected because it does not contain
+ * the mandatory CSV header.
+ *
+ * A valid header-only file is accepted and returns an empty list.
  */
 public final class BenchmarkResultReader {
 
@@ -47,6 +52,17 @@ public final class BenchmarkResultReader {
                             + inputPath);
         }
 
+        if (!Files.isRegularFile(inputPath)) {
+            throw new IOException(
+                    "Benchmark CSV path is not a regular file: "
+                            + inputPath);
+        }
+
+        if (Files.size(inputPath) == 0L) {
+            throw new IOException(
+                    "Benchmark CSV file is empty: missing header.");
+        }
+
         String content = Files.readString(
                 inputPath,
                 StandardCharsets.UTF_8);
@@ -62,7 +78,8 @@ public final class BenchmarkResultReader {
         }
 
         if (records.isEmpty()) {
-            return List.of();
+            throw new IOException(
+                    "Benchmark CSV contains no header record.");
         }
 
         List<String> header = records.get(0);
