@@ -21,7 +21,6 @@ DEFAULT_OUTPUT = P2_ROOT / "reports" / "reference_artifacts"
 sys.path.insert(0, str(CODE_DIR))
 
 from qflpn_reference import (  # noqa: E402
-    DEFAULT_ACTIVATIONS,
     basis_label,
     density_matrix,
     reference_state,
@@ -30,6 +29,8 @@ from qflpn_reference import (  # noqa: E402
 
 
 def load_config(path: Path) -> dict:
+    """Load and strictly validate the P2 reference configuration."""
+
     with path.open("r", encoding="utf-8") as stream:
         config = json.load(stream)
 
@@ -80,14 +81,26 @@ def load_config(path: Path) -> dict:
     if not isinstance(activations, list) or len(activations) != 4:
         raise ValueError("Exactly four activation values are required.")
 
-    if not np.all(np.isfinite(np.asarray(activations, dtype=float))):
-        raise ValueError("Activation vector contains non-finite values.")
+    # JSON booleans are subclasses of Python int. Reject them explicitly.
+    # Numeric strings are also rejected: the canonical reference model
+    # accepts real numeric scalars, not values requiring implicit coercion.
+    for index, value in enumerate(activations):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise TypeError(
+                "Activation at index "
+                f"{index} must be a JSON number; booleans and strings "
+                "are not valid activations."
+            )
 
-    if np.any(np.asarray(activations, dtype=float) < 0.0):
-        raise ValueError("Activation values must be nonnegative.")
+        if not np.isfinite(value):
+            raise ValueError(
+                f"Activation at index {index} must be finite."
+            )
 
-    if np.any(np.asarray(activations, dtype=float) > 1.0):
-        raise ValueError("Activation values must not exceed one.")
+        if not 0.0 <= value <= 1.0:
+            raise ValueError(
+                f"Activation at index {index} must lie in [0, 1]."
+            )
 
     return config
 
@@ -97,6 +110,8 @@ def write_csv(
     header: list[str],
     rows: list[list[object]],
 ) -> None:
+    """Write a CSV artifact using UTF-8 and deterministic column order."""
+
     path.parent.mkdir(parents=True, exist_ok=True)
 
     with path.open(
@@ -110,6 +125,8 @@ def write_csv(
 
 
 def reduced_density_q4(state: np.ndarray) -> np.ndarray:
+    """Trace out q1, q2 and q3, retaining q4."""
+
     tensor = np.asarray(
         state,
         dtype=np.complex128,
@@ -119,6 +136,8 @@ def reduced_density_q4(state: np.ndarray) -> np.ndarray:
 
 
 def reduced_density_q123(state: np.ndarray) -> np.ndarray:
+    """Trace out q4, retaining q1, q2 and q3."""
+
     tensor = np.asarray(
         state,
         dtype=np.complex128,
@@ -128,6 +147,8 @@ def reduced_density_q123(state: np.ndarray) -> np.ndarray:
 
 
 def complex_value(value: complex) -> dict[str, float]:
+    """Represent a complex scalar as JSON-compatible real and imaginary parts."""
+
     return {
         "real": float(value.real),
         "imag": float(value.imag),
@@ -135,8 +156,11 @@ def complex_value(value: complex) -> dict[str, float]:
 
 
 def generate(config_path: Path, output_dir: Path) -> dict:
+    """Generate all P2 numerical reference artifacts."""
+
     config = load_config(config_path)
 
+    # Strict type and domain validation has already occurred in load_config.
     activations = tuple(
         float(value)
         for value in config["activation_vector"]
@@ -150,8 +174,11 @@ def generate(config_path: Path, output_dir: Path) -> dict:
     rho_q4 = reduced_density_q4(state)
     rho_q123 = reduced_density_q123(state)
 
-    eigenvalues_q4 = np.linalg.eigvalsh(rho_q4)
-    eigenvalues_q4 = np.clip(eigenvalues_q4, 0.0, None)
+    # Clip only tiny negative eigenvalues caused by floating-point
+    # roundoff for entropy evaluation. The unmodified density matrix
+    # remains available for independent physicality checks.
+    eigenvalues_q4_raw = np.linalg.eigvalsh(rho_q4)
+    eigenvalues_q4 = np.clip(eigenvalues_q4_raw, 0.0, None)
 
     positive_eigenvalues = eigenvalues_q4[eigenvalues_q4 > 0.0]
 
