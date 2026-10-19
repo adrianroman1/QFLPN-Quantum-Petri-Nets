@@ -45,10 +45,14 @@ INDEPENDENT_CHECK_KEYS = (
     "c3x_truth_table_controls_0_1_2_target_3",
 )
 
+# Every reported numerical discrepancy must be checked independently.
 INDEPENDENT_METRIC_KEYS = (
     "operator_difference_frobenius",
+    "saved_operator_difference_frobenius",
+    "constructive_operator_difference_frobenius",
     "state_difference_l2",
     "state_fidelity_error",
+    "saved_final_state_difference_l2",
 )
 
 REQUIRED_EVIDENCE = (
@@ -69,7 +73,11 @@ def is_valid_numeric(value: object) -> bool:
         return False
 
 
-def load_json_object(path: Path, label: str, errors: list[str]) -> dict[str, Any] | None:
+def load_json_object(
+    path: Path,
+    label: str,
+    errors: list[str],
+) -> dict[str, Any] | None:
     """Load a JSON object; record malformed or incorrectly typed reports."""
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -107,7 +115,9 @@ def validate_residual_report(
 
     tolerance = report.get("numerical_tolerance")
     if not is_valid_numeric(tolerance) or tolerance != NUMERICAL_TOLERANCE:
-        errors.append("residuals.json: numerical_tolerance is invalid or mismatched")
+        errors.append(
+            "residuals.json: numerical_tolerance is invalid or mismatched"
+        )
         valid = False
 
     finite_checks = report.get("finite_checks")
@@ -116,64 +126,71 @@ def validate_residual_report(
         valid = False
         finite_checks = {}
     elif set(finite_checks) != set(FINITE_CHECK_KEYS):
-        errors.append("residuals.json: finite_checks keys do not match producer schema")
+        errors.append(
+            "residuals.json: finite_checks keys do not match producer schema"
+        )
         valid = False
 
-    normalized_finite_checks: dict[str, bool] = {}
     for key in FINITE_CHECK_KEYS:
         value = finite_checks.get(key)
         if not isinstance(value, bool):
-            errors.append(f"residuals.json: finite_checks.{key} must be boolean")
+            errors.append(
+                f"residuals.json: finite_checks.{key} must be boolean"
+            )
             valid = False
-            normalized_finite_checks[key] = False
-        else:
-            normalized_finite_checks[key] = value
-            if value is not True:
-                errors.append(f"residuals.json: finite_checks.{key} is false")
-                valid = False
+        elif value is not True:
+            errors.append(f"residuals.json: finite_checks.{key} is false")
+            valid = False
 
     residual_checks: dict[str, bool] = {}
+
     for key in RESIDUAL_KEYS:
         value = report.get(key)
+
         if not is_valid_numeric(value):
-            errors.append(f"residuals.json: {key} must be a finite numeric value")
+            errors.append(
+                f"residuals.json: {key} must be a finite numeric value"
+            )
             residual_checks[key] = False
             valid = False
             continue
 
         passed = 0.0 <= float(value) <= NUMERICAL_TOLERANCE
         residual_checks[key] = passed
+
         if not passed:
             errors.append(
                 f"residuals.json: {key} is negative or exceeds tolerance"
             )
             valid = False
 
-    # The producer writes a combined checks object containing all finite
-    # checks and all seven numerical residual checks.
     checks = report.get("checks")
+
     if not isinstance(checks, dict) or not checks:
         errors.append("residuals.json: checks must be a non-empty object")
         valid = False
     else:
         expected_check_keys = set(FINITE_CHECK_KEYS) | set(RESIDUAL_KEYS)
+
         if set(checks) != expected_check_keys:
-            errors.append("residuals.json: checks keys do not match producer schema")
+            errors.append(
+                "residuals.json: checks keys do not match producer schema"
+            )
             valid = False
 
         for key, value in checks.items():
             if not isinstance(value, bool):
-                errors.append(f"residuals.json: checks.{key} must be boolean")
+                errors.append(
+                    f"residuals.json: checks.{key} must be boolean"
+                )
                 valid = False
             elif value is not True:
-                errors.append(f"residuals.json: checks.{key} is false")
+                errors.append(
+                    f"residuals.json: checks.{key} is false"
+                )
                 valid = False
 
-    if not valid:
-        residual_checks["schema_and_values_valid"] = False
-    else:
-        residual_checks["schema_and_values_valid"] = True
-
+    residual_checks["schema_and_values_valid"] = valid
     return residual_checks
 
 
@@ -181,14 +198,16 @@ def validate_independent_report(
     report: dict[str, Any] | None,
     errors: list[str],
 ) -> dict[str, bool]:
-    """Validate the actual independent_agreement.json producer schema."""
+    """Validate all numerical metrics and checks in independent_agreement.json."""
     if report is None:
         return {}
 
     valid = True
 
     if report.get("status") != "PASS":
-        errors.append("independent_agreement.json: status must be exactly 'PASS'")
+        errors.append(
+            "independent_agreement.json: status must be exactly 'PASS'"
+        )
         valid = False
 
     if report.get("all_checks_pass") is not True:
@@ -198,15 +217,22 @@ def validate_independent_report(
         valid = False
 
     tolerance = report.get("numerical_tolerance")
-    if not is_valid_numeric(tolerance) or tolerance != NUMERICAL_TOLERANCE:
+
+    if (
+        not is_valid_numeric(tolerance)
+        or tolerance != NUMERICAL_TOLERANCE
+    ):
         errors.append(
             "independent_agreement.json: numerical_tolerance is invalid or mismatched"
         )
         valid = False
 
     checks = report.get("checks")
+
     if not isinstance(checks, dict):
-        errors.append("independent_agreement.json: checks must be an object")
+        errors.append(
+            "independent_agreement.json: checks must be an object"
+        )
         checks = {}
         valid = False
     else:
@@ -215,6 +241,7 @@ def validate_independent_report(
                 "independent_agreement.json: checks keys do not match producer schema"
             )
             valid = False
+
         for key, value in checks.items():
             if not isinstance(value, bool):
                 errors.append(
@@ -228,8 +255,10 @@ def validate_independent_report(
                 valid = False
 
     metric_results: dict[str, bool] = {}
+
     for key in INDEPENDENT_METRIC_KEYS:
         value = report.get(key)
+
         if not is_valid_numeric(value):
             errors.append(
                 f"independent_agreement.json: {key} must be finite numeric"
@@ -240,6 +269,7 @@ def validate_independent_report(
 
         passed = 0.0 <= float(value) <= NUMERICAL_TOLERANCE
         metric_results[key] = passed
+
         if not passed:
             errors.append(
                 f"independent_agreement.json: {key} is negative or exceeds tolerance"
@@ -253,20 +283,20 @@ def validate_independent_report(
 def junit_counts(
     path: Path,
 ) -> tuple[int, int, int, int, list[str], list[str]]:
-    """Reconcile declared JUnit counters with observed testcase elements.
-
-    Testcases are collected once from the complete XML tree. For declared
-    counters, use the root testsuites/testsuites aggregate when present.
-    Otherwise sum only leaf testsuite elements to avoid counting nested
-    suite totals twice.
-    """
+    """Reconcile declared JUnit counters with observed testcase elements."""
     root = ET.parse(path).getroot()
 
     testcases = list(root.iter("testcase"))
     observed_tests = len(testcases)
-    observed_failures = sum(len(case.findall("failure")) for case in testcases)
-    observed_errors = sum(len(case.findall("error")) for case in testcases)
-    observed_skipped = sum(len(case.findall("skipped")) for case in testcases)
+    observed_failures = sum(
+        len(case.findall("failure")) for case in testcases
+    )
+    observed_errors = sum(
+        len(case.findall("error")) for case in testcases
+    )
+    observed_skipped = sum(
+        len(case.findall("skipped")) for case in testcases
+    )
 
     if root.tag in ("testsuite", "testsuites") and all(
         key in root.attrib
@@ -287,7 +317,9 @@ def junit_counts(
         if not leaf_suites and root.tag == "testsuite":
             leaf_suites = [root]
 
-        declared_tests = sum(int(s.attrib.get("tests", 0)) for s in leaf_suites)
+        declared_tests = sum(
+            int(s.attrib.get("tests", 0)) for s in leaf_suites
+        )
         declared_failures = sum(
             int(s.attrib.get("failures", 0)) for s in leaf_suites
         )
@@ -299,11 +331,14 @@ def junit_counts(
         )
 
     names = [
-        case.attrib.get("classname", "") + "::" + case.attrib.get("name", "")
+        case.attrib.get("classname", "")
+        + "::"
+        + case.attrib.get("name", "")
         for case in testcases
     ]
 
     reconciliation_errors: list[str] = []
+
     comparisons = (
         ("tests", declared_tests, observed_tests),
         ("failures", declared_failures, observed_failures),
@@ -373,7 +408,10 @@ def main() -> None:
     REPORTS.mkdir(parents=True, exist_ok=True)
     errors: list[str] = []
 
-    evidence_paths = {name: REPORTS / name for name in REQUIRED_EVIDENCE}
+    evidence_paths = {
+        name: REPORTS / name for name in REQUIRED_EVIDENCE
+    }
+
     missing = [
         str(path.relative_to(ROOT))
         for path in evidence_paths.values()
@@ -381,12 +419,12 @@ def main() -> None:
     ]
 
     if missing:
-        errors.append("Missing required evidence: " + ", ".join(missing))
+        errors.append(
+            "Missing required evidence: " + ", ".join(missing)
+        )
         write_rejection(errors)
         raise SystemExit(1)
 
-    # Parse JUnit without allowing malformed XML or invalid counters to
-    # prevent creation of a rejection report.
     try:
         (
             tests,
@@ -404,15 +442,20 @@ def main() -> None:
             f"JUnit evidence invalid: {type(exc).__name__}: {exc}"
         )
 
-    # The exit-code file must contain one integer and nothing else.
     exit_code: int | None = None
+
     try:
-        raw_exit = evidence_paths["pytest_exit_code.txt"].read_text(
-            encoding="utf-8"
-        ).strip()
+        raw_exit = evidence_paths[
+            "pytest_exit_code.txt"
+        ].read_text(encoding="utf-8").strip()
+
         if not raw_exit or not raw_exit.isdecimal():
-            raise ValueError("exit code must be a non-negative decimal integer")
+            raise ValueError(
+                "exit code must be a non-negative decimal integer"
+            )
+
         exit_code = int(raw_exit)
+
     except Exception as exc:
         errors.append(
             f"pytest exit-code evidence invalid: {type(exc).__name__}: {exc}"
@@ -423,13 +466,18 @@ def main() -> None:
         "residuals.json",
         errors,
     )
+
     independent_report = load_json_object(
         evidence_paths["independent_agreement.json"],
         "independent_agreement.json",
         errors,
     )
 
-    residual_checks = validate_residual_report(residual_report, errors)
+    residual_checks = validate_residual_report(
+        residual_report,
+        errors,
+    )
+
     independent_checks = validate_independent_report(
         independent_report,
         errors,
@@ -451,15 +499,27 @@ def main() -> None:
     }
 
     if exit_code != 0:
-        errors.append(f"pytest exit code is not zero: {exit_code!r}")
+        errors.append(
+            f"pytest exit code is not zero: {exit_code!r}"
+        )
+
     if tests <= 0:
         errors.append("JUnit contains no observed testcases")
+
     if failures:
-        errors.append(f"JUnit reports {failures} failing testcases")
+        errors.append(
+            f"JUnit reports {failures} failing testcases"
+        )
+
     if test_errors:
-        errors.append(f"JUnit reports {test_errors} testcases with errors")
+        errors.append(
+            f"JUnit reports {test_errors} testcases with errors"
+        )
+
     if skipped:
-        errors.append(f"JUnit reports {skipped} skipped testcases")
+        errors.append(
+            f"JUnit reports {skipped} skipped testcases"
+        )
 
     pytest_section = {
         "exit_code": exit_code,
