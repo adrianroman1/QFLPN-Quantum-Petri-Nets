@@ -148,6 +148,8 @@ jobs:
 
       - name: Run standalone mathematical validation
         shell: bash
+        env:
+          PYTHONPATH: ${{ github.workspace }}/P2/code
         run: |
           set -o pipefail
           python P2/tests/qflpn_validation.py \
