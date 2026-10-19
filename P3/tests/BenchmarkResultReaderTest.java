@@ -186,6 +186,36 @@ class BenchmarkResultReaderTest {
     }
 
     @Test
+    void shouldRejectEmptyFile()
+            throws IOException {
+
+        Path output = temporaryDirectory.resolve(
+                "empty.csv");
+
+        Files.writeString(output, "");
+
+        assertThrows(
+                IOException.class,
+                () -> BenchmarkResultReader.read(output));
+    }
+
+    @Test
+    void shouldRejectFileContainingOnlyNewlines()
+            throws IOException {
+
+        Path output = temporaryDirectory.resolve(
+                "newlines-only.csv");
+
+        Files.writeString(
+                output,
+                System.lineSeparator());
+
+        assertThrows(
+                IOException.class,
+                () -> BenchmarkResultReader.read(output));
+    }
+
+    @Test
     void shouldRejectMissingFile() {
 
         Path output = temporaryDirectory.resolve(
