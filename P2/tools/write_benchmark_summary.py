@@ -1,4 +1,4 @@
-"""Write the P2 benchmark results to the GitHub Actions step summary."""
+"""Write paired P2 benchmark results to the GitHub Actions summary."""
 
 from __future__ import annotations
 
@@ -24,10 +24,11 @@ def valid_number(value) -> bool:
     )
 
 
-def format_number(value) -> str:
+def format_number(value, digits: int = 3) -> str:
     if not valid_number(value):
         return "INVALID"
-    return f"{value:.3f}"
+
+    return f"{value:.{digits}f}"
 
 
 def build_summary(report: dict) -> str:
@@ -38,16 +39,36 @@ def build_summary(report: dict) -> str:
     else:
         runtime_text = "INVALID"
 
+    production_total = report.get(
+        "production_total_execution_seconds"
+    )
+
+    independent_total = report.get(
+        "independent_total_execution_seconds"
+    )
+
+    combined_total = report.get(
+        "combined_timed_execution_seconds"
+    )
+
     lines = [
-        "## QFLPN P2 — Benchmark",
+        "## QFLPN P2 — Paired Benchmark",
         "",
         f"**Status:** `{report.get('status', 'UNKNOWN')}`",
         "",
         f"**Total benchmark runtime:** `{runtime_text}`",
         "",
         (
-            "**Runtime measurement scope:** "
-            f"{report.get('runtime_measurement_scope', 'MISSING')}"
+            "**Production total execution time:** "
+            f"`{format_number(production_total, 9)} seconds`"
+        ),
+        (
+            "**Independent total execution time:** "
+            f"`{format_number(independent_total, 9)} seconds`"
+        ),
+        (
+            "**Combined timed execution time:** "
+            f"`{format_number(combined_total, 9)} seconds`"
         ),
         "",
         f"- Benchmark ID: `{report.get('benchmark_id', 'UNKNOWN')}`",
@@ -59,8 +80,13 @@ def build_summary(report: dict) -> str:
         f"- Repetitions: `{report.get('repetitions', 'UNKNOWN')}`",
         f"- Timer: `{report.get('timer', 'UNKNOWN')}`",
         "",
-        "| Operation | Median (ns) | Mean (ns) | Std. dev. (ns) | Throughput (ops/s) | Numerical error | Status |",
-        "|---|---:|---:|---:|---:|---:|---|",
+        (
+            "| Operation | Production median (ns) | "
+            "Independent median (ns) | "
+            "Production reduction (%) | "
+            "Production wins (%) | World record |"
+        ),
+        "|---|---:|---:|---:|---:|---|",
     ]
 
     operations = report.get("operations", [])
@@ -72,31 +98,23 @@ def build_summary(report: dict) -> str:
         if not isinstance(row, dict):
             continue
 
-        numerical_error = row.get("numerical_error")
-        if valid_number(numerical_error):
-            error_text = f"{numerical_error:.3e}"
-        else:
-            error_text = "INVALID"
+        production = row.get("production", {})
+        independent = row.get("independent", {})
+        paired = row.get("paired_comparison", {})
+        world_record = row.get("world_record", {})
 
         lines.append(
-            "| "
-            + str(row.get("operation", "UNKNOWN"))
-            + " | "
-            + format_number(row.get("median_ns"))
-            + " | "
-            + format_number(row.get("mean_ns"))
-            + " | "
-            + format_number(row.get("standard_deviation_ns"))
-            + " | "
-            + format_number(row.get("operations_per_second"))
-            + " | "
-            + error_text
-            + " | "
-            + ("PASS" if row.get("passed") is True else "FAIL")
-            + " |"
+            f"| {row.get('operation', 'UNKNOWN')}"
+            f" | {format_number(production.get('median_ns'), 2)}"
+            f" | {format_number(independent.get('median_ns'), 2)}"
+            f" | {format_number(paired.get('production_reduction_percent_vs_independent'), 3)}"
+            f" | {format_number(paired.get('production_win_rate_percent'), 2)}"
+            f" | {world_record.get('display', 'MISSING')} |"
         )
 
-    parity = report.get("pennylane_numpy_maximum_difference")
+    parity = report.get(
+        "pennylane_numpy_maximum_difference"
+    )
 
     if valid_number(parity):
         parity_text = f"{parity:.6e}"
@@ -108,6 +126,14 @@ def build_summary(report: dict) -> str:
         (
             "PennyLane / independent NumPy maximum state difference: "
             f"`{parity_text}`"
+        ),
+        "",
+        "### World-record interpretation",
+        "",
+        (
+            "A published result is not labelled a P2 world record unless "
+            "the workload, operation, hardware, software and timing "
+            "protocol are directly comparable."
         ),
         "",
         "### Evidence files",
@@ -163,6 +189,7 @@ def main() -> int:
         report = json.loads(
             REPORT_PATH.read_text(encoding="utf-8")
         )
+
     except (
         OSError,
         UnicodeError,
@@ -176,9 +203,56 @@ def main() -> int:
         return 1
 
     runtime = report.get("total_runtime_seconds")
+
     if not valid_number(runtime) or runtime <= 0:
         print("FAIL: total benchmark runtime is missing or invalid.")
         return 1
+
+    required_totals = (
+        "production_total_execution_seconds",
+        "independent_total_execution_seconds",
+        "combined_timed_execution_seconds",
+    )
+
+    for field in required_totals:
+        value = report.get(field)
+
+        if not valid_number(value) or value < 0:
+            print(f"FAIL: invalid benchmark total: {field}")
+            return 1
+
+    operations = report.get("operations")
+
+    if not isinstance(operations, list) or not operations:
+        print("FAIL: benchmark operation list is missing.")
+        return 1
+
+    for row in operations:
+        if not isinstance(row, dict):
+            print("FAIL: invalid operation record.")
+            return 1
+
+        if not isinstance(row.get("production"), dict):
+            print("FAIL: production timing statistics are missing.")
+            return 1
+
+        if not isinstance(row.get("independent"), dict):
+            print("FAIL: independent timing statistics are missing.")
+            return 1
+
+        if not isinstance(row.get("paired_comparison"), dict):
+            print("FAIL: paired comparison statistics are missing.")
+            return 1
+
+        world_record = row.get("world_record")
+
+        if not isinstance(world_record, dict):
+            print("FAIL: world-record metadata is missing.")
+            return 1
+
+        if not isinstance(world_record.get("display"), str):
+            print("FAIL: world-record display field is invalid.")
+            return 1
 
     try:
         summary = build_summary(report)
@@ -188,6 +262,7 @@ def main() -> int:
             encoding="utf-8",
         ) as stream:
             stream.write(summary)
+
     except (
         OSError,
         TypeError,
@@ -196,10 +271,13 @@ def main() -> int:
         print("FAIL: cannot write GitHub benchmark summary:", exc)
         return 1
 
-    print("P2 benchmark summary written.")
+    print("P2 paired benchmark summary written.")
     print("Evidence files verified:", len(required_files))
     print("Benchmark status:", report.get("status", "UNKNOWN"))
-    print(f"Total benchmark runtime: {runtime:.6f} seconds")
+
+    print(
+        f"Total benchmark runtime: {runtime:.6f} seconds"
+    )
 
     return 0
 
