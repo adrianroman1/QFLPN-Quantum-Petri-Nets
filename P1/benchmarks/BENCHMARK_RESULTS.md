@@ -17,17 +17,17 @@
 
 | Metric | Production implementation | Independent implementation | Comparative indicator |
 |---|---:|---:|---:|
-| Minimum (ms) | 0.078086 | 0.097051 | — |
-| Median (ms) | **0.115050** | 0.139305 | **1.210816×** (reference / P1) |
-| Mean (ms) | 0.115601 | 0.134106 | — |
-| Maximum (ms) | 0.194172 | 0.177923 | — |
-| Standard deviation (ms) | 0.026272 | 0.020812 | — |
+| Minimum (ms) | 0.079799 | 0.096130 | — |
+| Median (ms) | **0.081743** | 0.101536 | **1.242131×** (reference / P1) |
+| Mean (ms) | 0.088288 | 0.106188 | — |
+| Maximum (ms) | 0.146304 | 0.185017 | — |
+| Standard deviation (ms) | 0.015833 | 0.016720 | — |
 | Samples | 30 | 30 | — |
 
 ## Paired comparison
 
-- Median paired difference (independent − production): **0.024155 ms**
-- Production wins among paired measurements: **80.00%**
+- Median paired difference (independent − production): **0.017433 ms**
+- Production wins among paired measurements: **90.00%**
 - Number of paired measurements: **30**
 
 A positive paired difference means production was faster in that pair.
@@ -36,10 +36,10 @@ half of the measured pairs. These statistics describe this execution only.
 
 ## Comparative indicators
 
-- Independent / production median-time ratio: **1.210816×**
-- Median-time difference (independent − production): **0.024255 ms**
+- Independent / production median-time ratio: **1.242131×**
+- Median-time difference (independent − production): **0.019793 ms**
 - Production median-time reduction relative to the independent reference:
-  **17.411%**
+  **19.493%**
 
 A ratio above 1 means the independent reference had a greater
 median execution time than P1 in this measured run.
@@ -49,8 +49,8 @@ or an HPC scalability result.
 
 ## Reproducibility
 
-- Timestamp (UTC): `2026-10-20T16:03:01.396793+00:00`
-- Git commit: `222d67e3857e1cacc2ad3ea049c66db9addb6a4a`
+- Timestamp (UTC): `2026-10-20T16:37:17.743639+00:00`
+- Git commit: `42fb8289c9eeca8b9ff868dbf24619771418e355`
 - Python: `3.11.17`
 - NumPy: `2.3.5`
 - SciPy: `1.17.0`
