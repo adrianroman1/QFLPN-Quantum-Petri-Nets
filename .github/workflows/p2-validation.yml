@@ -1,32 +1,40 @@
-name: QFLPN P2 Validation
+name: P2 Canonical Reproducibility and Acceptance
 
 on:
-  push:
-    paths:
-      - "P2/**"
-      - ".github/workflows/p2-validation.yml"
-  pull_request:
-    paths:
-      - "P2/**"
-      - ".github/workflows/p2-validation.yml"
   workflow_dispatch:
 
+  push:
+    branches:
+      - main
+    paths:
+      - "P2/**"
+      - ".github/workflows/p2-validation.yml"
+
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "P2/**"
+      - ".github/workflows/p2-validation.yml"
+
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: p2-validation-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  p2-validation:
-    name: P2 Mathematical, Software and Integrity Validation
+  p2-canonical-validation:
+    name: P2 Mathematical Validation and Evidence
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -40,19 +48,109 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r P2/requirements-p2.txt
 
-      - name: Record execution environment
+      - name: Capture P2 execution environment
+        shell: bash
         run: |
-          mkdir -p P2/reports
-          python --version > P2/reports/python-version.txt
-          python -m pip freeze > P2/reports/pip-freeze.txt
-          python -m pip check
+          set -Eeuo pipefail
 
-      - name: Compile P2 source, tests and tools
+          mkdir -p P2/reports
+
+          ENV_FILE="P2/reports/environment.txt"
+
+          {
+            echo "QFLPN P2 EXECUTION ENVIRONMENT"
+            echo
+            echo "UTC timestamp:"
+            date -u +%Y-%m-%dT%H:%M:%SZ
+
+            echo
+            echo "Repository:"
+            git remote get-url origin
+
+            echo
+            echo "Git branch:"
+            echo "${GITHUB_REF_NAME:-unknown}"
+
+            echo
+            echo "Git commit:"
+            git rev-parse HEAD
+
+            echo
+            echo "GitHub workflow:"
+            echo "${GITHUB_WORKFLOW:-unknown}"
+
+            echo
+            echo "GitHub run ID:"
+            echo "${GITHUB_RUN_ID:-unknown}"
+
+            echo
+            echo "GitHub run attempt:"
+            echo "${GITHUB_RUN_ATTEMPT:-unknown}"
+
+            echo
+            echo "Python:"
+            python --version
+
+            echo
+            echo "Pip:"
+            python -m pip --version
+
+            echo
+            echo "Pytest:"
+            python -m pytest --version
+
+            echo
+            echo "NumPy, SciPy and PennyLane:"
+            python -c "import numpy, scipy, pennylane; print('NumPy:', numpy.__version__); print('SciPy:', scipy.__version__); print('PennyLane:', pennylane.__version__)"
+
+            echo
+            echo "Operating system:"
+            uname -a
+
+            echo
+            echo "CPU:"
+            if command -v lscpu >/dev/null 2>&1; then
+              lscpu
+            else
+              echo "lscpu unavailable"
+            fi
+
+            echo
+            echo "Memory:"
+            if command -v free >/dev/null 2>&1; then
+              free -h
+            else
+              echo "free unavailable"
+            fi
+
+            echo
+            echo "P2 dependency specification:"
+            cat P2/requirements-p2.txt
+
+            echo
+            echo "Resolved Python dependencies:"
+            python -m pip freeze
+
+          } > "$ENV_FILE" 2>&1
+
+          test -s "$ENV_FILE"
+
+          echo "[PASS] P2 execution environment captured"
+          cat "$ENV_FILE"
+
+      - name: Compile P2 sources, tests and tools
         run: |
-          python -m compileall -q P2/code P2/tests P2/tools
+          python -m compileall -q \
+            P2/code \
+            P2/tests \
+            P2/tools \
+            P2/benchmarks
 
       - name: Validate required P2 files
+        shell: bash
         run: |
+          set -Eeuo pipefail
+
           python - <<'PY'
           from pathlib import Path
           import sys
@@ -65,13 +163,19 @@ jobs:
               "VALIDATION_ALIGNMENT.md",
               "requirements-p2.txt",
               "requirements-lock.txt",
+
               "code/qflpn_reference.py",
               "code/qflpn_transition_operator.py",
               "code/run_qflpn_pennylane.py",
+
               "reports/reference_config.json",
+
               "tests/conftest.py",
               "tests/qflpn_validation.py",
               "tests/test_sha256sums.py",
+              "tests/test_benchmark.py",
+              "tests/test_reference_artifacts.py",
+
               "tools/run_all_tests.py",
               "tools/generate_manifest.py",
               "tools/verify_sha256.py",
@@ -79,7 +183,11 @@ jobs:
               "tools/verify_sha256sums.py",
               "tools/validate_reports.py",
               "tools/generate_reference_artifacts.py",
-              "tests/test_reference_artifacts.py",
+              "tools/write_benchmark_summary.py",
+
+              "benchmarks/benchmark_config.json",
+              "benchmarks/benchmark_runner.py",
+              "benchmarks/validate_benchmark.py",
           ]
 
           missing = [
@@ -96,7 +204,7 @@ jobs:
           print("P2_REQUIRED_FILES_ACCEPTED")
           PY
 
-      - name: Validate reference configuration
+      - name: Validate canonical P2 reference configuration
         run: |
           python - <<'PY'
           import json
@@ -142,55 +250,217 @@ jobs:
           print("P2_REFERENCE_CONFIGURATION_ACCEPTED")
           PY
 
-      - name: Run complete P2 test suite
+      - name: Validate P2 benchmark configuration
         run: |
+          python - <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          path = Path("P2/benchmarks/benchmark_config.json")
+
+          try:
+              config = json.loads(
+                  path.read_text(encoding="utf-8")
+              )
+          except Exception as exc:
+              print("Invalid benchmark configuration:", exc)
+              sys.exit(1)
+
+          expected = {
+              "schema_version": 1,
+              "project": "QFLPN P2",
+              "qubits": 4,
+              "hilbert_dimension": 16,
+              "basis_order": "big-endian",
+              "operator_order": "U = C3X @ U_rot",
+              "activation_vector": [0.85, 0.90, 0.45, 0.70],
+              "warmups": 5,
+              "repetitions": 30,
+              "numerical_tolerance": 1e-12,
+              "timer": "time.perf_counter_ns",
+          }
+
+          if not isinstance(config, dict):
+              print("Benchmark configuration must be a JSON object")
+              sys.exit(1)
+
+          for key, value in expected.items():
+              actual = config.get(key)
+
+              if type(actual) is not type(value) or actual != value:
+                  print(
+                      f"Benchmark configuration mismatch for {key}: "
+                      f"expected={value!r}, actual={actual!r}"
+                  )
+                  sys.exit(1)
+
+          expected_operations = [
+              "rotation_operator",
+              "c3x_operator",
+              "transition_operator",
+              "state_evolution",
+              "density_matrix",
+              "reduced_density_q4",
+              "reduced_density_q123",
+              "pennylane_execution",
+          ]
+
+          if config.get("operations") != expected_operations:
+              print("Benchmark operation set does not match P2 contract")
+              sys.exit(1)
+
+          print("P2_BENCHMARK_CONFIGURATION_ACCEPTED")
+          PY
+
+      - name: Run complete P2 test suite
+        id: pytest
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
           python P2/tools/run_all_tests.py -v
 
-      - name: Run standalone mathematical validation
+      - name: Run standalone P2 mathematical validation
+        id: p2_math_validation
         shell: bash
         env:
           PYTHONPATH: ${{ github.workspace }}/P2/code
         run: |
-          set -o pipefail
+          set -Eeuo pipefail
+
+          mkdir -p P2/reports
+
           python P2/tests/qflpn_validation.py \
             2>&1 | tee P2/reports/qflpn-validation.log
 
-      - name: Generate manuscript-aligned reference artifacts
+      - name: Generate manuscript-aligned P2 reference artifacts
         run: |
           python P2/tools/generate_reference_artifacts.py
 
-      - name: Validate generated reference artifacts
+      - name: Validate generated P2 reference artifacts
         run: |
-          python -m pytest P2/tests/test_reference_artifacts.py -v
+          python -m pytest \
+            P2/tests/test_reference_artifacts.py \
+            -v
 
-      - name: Validate machine-readable test evidence
+      - name: Validate machine-readable P2 test evidence
         run: |
           python P2/tools/validate_reports.py
 
+      # Performance evidence is supplementary.
+      # A benchmark execution failure does not invalidate
+      # the independent mathematical validation.
+      - name: Run P2 canonical numerical-operation benchmark
+        id: p2_benchmark
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+
+          python P2/benchmarks/benchmark_runner.py \
+            --config P2/benchmarks/benchmark_config.json \
+            --output P2/benchmarks
+
+          rc=$?
+
+          echo "benchmark_exit_code=$rc" >> "$GITHUB_OUTPUT"
+
+          if [ "$rc" -eq 0 ]; then
+            echo "[PASS] P2 benchmark completed"
+          else
+            echo "[WARNING] P2 benchmark failed; mathematical validation continues"
+          fi
+
+          exit "$rc"
+
+      - name: Validate all generated P2 benchmark evidence
+        id: p2_benchmark_validation
+        if: steps.p2_benchmark.outcome == 'success'
+        run: |
+          python P2/benchmarks/validate_benchmark.py \
+            --results P2/benchmarks
+
+      - name: Publish P2 benchmark summary
+        if: always() && steps.p2_benchmark_validation.outcome == 'success'
+        run: |
+          python P2/tools/write_benchmark_summary.py
+
       - name: Generate P2 source manifest
+        if: always()
         run: |
           python P2/tools/generate_manifest.py
 
       - name: Verify P2 source manifest
+        if: always()
         run: |
           python P2/tools/verify_sha256.py
 
-      - name: Generate P2 SHA256SUMS inventory
+      - name: Generate P2 SHA-256 inventory
+        if: always()
         run: |
           python P2/tools/generate_sha256sums.py
 
-      - name: Verify complete P2 SHA256SUMS inventory
+      - name: Verify complete P2 SHA-256 inventory
+        if: always()
         run: |
           python P2/tools/verify_sha256sums.py
+
+      - name: Publish P2 validation summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## QFLPN P2 — Canonical Validation"
+            echo
+            echo "| Validation stage | Outcome |"
+            echo "|---|---|"
+            echo "| Complete pytest suite | ${{ steps.pytest.outcome }} |"
+            echo "| Standalone mathematical validation | ${{ steps.p2_math_validation.outcome }} |"
+            echo "| Benchmark execution | ${{ steps.p2_benchmark.outcome }} |"
+            echo "| Benchmark evidence validation | ${{ steps.p2_benchmark_validation.outcome }} |"
+            echo
+            echo "Benchmark results are supplementary performance evidence."
+            echo "The mathematical validation verdict is determined by the required mathematical, software and integrity checks."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload P2 validation evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: p2-validation-evidence
+          name: P2-canonical-validation-evidence
           if-no-files-found: warn
           retention-days: 90
           path: |
             P2/reports/
+            P2/benchmarks/
             P2/MANIFEST.txt
             P2/SHA256SUMS.txt
+
+      - name: Commit generated P2 evidence
+        if: success() && github.event_name != 'pull_request' && steps.p2_benchmark.outcome == 'success' && steps.p2_benchmark_validation.outcome == 'success'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add \
+            P2/reports/ \
+            P2/benchmarks/ \
+            P2/MANIFEST.txt \
+            P2/SHA256SUMS.txt
+
+          if git diff --cached --quiet; then
+            echo "No generated P2 evidence changes to commit."
+            exit 0
+          fi
+
+          git commit \
+            -m "P2 automated validation and benchmark evidence [skip ci]"
+
+          git push \
+            origin \
+            "HEAD:refs/heads/${GITHUB_REF_NAME}"
