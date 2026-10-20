@@ -16,18 +16,18 @@
 
 | Metric | Production implementation | Independent implementation | Comparative indicator |
 |---|---:|---:|---:|
-| Minimum (ms) | 0.050606 | 0.062604 | — |
-| Median (ms) | **0.052297** | 0.071763 | **1.372198×** (reference / P1) |
-| Mean (ms) | 0.054452 | 0.077272 | — |
-| Maximum (ms) | 0.083535 | 0.132629 | — |
-| Standard deviation (ms) | 0.007495 | 0.014841 | — |
+| Minimum (ms) | 0.113170 | 0.096810 | — |
+| Median (ms) | **0.119382** | 0.100752 | **0.843946×** (reference / P1) |
+| Mean (ms) | 0.123829 | 0.107410 | — |
+| Maximum (ms) | 0.163264 | 0.161540 | — |
+| Standard deviation (ms) | 0.013822 | 0.017992 | — |
 | Samples | 30 | 30 | — |
 
 ## Comparative indicators
 
-- Independent / production median-time ratio: **1.372198×**
-- Median-time difference (independent − production): **0.019465 ms**
-- Production median-time reduction relative to the independent reference: **27.124%**
+- Independent / production median-time ratio: **0.843946×**
+- Median-time difference (independent − production): **-0.018630 ms**
+- Production median-time reduction relative to the independent reference: **-18.491%**
 
 A ratio above 1 means the independent reference had a greater
 median execution time than P1 in this measured run.
@@ -37,13 +37,13 @@ or an HPC scalability result.
 
 ## Reproducibility
 
-- Timestamp (UTC): `2026-10-20T03:33:56.807876+00:00`
-- Git commit: `9df4491893bcdd73cd941ee9f9e6d45b2151db1e`
+- Timestamp (UTC): `2026-10-20T03:34:52.214632+00:00`
+- Git commit: `667312916eca4057977ac61dcc1b06756d77e9f5`
 - Python: `3.11.17`
 - NumPy: `2.3.5`
 - SciPy: `1.17.0`
-- Platform: `Linux-6.17.0-1022-azure-x86_64-with-glibc2.39`
-- CPU: `AMD EPYC 9V45 96-Core Processor`
+- Platform: `Linux-7.0.0-1017-azure-x86_64-with-glibc2.39`
+- CPU: `AMD EPYC 7763 64-Core Processor`
 
 Raw samples are stored in `benchmark_results.csv`.
 Structured results are stored in `benchmark_report.json`.

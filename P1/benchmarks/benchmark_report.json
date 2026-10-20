@@ -2,10 +2,10 @@
   "benchmark_id": "P1-CANONICAL-4Q-OPERATOR-CONSTRUCTION",
   "comparison": {
     "interpretation": "A value greater than 1 means the independent reference had a greater median execution time than production.",
-    "median_difference_ms": 0.01946500000000001,
+    "median_difference_ms": -0.018629999999999994,
     "metric": "independent_median_ms / production_median_ms",
-    "production_median_reduction_percent": 27.124194391221053,
-    "speedup_independent_over_production": 1.3721975237822077
+    "production_median_reduction_percent": -18.49094807050976,
+    "speedup_independent_over_production": 0.8439463235663669
   },
   "configuration": {
     "repetitions": 30,
@@ -20,18 +20,18 @@
       0.45,
       0.7
     ],
-    "captured_at_utc": "2026-10-20T03:33:56.807911+00:00",
-    "cpu_model": "AMD EPYC 9V45 96-Core Processor",
+    "captured_at_utc": "2026-10-20T03:34:52.214660+00:00",
+    "cpu_model": "AMD EPYC 7763 64-Core Processor",
     "git_branch": "main",
-    "git_commit": "9df4491893bcdd73cd941ee9f9e6d45b2151db1e",
-    "git_worktree_status": "M P1/artifacts/reference_instance.json\n M P1/reports/environment.txt\n M P1/reports/residuals.json\n M P1/reports/unitary_evolution_report.json\n?? P1/code/__pycache__/\n?? P1/tests/__pycache__/\n?? P1/tests/results/\n?? P1/tools/__pycache__/",
+    "git_commit": "667312916eca4057977ac61dcc1b06756d77e9f5",
+    "git_worktree_status": "M P1/artifacts/reference_instance.json\n M P1/reports/environment.txt\n M P1/reports/environment_report.json\n M P1/reports/residuals.json\n M P1/reports/unitary_evolution_report.json\n?? P1/code/__pycache__/\n?? P1/tests/__pycache__/\n?? P1/tests/results/\n?? P1/tools/__pycache__/",
     "hilbert_dimension": 16,
     "logical_cpu_count": 4,
     "machine": "x86_64",
     "numerical_equivalence_tolerance": 1e-12,
     "numpy_version": "2.3.5",
-    "operating_system": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
-    "physical_memory_bytes": 16766414848,
+    "operating_system": "Linux-7.0.0-1017-azure-x86_64-with-glibc2.39",
+    "physical_memory_bytes": 16760344576,
     "processor": "x86_64",
     "python_executable": "/opt/hostedtoolcache/Python/3.11.17/x64/bin/python",
     "python_implementation": "CPython",
@@ -63,25 +63,25 @@
   },
   "results": {
     "independent": {
-      "maximum_ms": 0.132629,
-      "mean_ms": 0.07727236666666666,
-      "median_ms": 0.0717625,
-      "minimum_ms": 0.062604,
+      "maximum_ms": 0.16154,
+      "mean_ms": 0.10741026666666667,
+      "median_ms": 0.10075200000000001,
+      "minimum_ms": 0.09681,
       "sample_count": 30,
-      "standard_deviation_ms": 0.014841177768309856
+      "standard_deviation_ms": 0.01799199334940566
     },
     "production": {
-      "maximum_ms": 0.083535,
-      "mean_ms": 0.054452433333333335,
-      "median_ms": 0.0522975,
-      "minimum_ms": 0.050606,
+      "maximum_ms": 0.163264,
+      "mean_ms": 0.1238288,
+      "median_ms": 0.119382,
+      "minimum_ms": 0.11317,
       "sample_count": 30,
-      "standard_deviation_ms": 0.007494951016303016
+      "standard_deviation_ms": 0.013821938215300564
     }
   },
   "schema_version": 1,
   "status": "PASS",
-  "timestamp_utc": "2026-10-20T03:33:56.807876+00:00",
+  "timestamp_utc": "2026-10-20T03:34:52.214632+00:00",
   "workload": {
     "hilbert_dimension": 16,
     "memberships": [
