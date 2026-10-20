@@ -25,7 +25,6 @@ CSV_FIELDS = VALIDATOR.CSV_FIELDS
 
 
 def valid_report() -> dict:
-    """Return a semantically valid report fixture."""
     rows = []
 
     for name in EXPECTED_OPERATIONS:
@@ -59,6 +58,8 @@ def valid_report() -> dict:
         "repetitions": 30,
         "timer": "time.perf_counter_ns",
         "numerical_tolerance": 1e-12,
+        "total_runtime_seconds": 1.234567,
+        "runtime_measurement_scope": VALIDATOR.EXPECTED_RUNTIME_SCOPE,
         "environment": {
             "python_version": "3.11.0",
             "numpy_version": "2.0.0",
@@ -75,11 +76,17 @@ def valid_report() -> dict:
     }
 
 
-def valid_markdown() -> str:
+def valid_markdown(report: dict | None = None) -> str:
+    if report is None:
+        report = valid_report()
+
     return "\n".join([
         "# QFLPN P2 — Benchmark Results",
         "",
-        "- Status: PASS",
+        "- Status: **PASS**",
+        "- Total benchmark runtime: "
+        f"**{report['total_runtime_seconds']:.6f} seconds**",
+        f"- Runtime measurement scope: {report['runtime_measurement_scope']}",
         "",
         "## Numerical parity",
         "",
@@ -94,10 +101,13 @@ def valid_markdown() -> str:
         "## Methodology",
         "",
         "Independent references and measured repetitions.",
+        "Total runtime includes configuration loading, initialization,",
+        "operation measurements and first complete evidence generation.",
         "",
         "## Interpretation and limitations",
         "",
-        "Canonical four-qubit workload only.",
+        "Canonical four-qubit workload only. Results do not establish",
+        "asymptotic scalability or performance for larger quantum systems.",
         "",
         "benchmark_report.json",
         "benchmark_results.csv",
@@ -131,7 +141,6 @@ def write_valid_csv(path: Path, report: dict) -> None:
 
 
 def write_valid_evidence(directory: Path) -> dict:
-    """Create a complete, mutually consistent evidence fixture."""
     directory.mkdir(parents=True, exist_ok=True)
     report = valid_report()
 
@@ -142,7 +151,7 @@ def write_valid_evidence(directory: Path) -> dict:
     write_valid_csv(directory / "benchmark_results.csv", report)
 
     (directory / "BENCHMARK_RESULTS.md").write_text(
-        valid_markdown(),
+        valid_markdown(report),
         encoding="utf-8",
     )
     (directory / "environment.txt").write_text(
@@ -287,6 +296,48 @@ def test_report_rejects_missing_throughput():
     assert any("operations_per_second" in error for error in errors)
 
 
+def test_report_rejects_missing_total_runtime():
+    report = valid_report()
+    del report["total_runtime_seconds"]
+    errors = VALIDATOR.validate_report(report)
+    assert any("total_runtime_seconds" in error for error in errors)
+
+
+def test_report_rejects_zero_total_runtime():
+    report = valid_report()
+    report["total_runtime_seconds"] = 0.0
+    errors = VALIDATOR.validate_report(report)
+    assert any("strictly positive" in error for error in errors)
+
+
+def test_report_rejects_negative_total_runtime():
+    report = valid_report()
+    report["total_runtime_seconds"] = -1.0
+    errors = VALIDATOR.validate_report(report)
+    assert any("strictly positive" in error for error in errors)
+
+
+def test_report_rejects_nan_total_runtime():
+    report = valid_report()
+    report["total_runtime_seconds"] = float("nan")
+    errors = VALIDATOR.validate_report(report)
+    assert any("finite number" in error for error in errors)
+
+
+def test_report_rejects_boolean_total_runtime():
+    report = valid_report()
+    report["total_runtime_seconds"] = True
+    errors = VALIDATOR.validate_report(report)
+    assert any("finite number" in error for error in errors)
+
+
+def test_report_rejects_missing_runtime_scope():
+    report = valid_report()
+    del report["runtime_measurement_scope"]
+    errors = VALIDATOR.validate_report(report)
+    assert any("runtime measurement scope" in error.lower() for error in errors)
+
+
 def test_csv_accepts_consistent_rows(tmp_path: Path):
     report = valid_report()
     csv_path = tmp_path / "benchmark_results.csv"
@@ -355,15 +406,40 @@ def test_csv_rejects_inconsistent_throughput(tmp_path: Path):
 
 
 def test_markdown_accepts_required_sections(tmp_path: Path):
+    report = valid_report()
     path = tmp_path / "BENCHMARK_RESULTS.md"
-    path.write_text(valid_markdown(), encoding="utf-8")
-    assert VALIDATOR.validate_markdown(path) == []
+    path.write_text(valid_markdown(report), encoding="utf-8")
+    assert VALIDATOR.validate_markdown(path, report) == []
 
 
 def test_markdown_rejects_missing_section(tmp_path: Path):
     path = tmp_path / "BENCHMARK_RESULTS.md"
     path.write_text("# Incomplete report\n", encoding="utf-8")
     assert VALIDATOR.validate_markdown(path)
+
+
+def test_markdown_rejects_missing_total_runtime(tmp_path: Path):
+    report = valid_report()
+    content = valid_markdown(report).replace(
+        "- Total benchmark runtime: **1.234567 seconds**\n",
+        "",
+    )
+    path = tmp_path / "BENCHMARK_RESULTS.md"
+    path.write_text(content, encoding="utf-8")
+    errors = VALIDATOR.validate_markdown(path, report)
+    assert any("total runtime" in error.lower() for error in errors)
+
+
+def test_markdown_rejects_json_runtime_mismatch(tmp_path: Path):
+    report = valid_report()
+    content = valid_markdown(report).replace(
+        "1.234567 seconds",
+        "9.999999 seconds",
+    )
+    path = tmp_path / "BENCHMARK_RESULTS.md"
+    path.write_text(content, encoding="utf-8")
+    errors = VALIDATOR.validate_markdown(path, report)
+    assert any("runtime mismatch" in error.lower() for error in errors)
 
 
 def test_environment_accepts_required_fields(tmp_path: Path):
@@ -411,6 +487,17 @@ def test_complete_evidence_rejects_json_csv_disagreement(tmp_path: Path):
 
     errors = VALIDATOR.validate_results(tmp_path)
     assert any("CSV/JSON median_ns mismatch" in error for error in errors)
+
+
+def test_complete_evidence_rejects_missing_runtime(tmp_path: Path):
+    write_valid_evidence(tmp_path)
+    report_path = tmp_path / "benchmark_report.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    del report["total_runtime_seconds"]
+    report_path.write_text(json.dumps(report), encoding="utf-8")
+
+    errors = VALIDATOR.validate_results(tmp_path)
+    assert any("total_runtime_seconds" in error for error in errors)
 
 
 def test_validator_removes_only_requested_benchmark_cache(tmp_path: Path):
