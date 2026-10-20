@@ -97,6 +97,9 @@ def close(
     rel_tol: float = 1e-9,
     abs_tol: float = 1e-9,
 ) -> bool:
+    if not finite_number(actual) or not finite_number(expected):
+        return False
+
     return math.isclose(
         float(actual),
         float(expected),
