@@ -110,6 +110,24 @@ def close_enough(
     )
 
 
+def expected_benchmark_id(dimension: int) -> str:
+    """
+    Reproduce the benchmark identifier convention
+    implemented by BenchmarkRunner.java.
+    """
+
+    special_ids = {
+        12: "QFLPN-12",
+        1_000_000: "QFLPN-1M",
+        30_000_000: "QFLPN-30M",
+    }
+
+    return special_ids.get(
+        dimension,
+        f"QFLPN-{dimension}",
+    )
+
+
 def validate_timestamp(value: str) -> None:
     require(
         isinstance(value, str) and bool(value.strip()),
@@ -248,6 +266,18 @@ def validate(args: argparse.Namespace) -> dict:
         "dimension must be positive",
     )
 
+    # D03: benchmark_id must correspond exactly to dimension.
+    expected_id = expected_benchmark_id(dimension)
+
+    require(
+        row["benchmark_id"] == expected_id,
+        (
+            "benchmark_id mismatch: "
+            f"expected {expected_id}, "
+            f"got {row['benchmark_id']!r}"
+        ),
+    )
+
     require(
         nnz == 2 * dimension,
         f"NNZ mismatch: expected {2 * dimension}, got {nnz}",
@@ -337,7 +367,6 @@ def validate(args: argparse.Namespace) -> dict:
     )
 
     for field in (
-        "benchmark_id",
         "cpu",
         "java_version",
         "operating_system",
@@ -409,14 +438,53 @@ def build_parser() -> argparse.ArgumentParser:
         description="Validate P3 benchmark CSV results."
     )
 
-    parser.add_argument("--csv", type=Path, default=DEFAULT_CSV)
-    parser.add_argument("--expected-n", type=int, default=1_000_000)
-    parser.add_argument("--warmup", type=int, default=1)
-    parser.add_argument("--iterations", type=int, default=2)
-    parser.add_argument("--threshold", type=int, default=4096)
-    parser.add_argument("--parallelism", type=int, default=2)
-    parser.add_argument("--expected-row-count", type=int, default=None)
-    parser.add_argument("--report-json", type=Path, default=None)
+    parser.add_argument(
+        "--csv",
+        type=Path,
+        default=DEFAULT_CSV,
+    )
+
+    parser.add_argument(
+        "--expected-n",
+        type=int,
+        default=1_000_000,
+    )
+
+    parser.add_argument(
+        "--warmup",
+        type=int,
+        default=1,
+    )
+
+    parser.add_argument(
+        "--iterations",
+        type=int,
+        default=2,
+    )
+
+    parser.add_argument(
+        "--threshold",
+        type=int,
+        default=4096,
+    )
+
+    parser.add_argument(
+        "--parallelism",
+        type=int,
+        default=2,
+    )
+
+    parser.add_argument(
+        "--expected-row-count",
+        type=int,
+        default=None,
+    )
+
+    parser.add_argument(
+        "--report-json",
+        type=Path,
+        default=None,
+    )
 
     return parser
 
