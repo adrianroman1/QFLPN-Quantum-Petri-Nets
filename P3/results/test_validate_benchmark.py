@@ -200,13 +200,36 @@ def test_rejects_wrong_dimension(tmp_path: Path) -> None:
     path = tmp_path / "dimension.csv"
 
     row = valid_row()
+
+    # Keep benchmark_id consistent with the modified dimension.
+    # This ensures the validator reaches the expected_n check.
     row["dimension"] = "101"
+    row["benchmark_id"] = "QFLPN-101"
 
     write_csv(path, [row])
 
     with pytest.raises(
         VALIDATOR.ValidationError,
         match="dimension mismatch",
+    ):
+        VALIDATOR.validate(args_for(path))
+
+
+def test_rejects_wrong_benchmark_id(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "benchmark_id.csv"
+
+    row = valid_row()
+
+    # Dimension remains 100, but benchmark_id is incorrect.
+    row["benchmark_id"] = "QFLPN-101"
+
+    write_csv(path, [row])
+
+    with pytest.raises(
+        VALIDATOR.ValidationError,
+        match="benchmark_id mismatch",
     ):
         VALIDATOR.validate(args_for(path))
 
