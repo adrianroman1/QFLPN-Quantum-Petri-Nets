@@ -1,6 +1,6 @@
 # QFLPN P2 — Benchmark Results
 
-- Generated (UTC): `2026-10-20T17:15:41.944616+00:00`
+- Generated (UTC): `2026-10-20T17:16:30.612523+00:00`
 - Status: **PASS**
 - Qubits: `4`
 - Hilbert dimension: `16`
@@ -19,14 +19,14 @@ PennyLane / independent NumPy state difference: `0.000000e+00`
 
 | Operation | Min (ns) | Median (ns) | Mean (ns) | Max (ns) | Std. dev. (ns) | Error | Check |
 |---|---:|---:|---:|---:|---:|---:|---|
-| rotation_operator | 102632 | 106474.00 | 109866.77 | 141665 | 9228.91 | 0.000e+00 | PASS |
-| c3x_operator | 2424 | 2579.50 | 2731.40 | 5450 | 563.44 | 0.000e+00 | PASS |
-| transition_operator | 113332 | 117254.50 | 121751.30 | 154960 | 9941.50 | 0.000e+00 | PASS |
-| state_evolution | 116428 | 119037.50 | 123468.80 | 163145 | 10346.09 | 0.000e+00 | PASS |
-| density_matrix | 17262 | 17939.00 | 18767.43 | 27482 | 2244.41 | 0.000e+00 | PASS |
-| reduced_density_q4 | 2675 | 2760.50 | 3061.07 | 6011 | 835.63 | 0.000e+00 | PASS |
-| reduced_density_q123 | 2805 | 2890.00 | 3022.63 | 4499 | 365.94 | 1.069e-16 | PASS |
-| pennylane_execution | 1347310 | 1379760.00 | 1389127.90 | 1560227 | 38306.11 | 0.000e+00 | PASS |
+| rotation_operator | 61464 | 65081.00 | 67020.67 | 91861 | 6542.65 | 0.000e+00 | PASS |
+| c3x_operator | 1324 | 1487.00 | 1523.77 | 2379 | 186.96 | 0.000e+00 | PASS |
+| transition_operator | 62716 | 65558.50 | 68021.17 | 94931 | 7835.12 | 0.000e+00 | PASS |
+| state_evolution | 64535 | 70036.00 | 74198.63 | 109739 | 12034.21 | 0.000e+00 | PASS |
+| density_matrix | 8358 | 9050.50 | 9658.90 | 17068 | 1901.70 | 0.000e+00 | PASS |
+| reduced_density_q4 | 1371 | 1508.50 | 1570.60 | 3045 | 294.78 | 0.000e+00 | PASS |
+| reduced_density_q123 | 1499 | 1609.00 | 1664.47 | 2583 | 196.11 | 1.069e-16 | PASS |
+| pennylane_execution | 740714 | 780155.00 | 790970.50 | 929097 | 39279.47 | 0.000e+00 | PASS |
 
 ## Methodology
 
