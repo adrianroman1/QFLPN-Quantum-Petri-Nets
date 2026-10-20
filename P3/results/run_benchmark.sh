@@ -82,12 +82,17 @@ cd "$ROOT_DIR"
 GIT_COMMIT="$(git rev-parse HEAD)"
 GIT_BRANCH="$(git branch --show-current)"
 
+# Preserve the original output streams.
+# The log is closed before its SHA-256 is calculated.
+exec 3>&1 4>&2
 : > "$LOG_FILE"
 exec > "$LOG_FILE" 2>&1
 
 echo "QFLPN P3 AUTOMATED BENCHMARK"
 echo "UTC start: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "Repository: $ROOT_DIR"
+echo "Git branch: $GIT_BRANCH"
+echo "Git commit: $GIT_COMMIT"
 
 # ------------------------------------------------------------
 # Environment evidence.
@@ -251,6 +256,12 @@ with path.open(
     if any(None in row for row in rows):
         raise SystemExit("Malformed existing CSV row")
 
+    if any(
+        any(value is None for value in row.values())
+        for row in rows
+    ):
+        raise SystemExit("Missing field in existing CSV row")
+
 print(len(rows))
 PY
 )"
@@ -301,7 +312,20 @@ with path.open(
     newline="",
 ) as handle:
     reader = csv.DictReader(handle)
+
+    if reader.fieldnames is None:
+        raise SystemExit("Benchmark CSV has no header")
+
     rows = list(reader)
+
+    if any(None in row for row in rows):
+        raise SystemExit("Malformed benchmark CSV row")
+
+    if any(
+        any(value is None for value in row.values())
+        for row in rows
+    ):
+        raise SystemExit("Missing field in benchmark CSV row")
 
 print(len(rows))
 PY
@@ -351,10 +375,17 @@ for artifact in \
         fail "Missing or empty evidence file: $artifact"
 done
 
+echo "[PASS] Evidence files exist"
+echo "[PASS] Benchmark execution completed"
+echo "Log closed before SHA-256 generation."
+
 # ------------------------------------------------------------
-# Final SHA-256 manifest.
-# The log is not modified after this point.
+# Close the log before calculating its checksum.
+# All following output goes to the original CI/terminal streams.
+# Do not write to LOG_FILE after this point.
 # ------------------------------------------------------------
+
+exec 1>&3 2>&4
 
 cd "$P3_DIR"
 
