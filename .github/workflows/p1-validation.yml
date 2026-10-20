@@ -162,6 +162,31 @@ jobs:
         run: |
           python P1/tools/generate_p1_reports.py
 
+      # Performance evidence is supplementary.
+      # A benchmark failure must not change the mathematical acceptance verdict.
+      - name: Run P1 canonical execution-time benchmark
+        id: p1_benchmark
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -uo pipefail
+
+          python P1/benchmarks/benchmark_runner.py \
+            --warmups 5 \
+            --repetitions 30
+
+          rc=$?
+
+          echo "benchmark_exit_code=$rc" >> "$GITHUB_OUTPUT"
+
+          if [ "$rc" -eq 0 ]; then
+            echo "[PASS] P1 benchmark completed"
+          else
+            echo "[WARNING] P1 benchmark failed; mathematical validation continues"
+          fi
+
+          exit "$rc"
+
       - name: Run complete P1 test suite
         id: pytest
         shell: bash
@@ -228,6 +253,11 @@ jobs:
         run: |
           python P1/tools/write_github_summary.py
 
+      - name: Publish P1 benchmark summary
+        if: always()
+        run: |
+          python P1/tools/write_benchmark_summary.py
+
       - name: Upload P1 evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -238,6 +268,7 @@ jobs:
           path: |
             P1/artifacts/
             P1/reports/
+            P1/benchmarks/
             P1/MANIFEST.txt
             P1/SHA256SUMS.txt
 
@@ -254,6 +285,7 @@ jobs:
           git add \
             P1/artifacts/ \
             P1/reports/ \
+            P1/benchmarks/ \
             P1/MANIFEST.txt \
             P1/SHA256SUMS.txt
 
@@ -263,7 +295,7 @@ jobs:
           fi
 
           git commit \
-            -m "P1 automated validation evidence [skip ci]"
+            -m "P1 automated validation and benchmark evidence [skip ci]"
 
           git push \
             origin \
