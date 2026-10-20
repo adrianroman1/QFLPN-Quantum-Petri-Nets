@@ -17,17 +17,17 @@
 
 | Metric | Production implementation | Independent implementation | Comparative indicator |
 |---|---:|---:|---:|
-| Minimum (ms) | 0.078486 | 0.095988 | — |
-| Median (ms) | **0.114452** | 0.138407 | **1.209296×** (reference / P1) |
-| Mean (ms) | 0.109041 | 0.131848 | — |
-| Maximum (ms) | 0.157372 | 0.180525 | — |
-| Standard deviation (ms) | 0.022839 | 0.025237 | — |
+| Minimum (ms) | 0.046951 | 0.056886 | — |
+| Median (ms) | **0.047967** | 0.057727 | **1.203473×** (reference / P1) |
+| Mean (ms) | 0.051006 | 0.058036 | — |
+| Maximum (ms) | 0.094713 | 0.065608 | — |
+| Standard deviation (ms) | 0.010660 | 0.001590 | — |
 | Samples | 30 | 30 | — |
 
 ## Paired comparison
 
-- Median paired difference (independent − production): **0.023900 ms**
-- Production wins among paired measurements: **90.00%**
+- Median paired difference (independent − production): **0.009695 ms**
+- Production wins among paired measurements: **93.33%**
 - Number of paired measurements: **30**
 
 A positive paired difference means production was faster in that pair.
@@ -36,10 +36,10 @@ half of the measured pairs. These statistics describe this execution only.
 
 ## Comparative indicators
 
-- Independent / production median-time ratio: **1.209296×**
-- Median-time difference (independent − production): **0.023955 ms**
+- Independent / production median-time ratio: **1.203473×**
+- Median-time difference (independent − production): **0.009760 ms**
 - Production median-time reduction relative to the independent reference:
-  **17.307%**
+  **16.907%**
 
 A ratio above 1 means the independent reference had a greater
 median execution time than P1 in this measured run.
@@ -49,13 +49,13 @@ or an HPC scalability result.
 
 ## Reproducibility
 
-- Timestamp (UTC): `2026-10-20T16:01:30.178337+00:00`
-- Git commit: `9e39e5aa05abb19bfa1148aaa2d13b833d136afd`
+- Timestamp (UTC): `2026-10-20T16:02:14.241954+00:00`
+- Git commit: `266c7991dd2697820241a813b679be9feb1332a8`
 - Python: `3.11.17`
 - NumPy: `2.3.5`
 - SciPy: `1.17.0`
-- Platform: `Linux-7.0.0-1017-azure-x86_64-with-glibc2.39`
-- CPU: `AMD EPYC 7763 64-Core Processor`
+- Platform: `Linux-6.17.0-1022-azure-x86_64-with-glibc2.39`
+- CPU: `AMD EPYC 9V45 96-Core Processor`
 
 Raw paired samples are stored in `benchmark_results.csv`.
 Structured results are stored in `benchmark_report.json`.
