@@ -68,13 +68,11 @@ EXPECTED_OPERATIONS = (
 
 def utc_now() -> str:
     """Return an offset-aware UTC timestamp."""
-
     return datetime.now(timezone.utc).isoformat()
 
 
 def command_output(command: list[str]) -> str:
     """Return diagnostic output without making the benchmark depend on it."""
-
     try:
         result = subprocess.run(
             command,
@@ -90,58 +88,38 @@ def command_output(command: list[str]) -> str:
         return f"UNAVAILABLE: {exc}"
 
     output = (result.stdout + result.stderr).strip()
-
     if not output:
         return f"NO OUTPUT (exit={result.returncode})"
-
     return output
 
 
 def git_metadata() -> dict:
     """Collect Git metadata when the benchmark runs inside a checkout."""
-
     return {
-        "commit": command_output(
-            ["git", "rev-parse", "HEAD"]
-        ),
+        "commit": command_output(["git", "rev-parse", "HEAD"]),
         "branch": os.environ.get(
             "GITHUB_REF_NAME",
-            command_output(
-                ["git", "branch", "--show-current"]
-            ),
+            command_output(["git", "branch", "--show-current"]),
         ),
-        "worktree_status": command_output(
-            ["git", "status", "--short"]
-        ),
+        "worktree_status": command_output(["git", "status", "--short"]),
         "github_run_id": os.environ.get("GITHUB_RUN_ID"),
-        "github_run_attempt": os.environ.get(
-            "GITHUB_RUN_ATTEMPT"
-        ),
-        "github_workflow": os.environ.get(
-            "GITHUB_WORKFLOW"
-        ),
+        "github_run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
+        "github_workflow": os.environ.get("GITHUB_WORKFLOW"),
     }
 
 
 def collect_environment() -> dict:
     """Capture the execution environment used for the measurements."""
-
     try:
         import importlib.metadata
-
         scipy_version = importlib.metadata.version("scipy")
     except importlib.metadata.PackageNotFoundError:
         scipy_version = None
 
     try:
         import psutil
-
-        physical_memory = int(
-            psutil.virtual_memory().total
-        )
-        logical_cpus = int(
-            psutil.cpu_count(logical=True) or 0
-        )
+        physical_memory = int(psutil.virtual_memory().total)
+        logical_cpus = int(psutil.cpu_count(logical=True) or 0)
         physical_cpus = psutil.cpu_count(logical=False)
     except ImportError:
         physical_memory = None
@@ -178,75 +156,40 @@ def collect_environment() -> dict:
 
 def environment_text(environment: dict) -> str:
     """Format the captured environment as a readable text file."""
-
     lines = [
         "P2 BENCHMARK ENVIRONMENT",
         "=" * 72,
     ]
-
     for key, value in environment.items():
         if isinstance(value, (dict, list)):
             rendered = json.dumps(
-                value,
-                sort_keys=True,
-                ensure_ascii=False,
+                value, sort_keys=True, ensure_ascii=False
             )
         else:
-            rendered = json.dumps(
-                value,
-                ensure_ascii=False,
-            )
-
+            rendered = json.dumps(value, ensure_ascii=False)
         lines.append(f"{key}: {rendered}")
-
     return "\n".join(lines) + "\n"
 
 
 def load_config(path: Path) -> dict:
     """Load and validate the canonical P2 benchmark configuration."""
-
-    data = json.loads(
-        path.read_text(encoding="utf-8")
-    )
+    data = json.loads(path.read_text(encoding="utf-8"))
 
     if not isinstance(data, dict):
-        raise ValueError(
-            "Benchmark configuration must be a JSON object."
-        )
-
+        raise ValueError("Benchmark configuration must be a JSON object.")
     if data.get("schema_version") != 1:
-        raise ValueError(
-            "Unsupported benchmark configuration schema."
-        )
-
+        raise ValueError("Unsupported benchmark configuration schema.")
     if data.get("project") != "QFLPN P2":
-        raise ValueError(
-            "Unexpected benchmark project."
-        )
-
+        raise ValueError("Unexpected benchmark project.")
     if data.get("qubits") != 4:
-        raise ValueError(
-            "P2 benchmark requires four qubits."
-        )
-
+        raise ValueError("P2 benchmark requires four qubits.")
     if data.get("hilbert_dimension") != 16:
-        raise ValueError(
-            "P2 benchmark dimension must be 16."
-        )
-
+        raise ValueError("P2 benchmark dimension must be 16.")
     if data.get("basis_order") != "big-endian":
-        raise ValueError(
-            "Unsupported basis ordering."
-        )
-
+        raise ValueError("Unsupported basis ordering.")
     if data.get("operator_order") != "U = C3X @ U_rot":
-        raise ValueError(
-            "Unexpected operator ordering."
-        )
-
-    activations = data.get("activation_vector")
-
-    if activations != list(DEFAULT_ACTIVATIONS):
+        raise ValueError("Unexpected operator ordering.")
+    if data.get("activation_vector") != list(DEFAULT_ACTIVATIONS):
         raise ValueError(
             "Benchmark activations differ from the canonical P2 model."
         )
@@ -256,37 +199,23 @@ def load_config(path: Path) -> dict:
     tolerance = data.get("numerical_tolerance")
 
     if type(warmups) is not int or warmups < 5:
-        raise ValueError(
-            "At least five warm-up iterations are required."
-        )
-
+        raise ValueError("At least five warm-up iterations are required.")
     if type(repetitions) is not int or repetitions < 30:
-        raise ValueError(
-            "At least 30 measured repetitions are required."
-        )
-
+        raise ValueError("At least 30 measured repetitions are required.")
     if (
         isinstance(tolerance, bool)
         or not isinstance(tolerance, (int, float))
         or not np.isfinite(tolerance)
         or tolerance <= 0
     ):
-        raise ValueError(
-            "Invalid numerical tolerance."
-        )
-
-    configured_operations = data.get("operations")
-
-    if configured_operations != list(EXPECTED_OPERATIONS):
+        raise ValueError("Invalid numerical tolerance.")
+    if data.get("operations") != list(EXPECTED_OPERATIONS):
         raise ValueError(
             "Configured benchmark operations do not match "
             "the required P2 operation set."
         )
-
     if data.get("timer") != "time.perf_counter_ns":
-        raise ValueError(
-            "Unsupported benchmark timer."
-        )
+        raise ValueError("Unsupported benchmark timer.")
 
     return data
 
@@ -295,28 +224,16 @@ def independent_rotation_operator(
     activations: tuple[float, ...],
 ) -> np.ndarray:
     """Construct the tensor-product RY operator independently."""
-
-    result = np.array(
-        [[1.0 + 0.0j]],
-        dtype=np.complex128,
-    )
+    result = np.array([[1.0 + 0.0j]], dtype=np.complex128)
 
     for activation in activations:
-        theta = 2.0 * np.arcsin(
-            np.sqrt(activation)
-        )
-
+        theta = 2.0 * np.arcsin(np.sqrt(activation))
         cosine = np.cos(theta / 2.0)
         sine = np.sin(theta / 2.0)
-
         ry = np.array(
-            [
-                [cosine, -sine],
-                [sine, cosine],
-            ],
+            [[cosine, -sine], [sine, cosine]],
             dtype=np.complex128,
         )
-
         result = np.kron(result, ry)
 
     return result
@@ -324,58 +241,27 @@ def independent_rotation_operator(
 
 def independent_c3x_operator() -> np.ndarray:
     """Construct the C3X permutation independently."""
-
-    result = np.eye(
-        16,
-        dtype=np.complex128,
-    )
-
+    result = np.eye(16, dtype=np.complex128)
     result[14, 14] = 0.0
     result[15, 15] = 0.0
     result[14, 15] = 1.0
     result[15, 14] = 1.0
-
     return result
 
 
-def independent_density_matrix(
-    state: np.ndarray,
-) -> np.ndarray:
+def independent_density_matrix(state: np.ndarray) -> np.ndarray:
     """Construct the pure-state density matrix independently."""
-
-    vector = np.asarray(
-        state,
-        dtype=np.complex128,
-    )
-
-    return np.outer(
-        vector,
-        np.conjugate(vector),
-    )
+    vector = np.asarray(state, dtype=np.complex128)
+    return np.outer(vector, np.conjugate(vector))
 
 
 def independent_reduced_states(
     state: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Compute both partial traces using an independent tensor reshape."""
-
-    tensor = np.asarray(
-        state,
-        dtype=np.complex128,
-    ).reshape(8, 2)
-
-    rho_q4 = np.einsum(
-        "ai,aj->ij",
-        tensor.conj(),
-        tensor,
-    )
-
-    rho_q123 = np.einsum(
-        "ai,bi->ab",
-        tensor,
-        tensor.conj(),
-    )
-
+    tensor = np.asarray(state, dtype=np.complex128).reshape(8, 2)
+    rho_q4 = np.einsum("ai,aj->ij", tensor.conj(), tensor)
+    rho_q123 = np.einsum("ai,bi->ab", tensor, tensor.conj())
     return rho_q4, rho_q123
 
 
@@ -383,28 +269,16 @@ def independent_reference(
     activations: tuple[float, ...],
 ) -> dict[str, np.ndarray]:
     """Build independent expected outputs for every timed operation."""
-
-    rotation = independent_rotation_operator(
-        activations
-    )
-
+    rotation = independent_rotation_operator(activations)
     gate = independent_c3x_operator()
-
     complete_operator = gate @ rotation
 
-    initial = np.zeros(
-        16,
-        dtype=np.complex128,
-    )
+    initial = np.zeros(16, dtype=np.complex128)
     initial[0] = 1.0
-
     state = complete_operator @ initial
 
     rho = independent_density_matrix(state)
-
-    rho_q4, rho_q123 = independent_reduced_states(
-        state
-    )
+    rho_q4, rho_q123 = independent_reduced_states(state)
 
     return {
         "rotation_operator": rotation,
@@ -418,55 +292,33 @@ def independent_reference(
     }
 
 
-def reduced_density_q4(
-    state: np.ndarray,
-) -> np.ndarray:
+def reduced_density_q4(state: np.ndarray) -> np.ndarray:
     """Production benchmark operation: trace out q1, q2 and q3."""
-
-    tensor = np.asarray(
-        state,
-        dtype=np.complex128,
-    ).reshape(8, 2)
-
+    tensor = np.asarray(state, dtype=np.complex128).reshape(8, 2)
     return tensor.conj().T @ tensor
 
 
-def reduced_density_q123(
-    state: np.ndarray,
-) -> np.ndarray:
+def reduced_density_q123(state: np.ndarray) -> np.ndarray:
     """Production benchmark operation: trace out q4."""
-
-    tensor = np.asarray(
-        state,
-        dtype=np.complex128,
-    ).reshape(8, 2)
-
+    tensor = np.asarray(state, dtype=np.complex128).reshape(8, 2)
     return tensor @ tensor.conj().T
 
 
 def make_pennylane_circuit():
     """Build the four-qubit PennyLane circuit matching P2 conventions."""
-
-    device = qml.device(
-        "default.qubit",
-        wires=4,
-    )
+    device = qml.device("default.qubit", wires=4)
 
     @qml.qnode(device)
     def circuit(activations):
         for wire, activation in enumerate(activations):
-            theta = 2.0 * np.arcsin(
-                np.sqrt(activation)
-            )
+            theta = 2.0 * np.arcsin(np.sqrt(activation))
             qml.RY(theta, wires=wire)
 
         controlled_x = qml.ctrl(
             qml.PauliX,
             control=[0, 1, 2],
         )
-
         controlled_x(wires=3)
-
         return qml.state()
 
     return circuit
@@ -477,24 +329,17 @@ def numerical_error(
     expected: np.ndarray,
 ) -> float:
     """Return a finite Frobenius/vector norm difference."""
-
     actual_array = np.asarray(actual)
     expected_array = np.asarray(expected)
 
     if actual_array.shape != expected_array.shape:
         return float("inf")
-
     if not np.all(np.isfinite(actual_array)):
         return float("inf")
-
     if not np.all(np.isfinite(expected_array)):
         return float("inf")
 
-    return float(
-        np.linalg.norm(
-            actual_array - expected_array
-        )
-    )
+    return float(np.linalg.norm(actual_array - expected_array))
 
 
 def time_operation(
@@ -506,23 +351,12 @@ def time_operation(
     tolerance: float,
 ) -> dict:
     """Warm up, independently validate, and measure one operation."""
-
     for _ in range(warmups):
         function()
 
-    reference_result = np.asarray(
-        function()
-    )
-
-    error = numerical_error(
-        reference_result,
-        expected,
-    )
-
-    passed = bool(
-        np.isfinite(error)
-        and error <= tolerance
-    )
+    reference_result = np.asarray(function())
+    error = numerical_error(reference_result, expected)
+    passed = bool(np.isfinite(error) and error <= tolerance)
 
     durations: list[int] = []
 
@@ -530,32 +364,30 @@ def time_operation(
         start = time.perf_counter_ns()
         result = function()
         elapsed = time.perf_counter_ns() - start
-
         durations.append(int(elapsed))
 
         result_array = np.asarray(result)
-
         if not np.all(np.isfinite(result_array)):
             passed = False
-
         if result_array.shape != expected.shape:
             passed = False
+
+    median_ns = float(statistics.median(durations))
+    if median_ns <= 0:
+        raise ArithmeticError(
+            f"{name}: median timing must be strictly positive."
+        )
 
     return {
         "operation": name,
         "warmups": warmups,
         "repetitions": repetitions,
         "minimum_ns": min(durations),
-        "median_ns": float(
-            statistics.median(durations)
-        ),
-        "mean_ns": float(
-            statistics.mean(durations)
-        ),
+        "median_ns": median_ns,
+        "mean_ns": float(statistics.mean(durations)),
         "maximum_ns": max(durations),
-        "standard_deviation_ns": float(
-            statistics.pstdev(durations)
-        ),
+        "standard_deviation_ns": float(statistics.pstdev(durations)),
+        "operations_per_second": 1_000_000_000.0 / median_ns,
         "numerical_error": error,
         "numerical_tolerance": tolerance,
         "passed": passed,
@@ -567,9 +399,7 @@ def build_operations(
     expected: dict[str, np.ndarray],
 ) -> tuple[list[tuple], np.ndarray]:
     """Pair timed production operations with independent references."""
-
     state = reference_state(activations)
-
     pennylane_circuit = make_pennylane_circuit()
 
     pennylane_state = np.asarray(
@@ -595,8 +425,7 @@ def build_operations(
         ),
         (
             "state_evolution",
-            lambda: transition_operator(activations)
-            @ initial_state(),
+            lambda: transition_operator(activations) @ initial_state(),
             expected["state_evolution"],
         ),
         (
@@ -627,16 +456,10 @@ def build_operations(
     return operations, pennylane_state
 
 
-def write_csv(
-    path: Path,
-    rows: list[dict],
-) -> None:
+def write_csv(path: Path, rows: list[dict]) -> None:
     """Write raw operation-level benchmark results."""
-
     if not rows:
-        raise ValueError(
-            "No benchmark rows were produced."
-        )
+        raise ValueError("No benchmark rows were produced.")
 
     fieldnames = [
         "operation",
@@ -647,16 +470,13 @@ def write_csv(
         "mean_ns",
         "maximum_ns",
         "standard_deviation_ns",
+        "operations_per_second",
         "numerical_error",
         "numerical_tolerance",
         "passed",
     ]
 
-    with path.open(
-        "w",
-        newline="",
-        encoding="utf-8",
-    ) as stream:
+    with path.open("w", newline="", encoding="utf-8") as stream:
         writer = csv.DictWriter(
             stream,
             fieldnames=fieldnames,
@@ -668,7 +488,6 @@ def write_csv(
 
 def markdown_report(report: dict) -> str:
     """Render a readable report from the measured JSON data."""
-
     lines = [
         "# QFLPN P2 — Benchmark Results",
         "",
@@ -692,8 +511,8 @@ def markdown_report(report: dict) -> str:
         "",
         "## Operation measurements",
         "",
-        "| Operation | Min (ns) | Median (ns) | Mean (ns) | Max (ns) | Std. dev. (ns) | Error | Check |",
-        "|---|---:|---:|---:|---:|---:|---:|---|",
+        "| Operation | Min (ns) | Median (ns) | Mean (ns) | Max (ns) | Std. dev. (ns) | Throughput (ops/s) | Error | Check |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---|",
     ]
 
     for row in report["operations"]:
@@ -705,69 +524,56 @@ def markdown_report(report: dict) -> str:
             + f" | {row['mean_ns']:.2f}"
             + f" | {row['maximum_ns']}"
             + f" | {row['standard_deviation_ns']:.2f}"
+            + f" | {row['operations_per_second']:.6f}"
             + f" | {row['numerical_error']:.3e}"
             + f" | {'PASS' if row['passed'] else 'FAIL'} |"
         )
 
-    lines.extend(
-        [
-            "",
-            "## Methodology",
-            "",
-            "- Five or more warm-up iterations are performed per operation.",
-            "- At least 30 measured repetitions are collected per operation.",
-            "- Timing uses `time.perf_counter_ns()`.",
-            "- Numerical references are constructed independently of the timed production callables.",
-            "- PennyLane state evolution is compared with the independent NumPy state.",
-            "- All numerical comparisons use the configured absolute norm tolerance.",
-            "",
-            "## Interpretation and limitations",
-            "",
-            "These measurements describe the canonical four-qubit P2 workload only.",
-            "They do not establish asymptotic scalability or performance for larger quantum systems.",
-            "Execution times depend on the processor, operating system, Python runtime, installed packages and virtual-machine load.",
-            "Benchmark timings are supplementary performance evidence and do not independently establish mathematical acceptance.",
-            "",
-            "## Generated evidence",
-            "",
-            "- `benchmark_report.json` — structured measurements and metadata.",
-            "- `benchmark_results.csv` — operation-level measurements.",
-            "- `environment.txt` — execution environment.",
-            "",
-            f"**Overall numerical status: {report['status']}**",
-            "",
-        ]
-    )
+    lines.extend([
+        "",
+        "## Methodology",
+        "",
+        "- Five or more warm-up iterations are performed per operation.",
+        "- At least 30 measured repetitions are collected per operation.",
+        "- Timing uses `time.perf_counter_ns()`.",
+        "- Throughput is calculated as 1e9 divided by median nanoseconds.",
+        "- Numerical references are constructed independently of the timed production callables.",
+        "- PennyLane state evolution is compared with the independent NumPy state.",
+        "- All numerical comparisons use the configured absolute norm tolerance.",
+        "",
+        "## Interpretation and limitations",
+        "",
+        "These measurements describe the canonical four-qubit P2 workload only.",
+        "They do not establish asymptotic scalability or performance for larger quantum systems.",
+        "Execution times depend on the processor, operating system, Python runtime, installed packages and virtual-machine load.",
+        "Benchmark timings are supplementary performance evidence and do not independently establish mathematical acceptance.",
+        "",
+        "## Generated evidence",
+        "",
+        "- `benchmark_report.json` — structured measurements and metadata.",
+        "- `benchmark_results.csv` — operation-level measurements.",
+        "- `environment.txt` — execution environment.",
+        "",
+        f"**Overall numerical status: {report['status']}**",
+        "",
+    ])
 
     return "\n".join(lines)
 
 
-def run_benchmark(
-    config: dict,
-    output_dir: Path,
-) -> dict:
+def run_benchmark(config: dict, output_dir: Path) -> dict:
     """Execute P2 measurements and write the four agreed output files."""
-
     activations = tuple(
-        float(value)
-        for value in config["activation_vector"]
+        float(value) for value in config["activation_vector"]
     )
-
     warmups = config["warmups"]
     repetitions = config["repetitions"]
-    tolerance = float(
-        config["numerical_tolerance"]
-    )
+    tolerance = float(config["numerical_tolerance"])
 
     environment = collect_environment()
-
-    independent = independent_reference(
-        activations
-    )
-
+    independent = independent_reference(activations)
     operations, pennylane_state = build_operations(
-        activations,
-        independent,
+        activations, independent
     )
 
     parity_error = numerical_error(
@@ -776,12 +582,7 @@ def run_benchmark(
     )
 
     rows = []
-
-    for (
-        name,
-        function,
-        expected,
-    ) in operations:
+    for name, function, expected in operations:
         rows.append(
             time_operation(
                 name,
@@ -797,16 +598,10 @@ def run_benchmark(
         len(rows) == len(EXPECTED_OPERATIONS)
         and all(row["passed"] for row in rows)
     )
-
     parity_passed = bool(
-        np.isfinite(parity_error)
-        and parity_error <= tolerance
+        np.isfinite(parity_error) and parity_error <= tolerance
     )
-
-    all_passed = bool(
-        all_operations_passed
-        and parity_passed
-    )
+    all_passed = bool(all_operations_passed and parity_passed)
 
     report = {
         "schema_version": 1,
@@ -844,20 +639,14 @@ def run_benchmark(
         ],
     }
 
-    output_dir.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     json_path = output_dir / JSON_FILENAME
     csv_path = output_dir / CSV_FILENAME
     markdown_path = output_dir / MARKDOWN_FILENAME
     environment_path = output_dir / ENVIRONMENT_FILENAME
 
-    write_csv(
-        csv_path,
-        rows,
-    )
+    write_csv(csv_path, rows)
 
     json_path.write_text(
         json.dumps(
@@ -868,12 +657,10 @@ def run_benchmark(
         ) + "\n",
         encoding="utf-8",
     )
-
     markdown_path.write_text(
         markdown_report(report),
         encoding="utf-8",
     )
-
     environment_path.write_text(
         environment_text(environment),
         encoding="utf-8",
@@ -886,32 +673,18 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Run the canonical QFLPN P2 benchmark."
     )
-
-    parser.add_argument(
-        "--config",
-        type=Path,
-        default=CONFIG_PATH,
-    )
-
+    parser.add_argument("--config", type=Path, default=CONFIG_PATH)
     parser.add_argument(
         "--output",
         type=Path,
         default=BENCHMARK_DIR,
-        help="Directory for the five agreed benchmark files.",
+        help="Directory for the four agreed benchmark evidence files.",
     )
-
     args = parser.parse_args()
 
     try:
-        config = load_config(
-            args.config.resolve(strict=True)
-        )
-
-        report = run_benchmark(
-            config,
-            args.output.resolve(),
-        )
-
+        config = load_config(args.config.resolve(strict=True))
+        report = run_benchmark(config, args.output.resolve())
     except (
         OSError,
         ValueError,
@@ -939,10 +712,7 @@ def main() -> int:
         CSV_FILENAME,
         ENVIRONMENT_FILENAME,
     ):
-        print(
-            "Generated:",
-            args.output.resolve() / filename,
-        )
+        print("Generated:", args.output.resolve() / filename)
 
     if report["status"] != "PASS":
         print("VERDICT: BENCHMARK_REJECTED")
