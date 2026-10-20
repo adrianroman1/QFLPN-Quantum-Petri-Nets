@@ -1,6 +1,6 @@
 # QFLPN P2 — Benchmark Results
 
-- Generated (UTC): `2026-10-20T17:41:08.637392+00:00`
+- Generated (UTC): `2026-10-20T17:43:57.422243+00:00`
 - Status: **PASS**
 - Qubits: `4`
 - Hilbert dimension: `16`
@@ -17,22 +17,23 @@ PennyLane / independent NumPy state difference: `0.000000e+00`
 
 ## Operation measurements
 
-| Operation | Min (ns) | Median (ns) | Mean (ns) | Max (ns) | Std. dev. (ns) | Error | Check |
-|---|---:|---:|---:|---:|---:|---:|---|
-| rotation_operator | 102919 | 106827.50 | 113645.57 | 157530 | 16707.62 | 0.000e+00 | PASS |
-| c3x_operator | 2435 | 2580.00 | 2722.30 | 4971 | 471.42 | 0.000e+00 | PASS |
-| transition_operator | 113721 | 118510.50 | 124836.17 | 174194 | 14099.38 | 0.000e+00 | PASS |
-| state_evolution | 114603 | 118796.50 | 124637.80 | 173762 | 15572.54 | 0.000e+00 | PASS |
-| density_matrix | 17545 | 18723.00 | 20794.57 | 56384 | 7026.19 | 0.000e+00 | PASS |
-| reduced_density_q4 | 2676 | 2816.00 | 2965.43 | 5060 | 484.22 | 0.000e+00 | PASS |
-| reduced_density_q123 | 2825 | 2951.00 | 3071.93 | 4589 | 381.47 | 1.069e-16 | PASS |
-| pennylane_execution | 1341955 | 1378499.50 | 1386352.27 | 1524316 | 40465.91 | 0.000e+00 | PASS |
+| Operation | Min (ns) | Median (ns) | Mean (ns) | Max (ns) | Std. dev. (ns) | Throughput (ops/s) | Error | Check |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| rotation_operator | 46801 | 47257.00 | 48568.00 | 72359 | 4692.50 | 21160.886218 | 0.000e+00 | PASS |
+| c3x_operator | 1091 | 1161.50 | 1217.13 | 1903 | 165.37 | 860955.660783 | 0.000e+00 | PASS |
+| transition_operator | 49555 | 50275.50 | 51454.30 | 60762 | 2995.60 | 19890.403875 | 0.000e+00 | PASS |
+| state_evolution | 50937 | 51347.00 | 52486.20 | 70736 | 3765.60 | 19475.334489 | 0.000e+00 | PASS |
+| density_matrix | 7131 | 7406.00 | 8066.83 | 14872 | 1743.13 | 135025.654874 | 0.000e+00 | PASS |
+| reduced_density_q4 | 1332 | 1377.00 | 1444.10 | 2313 | 186.33 | 726216.412491 | 0.000e+00 | PASS |
+| reduced_density_q123 | 1372 | 1417.50 | 1463.50 | 2133 | 138.40 | 705467.372134 | 1.069e-16 | PASS |
+| pennylane_execution | 600396 | 627927.50 | 635616.63 | 772536 | 31584.33 | 1592.540540 | 0.000e+00 | PASS |
 
 ## Methodology
 
 - Five or more warm-up iterations are performed per operation.
 - At least 30 measured repetitions are collected per operation.
 - Timing uses `time.perf_counter_ns()`.
+- Throughput is calculated as 1e9 divided by median nanoseconds.
 - Numerical references are constructed independently of the timed production callables.
 - PennyLane state evolution is compared with the independent NumPy state.
 - All numerical comparisons use the configured absolute norm tolerance.
