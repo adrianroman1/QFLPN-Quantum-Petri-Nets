@@ -1,0 +1,198 @@
+QFLPN P3 — PROJECT MANIFEST
+========================================
+
+Project:
+QFLPN — Quantum-Fuzzy Logical Petri Nets
+
+Part:
+P3 — Sparse Quantum-Fuzzy Logical Petri Nets:
+     CSR/SpMV Algorithms and Large-Scale State Evolution
+
+Repository:
+adrianroman1/QFLPN-Quantum-Petri-Nets
+
+Manifest purpose:
+Inventory of the P3 source, tests, validation procedures,
+manuscript traceability and experimental evidence.
+
+========================================
+1. PROJECT STRUCTURE
+========================================
+
+P3/
+    pom.xml
+
+    code/
+        SparseMatrixCSR.java
+        MultiplyTask.java
+        QFLPNCoreEngine.java
+        BenchmarkRunner.java
+        BenchmarkResult.java
+        BenchmarkResultWriter.java
+        BenchmarkResultReader.java
+        BenchmarkAuditValidator.java
+        BenchmarkEnvironment.java
+
+    tests/
+        SparseMatrixCSRTest.java
+        QFLPNCoreEngineTest.java
+        MultiplyTaskTest.java
+        BenchmarkResultWriterTest.java
+        BenchmarkAuditValidatorTest.java
+        BenchmarkResultReaderTest.java
+        BenchmarkScaleTest.java
+        BenchmarkRunnerNumericalValidationTest.java
+        BenchmarkEnvironmentTest.java
+        BenchmarkResultTest.java
+        CSRvsDenseOracleTest.java
+
+    results/
+        Results.md
+        Reproducibility.md
+        Traceability.md
+        validate_benchmark.py
+        test_validate_benchmark.py
+        run_benchmark.sh
+
+    artifacts/
+        Result.md
+
+    benchmarks/
+        benchmark_results.csv
+
+    results/raw/
+        benchmark execution logs
+        environment reports
+        independent validation reports
+
+========================================
+2. VALIDATION COMPONENTS
+========================================
+
+Java:
+    Maven
+    Java 21
+    JUnit 5
+
+Python:
+    validate_benchmark.py
+    test_validate_benchmark.py
+
+Benchmark:
+    CSR matrix-vector multiplication
+    Sequential SpMV
+    Parallel SpMV
+    Java Fork/Join
+
+Numerical validation:
+    Sequential expected output
+    Parallel expected output
+    Maximum absolute difference
+    Configured numerical tolerance
+
+========================================
+3. CSV SCHEMA
+========================================
+
+The benchmark CSV contains 22 columns:
+
+timestamp
+benchmark_id
+dimension
+non_zero_count
+parallelism
+threshold
+warmup_iterations
+measured_iterations
+sequential_ms
+parallel_ms
+speedup
+sequential_throughput_states_per_s
+parallel_throughput_states_per_s
+sequential_expected_error
+parallel_expected_error
+max_absolute_error
+setup_time_ms
+cpu
+available_memory_bytes
+java_version
+operating_system
+notes
+
+The authoritative schema is defined in:
+P3/code/BenchmarkResultWriter.java
+
+========================================
+4. EXPERIMENTAL EVIDENCE
+========================================
+
+Expected benchmark CSV:
+    P3/benchmarks/benchmark_results.csv
+
+Expected raw execution evidence:
+    P3/results/raw/
+
+Expected independent validation:
+    P3/results/raw/
+
+Expected checksums:
+    P3/SHA256SUMS.txt
+
+No benchmark measurement is considered verified
+solely because a benchmark script or CSV schema exists.
+
+A benchmark result requires:
+    - actual execution;
+    - retained CSV data;
+    - execution log;
+    - environment information;
+    - independent validation;
+    - source revision identification;
+    - SHA-256 checksums.
+
+========================================
+5. ACCEPTANCE POLICY
+========================================
+
+A successful JUnit run establishes only the behavior
+covered by the tests executed on that source revision.
+
+It does not independently establish:
+    - large-scale performance;
+    - measured speedup;
+    - measured time reduction;
+    - peak memory consumption;
+    - reproducibility of an experimental result.
+
+Performance claims must be supported by actual
+benchmark evidence.
+
+========================================
+6. LAST VERIFIED CI REFERENCE
+========================================
+
+Workflow:
+P3 CSR, SpMV and JUnit Validation
+
+Run:
+39341861788
+
+Commit:
+1d0f9895079b614f2dd44fd42ce72583434c0d83
+
+Observed result:
+154 tests
+0 failures
+0 errors
+0 skipped
+
+Build:
+SUCCESS
+
+This reference identifies a historical successful CI run.
+It must not be interpreted as proof that a later commit
+has also passed validation.
+
+========================================
+END OF MANIFEST
+========================================
