@@ -50,15 +50,28 @@ def make_operation(name: str) -> dict:
     independent = make_stats(independent_times)
 
     differences = [
-        reference - production_time
-        for production_time, reference in zip(
+        independent_time - production_time
+        for production_time, independent_time in zip(
             production_times,
             independent_times,
         )
     ]
 
-    wins = sum(value < 0 for value in differences)
-    ties = sum(value == 0 for value in differences)
+    wins = sum(
+        production_time < independent_time
+        for production_time, independent_time in zip(
+            production_times,
+            independent_times,
+        )
+    )
+
+    ties = sum(
+        production_time == independent_time
+        for production_time, independent_time in zip(
+            production_times,
+            independent_times,
+        )
+    )
 
     paired_samples = []
 
