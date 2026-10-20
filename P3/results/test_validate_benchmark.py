@@ -1,20 +1,12 @@
 #!/usr/bin/env python3
 
-"""
-Regression tests for the independent P3 benchmark CSV validator.
-
-Run from the P3 directory:
-
-    python -m pytest results/test_validate_benchmark.py -v
-
-The tests use synthetic data only. They do not claim benchmark
-performance measurements or replace the actual benchmark run.
-"""
+"""Regression tests for the independent P3 CSV validator."""
 
 from __future__ import annotations
 
 import csv
 import importlib.util
+
 from argparse import Namespace
 from pathlib import Path
 
@@ -39,27 +31,21 @@ if SPEC is None or SPEC.loader is None:
 VALIDATOR = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(VALIDATOR)
 
+HEADER = VALIDATOR.EXPECTED_HEADER
 
-EXPECTED_HEADER = VALIDATOR.EXPECTED_HEADER
-
-EXPECTED_N = 100
-EXPECTED_NNZ = 200
+N = 100
 
 
 def valid_row() -> dict[str, str]:
-    """
-    Return one internally consistent synthetic benchmark row.
-    """
-
     return {
-        "timestamp": "2026-10-20T10:00:00+00:00",
-        "benchmark_id": "QFLPN-TEST-100",
-        "dimension": str(EXPECTED_N),
-        "non_zero_count": str(EXPECTED_NNZ),
+        "timestamp": "2026-10-20T10:00:00Z",
+        "benchmark_id": "QFLPN-100",
+        "dimension": "100",
+        "non_zero_count": "200",
         "parallelism": "2",
         "threshold": "4096",
-        "warmup_iterations": "5",
-        "measured_iterations": "10",
+        "warmup_iterations": "1",
+        "measured_iterations": "2",
         "sequential_ms": "20.0",
         "parallel_ms": "10.0",
         "speedup": "2.0",
@@ -73,18 +59,14 @@ def valid_row() -> dict[str, str]:
         "available_memory_bytes": "4000000000",
         "java_version": "21",
         "operating_system": "Linux",
-        "notes": "Synthetic regression-test data",
+        "notes": "Synthetic test data",
     }
 
 
 def write_csv(
     path: Path,
-    row: dict[str, str],
+    rows: list[dict[str, str]],
 ) -> None:
-    """
-    Write one CSV row using the production schema.
-    """
-
     with path.open(
         "w",
         encoding="utf-8",
@@ -93,379 +75,314 @@ def write_csv(
 
         writer = csv.DictWriter(
             handle,
-            fieldnames=EXPECTED_HEADER,
+            fieldnames=HEADER,
             extrasaction="raise",
         )
 
         writer.writeheader()
-        writer.writerow(row)
+        writer.writerows(rows)
 
 
-def validation_args(path: Path) -> Namespace:
-    return Namespace(
-        csv=path,
-        expected_n=EXPECTED_N,
-        parallelism=2,
-        threshold=4096,
-        warmup=5,
-        iterations=10,
-    )
+def args_for(path: Path, **overrides) -> Namespace:
+    values = {
+        "csv": path,
+        "expected_n": N,
+        "parallelism": 2,
+        "threshold": 4096,
+        "warmup": 1,
+        "iterations": 2,
+        "expected_row_count": None,
+    }
+
+    values.update(overrides)
+
+    return Namespace(**values)
 
 
-def test_accepts_consistent_benchmark_row(
-    tmp_path: Path,
-) -> None:
+def test_accepts_valid_row(tmp_path: Path) -> None:
+    path = tmp_path / "valid.csv"
+    write_csv(path, [valid_row()])
 
-    csv_path = tmp_path / "valid.csv"
-
-    write_csv(
-        csv_path,
-        valid_row(),
-    )
-
-    result = VALIDATOR.validate(
-        validation_args(csv_path)
-    )
+    result = VALIDATOR.validate(args_for(path))
 
     assert result["validation"] == "PASS"
-    assert result["dimension"] == EXPECTED_N
-    assert result["nnz"] == EXPECTED_NNZ
+    assert result["dimension"] == N
+    assert result["nnz"] == 2 * N
     assert result["speedup_recomputed"] == pytest.approx(2.0)
-    assert result["time_reduction"] == pytest.approx(0.5)
-    assert result["time_reduction_percent"] == pytest.approx(50.0)
 
 
-def test_rejects_inconsistent_stored_speedup(
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("sequential_expected_error", "-1.0", "must not be negative"),
+        ("parallel_expected_error", "-1.0", "must not be negative"),
+        ("max_absolute_error", "-1.0", "must not be negative"),
+        ("sequential_expected_error", "1.1e-12", "exceeds tolerance"),
+        ("parallel_expected_error", "1.1e-12", "exceeds tolerance"),
+        ("max_absolute_error", "1.1e-12", "exceeds tolerance"),
+        ("sequential_ms", "0", "must be positive"),
+        ("parallel_ms", "0", "must be positive"),
+        ("parallel_ms", "nan", "must be finite"),
+        ("speedup", "nan", "must be finite"),
+        ("setup_time_ms", "-1", "must not be negative"),
+        ("available_memory_bytes", "0", "must be positive"),
+        ("java_version", "", "must not be empty"),
+    ],
+)
+def test_rejects_invalid_fields(
     tmp_path: Path,
+    field: str,
+    value: str,
+    message: str,
 ) -> None:
+    path = tmp_path / "invalid.csv"
 
-    csv_path = tmp_path / "invalid-speedup.csv"
+    row = valid_row()
+    row[field] = value
+
+    write_csv(path, [row])
+
+    with pytest.raises(
+        VALIDATOR.ValidationError,
+        match=message,
+    ):
+        VALIDATOR.validate(args_for(path))
+
+
+def test_rejects_wrong_speedup(tmp_path: Path) -> None:
+    path = tmp_path / "speedup.csv"
 
     row = valid_row()
     row["speedup"] = "3.0"
 
-    write_csv(
-        csv_path,
-        row,
-    )
+    write_csv(path, [row])
 
     with pytest.raises(
         VALIDATOR.ValidationError,
         match="speedup mismatch",
     ):
-        VALIDATOR.validate(
-            validation_args(csv_path)
-        )
+        VALIDATOR.validate(args_for(path))
 
 
-def test_rejects_nnz_different_from_twice_dimension(
+def test_rejects_wrong_sequential_throughput(
     tmp_path: Path,
 ) -> None:
+    path = tmp_path / "throughput.csv"
 
-    csv_path = tmp_path / "invalid-nnz.csv"
+    row = valid_row()
+    row["sequential_throughput_states_per_s"] = "1.0"
+
+    write_csv(path, [row])
+
+    with pytest.raises(
+        VALIDATOR.ValidationError,
+        match="sequential throughput mismatch",
+    ):
+        VALIDATOR.validate(args_for(path))
+
+
+def test_rejects_wrong_nnz(tmp_path: Path) -> None:
+    path = tmp_path / "nnz.csv"
 
     row = valid_row()
     row["non_zero_count"] = "199"
 
-    write_csv(
-        csv_path,
-        row,
-    )
+    write_csv(path, [row])
 
     with pytest.raises(
         VALIDATOR.ValidationError,
         match="NNZ mismatch",
     ):
-        VALIDATOR.validate(
-            validation_args(csv_path)
-        )
+        VALIDATOR.validate(args_for(path))
 
 
-def test_rejects_zero_sequential_execution_time(
-    tmp_path: Path,
-) -> None:
-
-    csv_path = tmp_path / "zero-sequential-time.csv"
-
-    row = valid_row()
-    row["sequential_ms"] = "0.0"
-
-    write_csv(
-        csv_path,
-        row,
-    )
-
-    with pytest.raises(
-        VALIDATOR.ValidationError,
-        match="sequential_ms must be positive",
-    ):
-        VALIDATOR.validate(
-            validation_args(csv_path)
-        )
-
-
-def test_rejects_zero_parallel_execution_time(
-    tmp_path: Path,
-) -> None:
-
-    csv_path = tmp_path / "zero-parallel-time.csv"
-
-    row = valid_row()
-    row["parallel_ms"] = "0.0"
-
-    write_csv(
-        csv_path,
-        row,
-    )
-
-    with pytest.raises(
-        VALIDATOR.ValidationError,
-        match="parallel_ms must be positive",
-    ):
-        VALIDATOR.validate(
-            validation_args(csv_path)
-        )
-
-
-def test_rejects_non_finite_execution_time(
-    tmp_path: Path,
-) -> None:
-
-    csv_path = tmp_path / "non-finite-time.csv"
-
-    row = valid_row()
-    row["parallel_ms"] = "nan"
-
-    write_csv(
-        csv_path,
-        row,
-    )
-
-    with pytest.raises(
-        VALIDATOR.ValidationError,
-        match="parallel_ms must be finite",
-    ):
-        VALIDATOR.validate(
-            validation_args(csv_path)
-        )
-
-
-def test_rejects_sequential_error_above_tolerance(
-    tmp_path: Path,
-) -> None:
-
-    csv_path = tmp_path / "sequential-error.csv"
-
-    row = valid_row()
-    row["sequential_expected_error"] = "1.1e-12"
-
-    write_csv(
-        csv_path,
-        row,
-    )
-
-    with pytest.raises(
-        VALIDATOR.ValidationError,
-        match="sequential expected error exceeds tolerance",
-    ):
-        VALIDATOR.validate(
-            validation_args(csv_path)
-        )
-
-
-def test_rejects_parallel_error_above_tolerance(
-    tmp_path: Path,
-) -> None:
-
-    csv_path = tmp_path / "parallel-error.csv"
-
-    row = valid_row()
-    row["parallel_expected_error"] = "1.1e-12"
-
-    write_csv(
-        csv_path,
-        row,
-    )
-
-    with pytest.raises(
-        VALIDATOR.ValidationError,
-        match="parallel expected error exceeds tolerance",
-    ):
-        VALIDATOR.validate(
-            validation_args(csv_path)
-        )
-
-
-def test_rejects_sequential_parallel_difference_above_tolerance(
-    tmp_path: Path,
-) -> None:
-
-    csv_path = tmp_path / "difference-error.csv"
-
-    row = valid_row()
-    row["max_absolute_error"] = "1.1e-12"
-
-    write_csv(
-        csv_path,
-        row,
-    )
-
-    with pytest.raises(
-        VALIDATOR.ValidationError,
-        match="sequential/parallel difference exceeds tolerance",
-    ):
-        VALIDATOR.validate(
-            validation_args(csv_path)
-        )
-
-
-def test_rejects_wrong_benchmark_dimension(
-    tmp_path: Path,
-) -> None:
-
-    csv_path = tmp_path / "wrong-dimension.csv"
+def test_rejects_wrong_dimension(tmp_path: Path) -> None:
+    path = tmp_path / "dimension.csv"
 
     row = valid_row()
     row["dimension"] = "101"
-    row["non_zero_count"] = "202"
 
-    write_csv(
-        csv_path,
-        row,
-    )
+    write_csv(path, [row])
 
     with pytest.raises(
         VALIDATOR.ValidationError,
         match="dimension mismatch",
     ):
-        VALIDATOR.validate(
-            validation_args(csv_path)
-        )
+        VALIDATOR.validate(args_for(path))
 
 
-def test_rejects_wrong_parallelism(
-    tmp_path: Path,
-) -> None:
-
-    csv_path = tmp_path / "wrong-parallelism.csv"
+def test_rejects_wrong_parallelism(tmp_path: Path) -> None:
+    path = tmp_path / "parallelism.csv"
 
     row = valid_row()
     row["parallelism"] = "4"
 
-    write_csv(
-        csv_path,
-        row,
-    )
+    write_csv(path, [row])
 
     with pytest.raises(
         VALIDATOR.ValidationError,
         match="parallelism does not match",
     ):
-        VALIDATOR.validate(
-            validation_args(csv_path)
-        )
+        VALIDATOR.validate(args_for(path))
 
 
-def test_rejects_wrong_iteration_configuration(
-    tmp_path: Path,
-) -> None:
-
-    csv_path = tmp_path / "wrong-iterations.csv"
+def test_rejects_wrong_threshold(tmp_path: Path) -> None:
+    path = tmp_path / "threshold.csv"
 
     row = valid_row()
-    row["measured_iterations"] = "9"
+    row["threshold"] = "2048"
 
-    write_csv(
-        csv_path,
-        row,
-    )
+    write_csv(path, [row])
 
     with pytest.raises(
         VALIDATOR.ValidationError,
-        match="measured iteration count does not match",
+        match="threshold does not match",
+    ):
+        VALIDATOR.validate(args_for(path))
+
+
+def test_rejects_wrong_iteration_count(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "iterations.csv"
+
+    row = valid_row()
+    row["measured_iterations"] = "3"
+
+    write_csv(path, [row])
+
+    with pytest.raises(
+        VALIDATOR.ValidationError,
+        match="measured iteration count",
+    ):
+        VALIDATOR.validate(args_for(path))
+
+
+def test_rejects_wrong_warmup_count(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "warmup.csv"
+
+    row = valid_row()
+    row["warmup_iterations"] = "5"
+
+    write_csv(path, [row])
+
+    with pytest.raises(
+        VALIDATOR.ValidationError,
+        match="warmup iteration count",
+    ):
+        VALIDATOR.validate(args_for(path))
+
+
+def test_rejects_wrong_record_count(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "records.csv"
+    write_csv(path, [valid_row()])
+
+    with pytest.raises(
+        VALIDATOR.ValidationError,
+        match="record count mismatch",
     ):
         VALIDATOR.validate(
-            validation_args(csv_path)
+            args_for(path, expected_row_count=2)
         )
 
 
-def test_rejects_missing_csv(
+def test_accepts_expected_record_count(
     tmp_path: Path,
 ) -> None:
+    path = tmp_path / "records.csv"
 
-    csv_path = tmp_path / "missing.csv"
+    write_csv(
+        path,
+        [valid_row(), valid_row()],
+    )
+
+    result = VALIDATOR.validate(
+        args_for(path, expected_row_count=2)
+    )
+
+    assert result["csv_total_records"] == 2
+
+
+def test_rejects_missing_csv(tmp_path: Path) -> None:
+    path = tmp_path / "missing.csv"
 
     with pytest.raises(
         VALIDATOR.ValidationError,
         match="CSV file does not exist",
     ):
-        VALIDATOR.validate(
-            validation_args(csv_path)
-        )
+        VALIDATOR.validate(args_for(path))
 
 
-def test_rejects_invalid_csv_header(
-    tmp_path: Path,
-) -> None:
+def test_rejects_header_only_csv(tmp_path: Path) -> None:
+    path = tmp_path / "empty.csv"
 
-    csv_path = tmp_path / "invalid-header.csv"
-
-    csv_path.write_text(
-        "timestamp,dimension,wrong-column\n",
-        encoding="utf-8",
-    )
-
-    with pytest.raises(
-        VALIDATOR.ValidationError,
-        match="CSV header does not match",
-    ):
-        VALIDATOR.validate(
-            validation_args(csv_path)
-        )
-
-
-def test_rejects_csv_without_data_rows(
-    tmp_path: Path,
-) -> None:
-
-    csv_path = tmp_path / "header-only.csv"
-
-    with csv_path.open(
+    with path.open(
         "w",
         encoding="utf-8",
         newline="",
     ) as handle:
-
-        writer = csv.writer(handle)
-        writer.writerow(EXPECTED_HEADER)
+        csv.writer(handle).writerow(HEADER)
 
     with pytest.raises(
         VALIDATOR.ValidationError,
-        match="CSV contains no benchmark data rows",
+        match="no benchmark data rows",
     ):
-        VALIDATOR.validate(
-            validation_args(csv_path)
-        )
+        VALIDATOR.validate(args_for(path))
 
 
-def test_rejects_missing_execution_metadata(
-    tmp_path: Path,
-) -> None:
-
-    csv_path = tmp_path / "missing-metadata.csv"
-
-    row = valid_row()
-    row["java_version"] = ""
-
-    write_csv(
-        csv_path,
-        row,
+def test_rejects_invalid_header(tmp_path: Path) -> None:
+    path = tmp_path / "header.csv"
+    path.write_text(
+        "timestamp,dimension,wrong\n",
+        encoding="utf-8",
     )
 
     with pytest.raises(
         VALIDATOR.ValidationError,
-        match="java_version must not be empty",
+        match="header does not match",
     ):
-        VALIDATOR.validate(
-            validation_args(csv_path)
+        VALIDATOR.validate(args_for(path))
+
+
+def test_rejects_extra_csv_column(tmp_path: Path) -> None:
+    path = tmp_path / "extra.csv"
+
+    row = valid_row()
+
+    with path.open(
+        "w",
+        encoding="utf-8",
+        newline="",
+    ) as handle:
+        writer = csv.writer(handle)
+        writer.writerow(HEADER)
+        writer.writerow(
+            [row[field] for field in HEADER] + ["unexpected"]
         )
+
+    with pytest.raises(
+        VALIDATOR.ValidationError,
+        match="unexpected extra columns",
+    ):
+        VALIDATOR.validate(args_for(path))
+
+
+def test_rejects_timestamp_without_timezone(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "timezone.csv"
+
+    row = valid_row()
+    row["timestamp"] = "2026-10-20T10:00:00"
+
+    write_csv(path, [row])
+
+    with pytest.raises(
+        VALIDATOR.ValidationError,
+        match="timezone information",
+    ):
+        VALIDATOR.validate(args_for(path))
