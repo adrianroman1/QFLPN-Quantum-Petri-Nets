@@ -30,7 +30,7 @@ P1 = ROOT / "P1"
 ART = P1 / "artifacts"
 REPORTS = P1 / "reports"
 
-REQUIRED = [
+REQUIRED = (
     "P1/artifacts/operator.npy",
     "P1/artifacts/initial_state.npy",
     "P1/artifacts/final_state.npy",
@@ -39,16 +39,15 @@ REQUIRED = [
     "P1/reports/residuals.json",
     "P1/reports/independent_agreement.json",
     "P1/reports/test_log.json",
-]
+)
 
-INVENTORY_FILES = [
+INVENTORY_FILES = (
     "P1/MANIFEST.txt",
     "P1/SHA256SUMS.txt",
-]
+)
 
 INVENTORY_FILE_SET = set(INVENTORY_FILES)
 MANIFEST_REQUIRED = set(REQUIRED)
-
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 
 RESIDUAL_KEYS = (
@@ -68,7 +67,25 @@ FINITE_CHECK_KEYS = (
     "density_matrix_finite",
 )
 
+# Exact 25-key schema produced by verify_reference_instance.py
+# and validated by write_test_results.py.
 INDEPENDENT_CHECK_KEYS = (
+    "schema_version",
+    "instance_id",
+    "qubit_count",
+    "hilbert_space_dimension",
+    "basis_ordering",
+    "initial_state_label",
+    "initial_state_basis_index",
+    "operator_expression",
+    "gate_sequence",
+    "c3x_controls",
+    "c3x_target",
+    "composition_convention",
+    "numeric_dtype",
+    "array_serialization",
+    "canonical_memberships",
+    "canonical_angles",
     "operator_agreement_frobenius",
     "saved_operator_matches_production",
     "constructive_gate_reconstruction",
@@ -80,7 +97,6 @@ INDEPENDENT_CHECK_KEYS = (
     "c3x_truth_table_controls_0_1_2_target_3",
 )
 
-# All six numerical discrepancies emitted by verify_reference_instance.py.
 INDEPENDENT_METRIC_KEYS = (
     "operator_difference_frobenius",
     "saved_operator_difference_frobenius",
@@ -100,6 +116,31 @@ TEST_LOG_CHECK_KEYS = (
     "residuals",
     "independent_agreement",
 )
+
+REQUIRED_TEST_CASES = {
+    "test_density_matrix_trace_is_one",
+    "test_density_matrix_is_hermitian",
+    "test_density_matrix_is_positive_semidefinite",
+    "test_global_operator_is_unitary",
+    "test_zero_membership_maps_to_zero_angle_and_identity_rotation",
+    "test_unit_membership_maps_to_pi_angle",
+    "test_canonical_hilbert_dimension_and_shapes",
+    "test_big_endian_tensor_factor_order_behaviorally",
+    "test_c3x_truth_table_controls_zero_one_two_target_three",
+    "test_production_operator_matches_explicit_gate_product",
+    "test_production_and_independent_operators_agree",
+    "test_production_and_independent_state_vectors_agree",
+    "test_squared_pure_state_fidelity_is_one_within_tolerance",
+    "test_all_canonical_artifacts_exist_and_are_finite",
+    "test_metadata_records_canonical_instance_and_environment",
+    "test_density_matrix_is_outer_product_of_saved_final_state",
+    "test_sha256_helper_matches_standard_library",
+    "test_inventory_is_sorted_and_contains_no_duplicates",
+    "test_inventory_excludes_self_referential_files",
+    "test_inventory_excludes_bytecode_and_cache_directories",
+    "test_preflight_source_modules_and_report_generator_exist",
+    "test_initial_state_is_the_canonical_zero_basis_vector",
+}
 
 
 def fail(message: str, errors: list[str]) -> None:
@@ -139,8 +180,12 @@ def safe_relative(value: str) -> bool:
     return True
 
 
-def load_json(path: Path, label: str, errors: list[str]):
-    """Load a JSON report and record errors instead of aborting validation."""
+def load_json(
+    path: Path,
+    label: str,
+    errors: list[str],
+) -> Any | None:
+    """Load JSON and record malformed evidence without aborting validation."""
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception as exc:
@@ -152,22 +197,25 @@ def load_json(path: Path, label: str, errors: list[str]):
 
 
 def rebuild_eligible_inventory_independently(root: Path) -> set[str]:
-    """Rebuild eligible files without importing the manifest producer."""
+    """Rebuild eligible files independently of the inventory generator."""
     excluded_names = {"MANIFEST.txt", "SHA256SUMS.txt"}
     excluded_directories = {
         "__pycache__",
         ".pytest_cache",
         ".mypy_cache",
     }
+
     scan_roots = (
         root / "P1",
         root / ".github" / "workflows",
     )
+
     eligible: set[str] = set()
 
     for scan_root in scan_roots:
         if not scan_root.exists():
             continue
+
         if scan_root.is_symlink() or not scan_root.is_dir():
             continue
 
@@ -188,8 +236,14 @@ def rebuild_eligible_inventory_independently(root: Path) -> set[str]:
             for name in file_names:
                 candidate = current_path / name
 
-                if name in excluded_names or candidate.suffix == ".pyc":
+                if name in excluded_names:
                     continue
+
+                # Must match compute_checksums.py:
+                # both Python bytecode suffixes are excluded.
+                if candidate.suffix in {".pyc", ".pyo"}:
+                    continue
+
                 if candidate.is_symlink() or not candidate.is_file():
                     continue
 
@@ -200,8 +254,10 @@ def rebuild_eligible_inventory_independently(root: Path) -> set[str]:
     return eligible
 
 
-def validate_inventory(errors: list[str]):
-    """Validate both inventories against the independently rebuilt file set."""
+def validate_inventory(
+    errors: list[str],
+) -> tuple[list[str], dict[str, str]]:
+    """Validate manifest and SHA-256 inventory against actual repository files."""
     manifest_path = P1 / "MANIFEST.txt"
     checksum_path = P1 / "SHA256SUMS.txt"
 
@@ -219,11 +275,13 @@ def validate_inventory(errors: list[str]):
         manifest_lines = manifest_path.read_text(
             encoding="utf-8"
         ).splitlines()
+
         manifest = [
             line.strip()
             for line in manifest_lines
             if line.strip()
         ]
+
     except Exception as exc:
         fail(
             f"manifest read error: {type(exc).__name__}: {exc}",
@@ -232,6 +290,9 @@ def validate_inventory(errors: list[str]):
 
     if len(manifest) != len(set(manifest)):
         fail("manifest contains duplicate paths", errors)
+
+    if manifest != sorted(manifest):
+        fail("manifest paths are not sorted", errors)
 
     for rel in manifest:
         if not safe_relative(rel):
@@ -281,7 +342,8 @@ def validate_inventory(errors: list[str]):
     for rel in INVENTORY_FILES:
         if rel in checksum_map:
             fail(
-                f"self-referential inventory file listed in SHA-256 inventory: {rel}",
+                "self-referential inventory file listed in SHA-256 "
+                f"inventory: {rel}",
                 errors,
             )
 
@@ -295,6 +357,7 @@ def validate_inventory(errors: list[str]):
         missing_from_manifest = sorted(
             checksum_paths - manifest_paths
         )
+
         fail(
             "manifest and checksum path sets differ "
             f"(missing from checksums: {missing_from_checksums}; "
@@ -319,6 +382,7 @@ def validate_inventory(errors: list[str]):
         extra_in_manifest = sorted(
             manifest_paths - eligible_files
         )
+
         fail(
             "manifest does not match independently reconstructed inventory "
             f"(missing: {missing_from_manifest}; "
@@ -333,9 +397,10 @@ def validate_inventory(errors: list[str]):
         extra_in_checksums = sorted(
             checksum_paths - eligible_files
         )
+
         fail(
-            "SHA-256 inventory does not match independently reconstructed inventory "
-            f"(missing: {missing_from_checksums}; "
+            "SHA-256 inventory does not match independently reconstructed "
+            f"inventory (missing: {missing_from_checksums}; "
             f"extra: {extra_in_checksums})",
             errors,
         )
@@ -483,13 +548,7 @@ def validate_arrays(errors: list[str]) -> None:
             (HILBERT_SPACE_DIMENSION, HILBERT_SPACE_DIMENSION),
         )
 
-        arrays = (
-            operator,
-            initial,
-            final,
-            rho,
-        )
-
+        arrays = (operator, initial, final, rho)
         labels = (
             "operator",
             "initial_state",
@@ -661,19 +720,22 @@ def validate_independent_report(
         )
     else:
         if set(checks) != set(INDEPENDENT_CHECK_KEYS):
+            missing = sorted(set(INDEPENDENT_CHECK_KEYS) - set(checks))
+            extra = sorted(set(checks) - set(INDEPENDENT_CHECK_KEYS))
             fail(
-                "independent agreement checks schema mismatch",
+                "independent agreement checks schema mismatch "
+                f"(missing: {missing}; extra: {extra})",
                 errors,
             )
 
         for key in INDEPENDENT_CHECK_KEYS:
             if checks.get(key) is not True:
                 fail(
-                    f"independent agreement check missing, invalid, or false: {key}",
+                    f"independent agreement check missing, invalid, "
+                    f"or false: {key}",
                     errors,
                 )
 
-    # Validate all six numerical discrepancies, not only three.
     for key in INDEPENDENT_METRIC_KEYS:
         value = independent.get(key)
 
@@ -787,34 +849,7 @@ def validate_test_log(
             for entry in test_cases
         }
 
-    required_case_suffixes = {
-        "test_density_matrix_trace_is_one",
-        "test_density_matrix_is_hermitian",
-        "test_density_matrix_is_positive_semidefinite",
-        "test_global_operator_is_unitary",
-        "test_zero_membership_maps_to_zero_angle_and_identity_rotation",
-        "test_unit_membership_maps_to_pi_angle",
-        "test_canonical_hilbert_dimension_and_shapes",
-        "test_big_endian_tensor_factor_order_behaviorally",
-        "test_c3x_truth_table_controls_zero_one_two_target_three",
-        "test_production_operator_matches_explicit_gate_product",
-        "test_production_and_independent_operators_agree",
-        "test_production_and_independent_state_vectors_agree",
-        "test_squared_pure_state_fidelity_is_one_within_tolerance",
-        "test_all_canonical_artifacts_exist_and_are_finite",
-        "test_metadata_records_canonical_instance_and_environment",
-        "test_density_matrix_is_outer_product_of_saved_final_state",
-        "test_sha256_helper_matches_standard_library",
-        "test_inventory_is_sorted_and_contains_no_duplicates",
-        "test_inventory_excludes_self_referential_files",
-        "test_inventory_excludes_bytecode_and_cache_directories",
-        "test_preflight_source_modules_and_report_generator_exist",
-        "test_initial_state_is_the_canonical_zero_basis_vector",
-    }
-
-    missing_cases = sorted(
-        required_case_suffixes - observed_names
-    )
+    missing_cases = sorted(REQUIRED_TEST_CASES - observed_names)
 
     if missing_cases:
         fail(
