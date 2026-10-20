@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "project": "QFLPN P2",
+  "description": "Canonical four-qubit QFLPN numerical operation benchmark",
+  "qubits": 4,
+  "hilbert_dimension": 16,
+  "basis_order": "big-endian",
+  "activation_vector": [
+    0.85,
+    0.9,
+    0.45,
+    0.7
+  ],
+  "operator_order": "U = C3X @ U_rot",
+  "warmups": 5,
+  "repetitions": 30,
+  "numerical_tolerance": 1e-12,
+  "timer": "time.perf_counter_ns",
+  "operations": [
+    "rotation_operator",
+    "c3x_operator",
+    "transition_operator",
+    "state_evolution",
+    "density_matrix",
+    "reduced_density_q4",
+    "reduced_density_q123",
+    "pennylane_execution"
+  ],
+  "output_directory": "benchmarks/results",
+  "csv_filename": "benchmark_results.csv",
+  "json_filename": "benchmark_report.json"
+}
