@@ -110,7 +110,14 @@ jobs:
 
       - name: Commit generated benchmark evidence
         if: success() && github.event_name == 'workflow_dispatch'
+        env:
+          TARGET_BRANCH: ${{ github.ref_name }}
         run: |
+          if [[ -z "$TARGET_BRANCH" ]]; then
+            echo "::error::Target branch is empty."
+            exit 1
+          fi
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
@@ -127,4 +134,5 @@ jobs:
           fi
 
           git commit -m "[skip ci] P3 automated benchmark evidence"
-          git push
+
+          git push origin "HEAD:refs/heads/${TARGET_BRANCH}"
