@@ -71,12 +71,10 @@ def git_command(*args: str) -> str:
 
 
 def cpu_model() -> str:
-    candidates = [
+    for path in (
         Path("/proc/cpuinfo"),
         Path("/proc/device-tree/model"),
-    ]
-
-    for path in candidates:
+    ):
         try:
             content = path.read_text(
                 encoding="utf-8",
@@ -85,7 +83,6 @@ def cpu_model() -> str:
 
             for line in content.splitlines():
                 lower = line.lower()
-
                 if lower.startswith("model name") or lower.startswith("hardware"):
                     return line.split(":", 1)[-1].strip()
 
@@ -104,14 +101,11 @@ def memory_bytes() -> int | None:
         page_size = os.sysconf("SC_PAGE_SIZE")
         value = int(pages) * int(page_size)
         return value if value > 0 else None
-
     except (AttributeError, OSError, ValueError):
         return None
 
 
 def write_environment() -> dict:
-    memory = memory_bytes()
-
     data = {
         "captured_at_utc": utc_now(),
         "repository_root": str(ROOT),
@@ -129,7 +123,7 @@ def write_environment() -> dict:
         "processor": platform.processor() or "UNAVAILABLE",
         "cpu_model": cpu_model(),
         "logical_cpu_count": os.cpu_count(),
-        "physical_memory_bytes": memory,
+        "physical_memory_bytes": memory_bytes(),
         "benchmark_timer": "time.perf_counter_ns",
         "qubit_count": QUANTUM_REGISTER_SIZE,
         "hilbert_dimension": HILBERT_DIMENSION,
@@ -173,10 +167,12 @@ def verify_equivalence() -> dict:
     production = production_operator()
     independent = independent_operator()
 
-    if production.shape != (
+    expected_shape = (
         HILBERT_DIMENSION,
         HILBERT_DIMENSION,
-    ):
+    )
+
+    if production.shape != expected_shape:
         raise AssertionError(
             f"Production shape mismatch: {production.shape}"
         )
@@ -219,50 +215,111 @@ def verify_equivalence() -> dict:
     }
 
 
-def measure(
-    function: Callable[[], np.ndarray],
+def validate_result(
+    result: np.ndarray,
     implementation: str,
+) -> None:
+    if not isinstance(result, np.ndarray):
+        raise TypeError(
+            f"{implementation} returned "
+            f"{type(result).__name__}, expected numpy.ndarray"
+        )
+
+    if not np.isfinite(result).all():
+        raise ArithmeticError(
+            f"{implementation} produced non-finite output"
+        )
+
+    expected_shape = (
+        HILBERT_DIMENSION,
+        HILBERT_DIMENSION,
+    )
+
+    if result.shape != expected_shape:
+        raise AssertionError(
+            f"{implementation} returned shape {result.shape}; "
+            f"expected {expected_shape}"
+        )
+
+
+def measure_interleaved(
+    production_function: Callable[[], np.ndarray],
+    independent_function: Callable[[], np.ndarray],
     warmups: int,
     repetitions: int,
     timestamp: str,
-) -> tuple[list[dict], list[int]]:
+) -> tuple[list[dict], list[int], list[int], list[float]]:
+    """Measure both implementations in alternating paired order."""
 
-    for _ in range(warmups):
-        function()
+    functions = {
+        "production": production_function,
+        "independent": independent_function,
+    }
+
+    samples = {
+        "production": [],
+        "independent": [],
+    }
 
     rows = []
-    samples = []
+    paired_differences_ms = []
 
+    # Alternate warm-up order to avoid always warming one implementation first.
+    for iteration in range(warmups):
+        if iteration % 2 == 0:
+            order = ("production", "independent")
+        else:
+            order = ("independent", "production")
+
+        for name in order:
+            result = functions[name]()
+            validate_result(result, name)
+
+    # Each iteration is one paired comparison.
     for iteration in range(1, repetitions + 1):
-        start = time.perf_counter_ns()
-        result = function()
-        elapsed_ns = time.perf_counter_ns() - start
+        if iteration % 2 == 1:
+            order = ("production", "independent")
+        else:
+            order = ("independent", "production")
 
-        if not isinstance(result, np.ndarray):
-            raise TypeError(
-                f"{implementation} returned "
-                f"{type(result).__name__}, expected numpy.ndarray"
-            )
+        pair_ns = {}
 
-        if not np.isfinite(result).all():
-            raise ArithmeticError(
-                f"{implementation} produced non-finite output"
-            )
+        for name in order:
+            start_ns = time.perf_counter_ns()
+            result = functions[name]()
+            elapsed_ns = time.perf_counter_ns() - start_ns
 
-        samples.append(int(elapsed_ns))
+            # Validate after stopping the timer so validation is not timed.
+            validate_result(result, name)
 
-        rows.append({
-            "timestamp_utc": timestamp,
-            "operation": "global_operator_construction",
-            "implementation": implementation,
-            "iteration": iteration,
-            "elapsed_ns": int(elapsed_ns),
-            "elapsed_ms": elapsed_ns / 1_000_000.0,
-            "qubit_count": QUANTUM_REGISTER_SIZE,
-            "hilbert_dimension": HILBERT_DIMENSION,
-        })
+            elapsed_ns = int(elapsed_ns)
+            samples[name].append(elapsed_ns)
+            pair_ns[name] = elapsed_ns
 
-    return rows, samples
+            rows.append({
+                "timestamp_utc": timestamp,
+                "operation": "global_operator_construction",
+                "implementation": name,
+                "iteration": iteration,
+                "elapsed_ns": elapsed_ns,
+                "elapsed_ms": elapsed_ns / 1_000_000.0,
+                "qubit_count": QUANTUM_REGISTER_SIZE,
+                "hilbert_dimension": HILBERT_DIMENSION,
+            })
+
+        # Positive value means production was faster in this pair.
+        paired_differences_ms.append(
+            (
+                pair_ns["independent"] - pair_ns["production"]
+            ) / 1_000_000.0
+        )
+
+    return (
+        rows,
+        samples["production"],
+        samples["independent"],
+        paired_differences_ms,
+    )
 
 
 def summarize(samples: list[int]) -> dict:
@@ -275,7 +332,7 @@ def summarize(samples: list[int]) -> dict:
     ]
 
     return {
-        "sample_count": len(samples),
+        "sample_count": len(values_ms),
         "minimum_ms": min(values_ms),
         "maximum_ms": max(values_ms),
         "mean_ms": statistics.mean(values_ms),
@@ -294,12 +351,10 @@ def write_csv(rows: list[dict]) -> None:
         newline="",
         encoding="utf-8",
     ) as handle:
-
         writer = csv.DictWriter(
             handle,
             fieldnames=CSV_FIELDS,
         )
-
         writer.writeheader()
         writer.writerows(rows)
 
@@ -317,7 +372,6 @@ def write_json(report: dict) -> None:
 
 
 def write_markdown(report: dict) -> None:
-
     if report["status"] != "PASS":
         content = (
             "# P1 Benchmark Results\n\n"
@@ -325,23 +379,15 @@ def write_markdown(report: dict) -> None:
             "Benchmark execution did not complete successfully. "
             "Inspect `benchmark_report.json`.\n"
         )
-
     else:
         production = report["results"]["production"]
         independent = report["results"]["independent"]
         comparison = report["comparison"]
+        configuration = report["configuration"]
 
-        speedup = comparison[
-            "speedup_independent_over_production"
-        ]
-
-        median_difference_ms = comparison[
-            "median_difference_ms"
-        ]
-
-        production_median_reduction_percent = comparison[
-            "production_median_reduction_percent"
-        ]
+        ratio = comparison["speedup_independent_over_production"]
+        paired_difference = comparison["paired_median_difference_ms"]
+        win_rate = comparison["production_pair_win_rate_percent"]
 
         content = f"""# P1 Benchmark Results
 
@@ -350,8 +396,9 @@ def write_markdown(report: dict) -> None:
 - Canonical register: **q = {report['workload']['qubit_count']} qubits**
 - Hilbert-space dimension: **D = {report['workload']['hilbert_dimension']}**
 - Operation: global QFLPN transition-operator construction
-- Samples per implementation: **{report['configuration']['repetitions']}**
-- Warm-up iterations: **{report['configuration']['warmups']}**
+- Samples per implementation: **{configuration['repetitions']}**
+- Warm-up iterations: **{configuration['warmups']}**
+- Measurement order: **{configuration['measurement_order']}**
 - Timer: `time.perf_counter_ns()`
 - Numerical equivalence: **{report['equivalence_check']['status']}**
 - Frobenius difference: `{report['equivalence_check']['frobenius_difference']:.6e}`
@@ -362,17 +409,28 @@ def write_markdown(report: dict) -> None:
 | Metric | Production implementation | Independent implementation | Comparative indicator |
 |---|---:|---:|---:|
 | Minimum (ms) | {production['minimum_ms']:.6f} | {independent['minimum_ms']:.6f} | — |
-| Median (ms) | **{production['median_ms']:.6f}** | {independent['median_ms']:.6f} | **{speedup:.6f}×** (reference / P1) |
+| Median (ms) | **{production['median_ms']:.6f}** | {independent['median_ms']:.6f} | **{ratio:.6f}×** (reference / P1) |
 | Mean (ms) | {production['mean_ms']:.6f} | {independent['mean_ms']:.6f} | — |
 | Maximum (ms) | {production['maximum_ms']:.6f} | {independent['maximum_ms']:.6f} | — |
 | Standard deviation (ms) | {production['standard_deviation_ms']:.6f} | {independent['standard_deviation_ms']:.6f} | — |
 | Samples | {production['sample_count']} | {independent['sample_count']} | — |
 
+## Paired comparison
+
+- Median paired difference (independent − production): **{paired_difference:.6f} ms**
+- Production wins among paired measurements: **{win_rate:.2f}%**
+- Number of paired measurements: **{comparison['paired_sample_count']}**
+
+A positive paired difference means production was faster in that pair.
+A production win rate above 50% means production was faster in more than
+half of the measured pairs. These statistics describe this execution only.
+
 ## Comparative indicators
 
-- Independent / production median-time ratio: **{speedup:.6f}×**
-- Median-time difference (independent − production): **{median_difference_ms:.6f} ms**
-- Production median-time reduction relative to the independent reference: **{production_median_reduction_percent:.3f}%**
+- Independent / production median-time ratio: **{ratio:.6f}×**
+- Median-time difference (independent − production): **{comparison['median_difference_ms']:.6f} ms**
+- Production median-time reduction relative to the independent reference:
+  **{comparison['production_median_reduction_percent']:.3f}%**
 
 A ratio above 1 means the independent reference had a greater
 median execution time than P1 in this measured run.
@@ -390,7 +448,7 @@ or an HPC scalability result.
 - Platform: `{report['environment']['operating_system']}`
 - CPU: `{report['environment']['cpu_model']}`
 
-Raw samples are stored in `benchmark_results.csv`.
+Raw paired samples are stored in `benchmark_results.csv`.
 Structured results are stored in `benchmark_report.json`.
 The captured environment is stored in `environment.txt`.
 
@@ -403,6 +461,10 @@ a million-qubit system, a distributed implementation, or an HPC workload.
 The ratio compares two implementations of the same fixed-size operation;
 it must not be interpreted as an asymptotic complexity result.
 
+Alternating measurement order reduces systematic order bias but does not
+eliminate virtual-machine contention, CPU-frequency variation, or other
+environmental noise.
+
 The measurements are machine- and environment-dependent.
 They are evidence for this execution only, not a universal performance guarantee.
 """
@@ -414,7 +476,6 @@ They are evidence for this execution only, not a universal performance guarantee
 
 
 def run(warmups: int, repetitions: int) -> dict:
-
     if warmups < 0:
         raise ValueError("warmups must be non-negative")
 
@@ -428,19 +489,18 @@ def run(warmups: int, repetitions: int) -> dict:
 
     timestamp = utc_now()
     environment = write_environment()
+
+    # Verify numerical equivalence before timing either implementation.
     equivalence = verify_equivalence()
 
-    production_rows, production_samples = measure(
+    (
+        rows,
+        production_samples,
+        independent_samples,
+        paired_differences_ms,
+    ) = measure_interleaved(
         production_operator,
-        "production",
-        warmups,
-        repetitions,
-        timestamp,
-    )
-
-    independent_rows, independent_samples = measure(
         independent_operator,
-        "independent",
         warmups,
         repetitions,
         timestamp,
@@ -462,17 +522,52 @@ def run(warmups: int, repetitions: int) -> dict:
             "Independent median time is not positive"
         )
 
-    speedup = independent_median / production_median
-
     median_difference_ms = (
         independent_median - production_median
     )
+
+    speedup = independent_median / production_median
 
     production_median_reduction_percent = (
         median_difference_ms / independent_median * 100.0
     )
 
-    rows = production_rows + independent_rows
+    paired_median_difference_ms = statistics.median(
+        paired_differences_ms
+    )
+
+    production_pair_win_rate_percent = (
+        sum(value > 0.0 for value in paired_differences_ms)
+        / len(paired_differences_ms)
+        * 100.0
+    )
+
+    comparison = {
+        "metric": (
+            "independent_median_ms / production_median_ms"
+        ),
+        "speedup_independent_over_production": speedup,
+        "median_difference_ms": median_difference_ms,
+        "production_median_reduction_percent": (
+            production_median_reduction_percent
+        ),
+        "paired_median_difference_ms": (
+            paired_median_difference_ms
+        ),
+        "production_pair_win_rate_percent": (
+            production_pair_win_rate_percent
+        ),
+        "paired_sample_count": len(paired_differences_ms),
+        "paired_difference_definition": (
+            "independent_elapsed_ms - production_elapsed_ms; "
+            "positive means production was faster"
+        ),
+        "interpretation": (
+            "A value greater than 1 for the median ratio means "
+            "the independent reference had a greater median "
+            "execution time than production."
+        ),
+    }
 
     write_csv(rows)
 
@@ -498,6 +593,9 @@ def run(warmups: int, repetitions: int) -> dict:
             "warmups": warmups,
             "repetitions": repetitions,
             "timer": "time.perf_counter_ns",
+            "measurement_order": (
+                "balanced_alternating_paired_measurements"
+            ),
         },
 
         "equivalence_check": equivalence,
@@ -507,29 +605,14 @@ def run(warmups: int, repetitions: int) -> dict:
             "independent": independent_summary,
         },
 
-        "comparison": {
-            "metric": (
-                "independent_median_ms / production_median_ms"
-            ),
-
-            "speedup_independent_over_production": speedup,
-
-            "median_difference_ms": median_difference_ms,
-
-            "production_median_reduction_percent": (
-                production_median_reduction_percent
-            ),
-
-            "interpretation": (
-                "A value greater than 1 means the independent "
-                "reference had a greater median execution time "
-                "than production."
-            ),
-        },
+        "comparison": comparison,
 
         "raw_samples": {
             "file": "benchmark_results.csv",
             "row_count": len(rows),
+            "measurement_design": (
+                "paired_alternating_order"
+            ),
         },
 
         "environment": environment,
@@ -538,6 +621,7 @@ def run(warmups: int, repetitions: int) -> dict:
             "Only the canonical four-qubit P1 instance is measured.",
             "The result does not establish asymptotic scalability.",
             "The result does not establish million-qubit or HPC performance.",
+            "Alternating order does not eliminate virtual-machine noise.",
             "Timings depend on the execution machine and environment.",
         ],
     }
@@ -549,7 +633,6 @@ def run(warmups: int, repetitions: int) -> dict:
 
 
 def main() -> int:
-
     parser = argparse.ArgumentParser(
         description="Run the P1 canonical four-qubit benchmark."
     )
@@ -575,7 +658,6 @@ def main() -> int:
         )
 
     except Exception as exc:
-
         failure = {
             "schema_version": 1,
             "benchmark_id": "P1-CANONICAL-4Q-OPERATOR-CONSTRUCTION",
@@ -603,31 +685,35 @@ def main() -> int:
     print(json.dumps({
         "status": report["status"],
         "benchmark_id": report["benchmark_id"],
-
         "production_median_ms": (
             report["results"]["production"]["median_ms"]
         ),
-
         "independent_median_ms": (
             report["results"]["independent"]["median_ms"]
         ),
-
         "speedup_independent_over_production": (
             report["comparison"][
                 "speedup_independent_over_production"
             ]
         ),
-
         "median_difference_ms": (
             report["comparison"]["median_difference_ms"]
         ),
-
         "production_median_reduction_percent": (
             report["comparison"][
                 "production_median_reduction_percent"
             ]
         ),
-
+        "paired_median_difference_ms": (
+            report["comparison"][
+                "paired_median_difference_ms"
+            ]
+        ),
+        "production_pair_win_rate_percent": (
+            report["comparison"][
+                "production_pair_win_rate_percent"
+            ]
+        ),
         "files": [
             str(CSV_PATH.relative_to(ROOT)),
             str(JSON_PATH.relative_to(ROOT)),
