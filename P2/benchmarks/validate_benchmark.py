@@ -6,6 +6,7 @@ import argparse
 import csv
 import json
 import math
+import re
 import shutil
 from pathlib import Path
 
@@ -26,6 +27,13 @@ EXPECTED_OPERATIONS = {
     "reduced_density_q123",
     "pennylane_execution",
 }
+
+EXPECTED_RUNTIME_SCOPE = (
+    "Elapsed wall-clock time from benchmark CLI start, before configuration "
+    "loading, through the first complete generation of the four evidence "
+    "files. Final JSON and Markdown persistence of the measured duration "
+    "is excluded to avoid a self-referential timing measurement."
+)
 
 CSV_FIELDS = [
     "operation",
@@ -55,7 +63,6 @@ NUMERIC_FIELDS = (
 
 
 def finite_number(value) -> bool:
-    """Return true only for finite, non-Boolean numeric values."""
     return (
         isinstance(value, (int, float))
         and not isinstance(value, bool)
@@ -64,7 +71,6 @@ def finite_number(value) -> bool:
 
 
 def validate_report(report: object) -> list[str]:
-    """Validate the semantic content of the benchmark JSON."""
     errors: list[str] = []
 
     if not isinstance(report, dict):
@@ -90,6 +96,19 @@ def validate_report(report: object) -> list[str]:
         errors.append("Benchmark activation vector is not canonical.")
     if report.get("timer") != "time.perf_counter_ns":
         errors.append("Benchmark timer is invalid.")
+
+    runtime = report.get("total_runtime_seconds")
+    if not finite_number(runtime):
+        errors.append(
+            "Benchmark total_runtime_seconds must be a finite number."
+        )
+    elif runtime <= 0:
+        errors.append(
+            "Benchmark total_runtime_seconds must be strictly positive."
+        )
+
+    if report.get("runtime_measurement_scope") != EXPECTED_RUNTIME_SCOPE:
+        errors.append("Benchmark runtime measurement scope is missing or invalid.")
 
     warmups = report.get("warmups")
     repetitions = report.get("repetitions")
@@ -153,7 +172,10 @@ def validate_report(report: object) -> list[str]:
             if not finite_number(row.get(field)):
                 errors.append(f"{name}: invalid numeric field {field}.")
 
-        if not all(finite_number(row.get(field)) for field in NUMERIC_FIELDS):
+        if not all(
+            finite_number(row.get(field))
+            for field in NUMERIC_FIELDS
+        ):
             continue
 
         if row["minimum_ns"] <= 0:
@@ -207,7 +229,6 @@ def validate_report(report: object) -> list[str]:
 
 
 def validate_csv(path: Path, report: dict | None = None) -> list[str]:
-    """Validate CSV schema, values and consistency with JSON."""
     errors: list[str] = []
 
     if not path.is_file():
@@ -347,8 +368,10 @@ def validate_csv(path: Path, report: dict | None = None) -> list[str]:
     return errors
 
 
-def validate_markdown(path: Path) -> list[str]:
-    """Check that the human-readable report exists and is substantive."""
+def validate_markdown(
+    path: Path,
+    report: dict | None = None,
+) -> list[str]:
     if not path.is_file():
         return [f"Benchmark Markdown report does not exist: {path}"]
 
@@ -366,6 +389,8 @@ def validate_markdown(path: Path) -> list[str]:
         "benchmark_report.json",
         "benchmark_results.csv",
         "environment.txt",
+        "- Total benchmark runtime:",
+        "- Runtime measurement scope:",
     )
 
     errors = [
@@ -373,13 +398,43 @@ def validate_markdown(path: Path) -> list[str]:
         for section in required_sections
         if section not in content
     ]
+
+    runtime_matches = re.findall(
+        r"^- Total benchmark runtime: \*\*([0-9]+(?:\.[0-9]+)?) seconds\*\*$",
+        content,
+        flags=re.MULTILINE,
+    )
+
+    if len(runtime_matches) != 1:
+        errors.append(
+            "Benchmark Markdown must contain exactly one total runtime value."
+        )
+    elif report is not None:
+        try:
+            markdown_runtime = float(runtime_matches[0])
+            json_runtime = report.get("total_runtime_seconds")
+            if (
+                not finite_number(json_runtime)
+                or not math.isclose(
+                    markdown_runtime,
+                    float(json_runtime),
+                    rel_tol=1e-6,
+                    abs_tol=0.0000005,
+                )
+            ):
+                errors.append(
+                    "Markdown/JSON total benchmark runtime mismatch."
+                )
+        except (TypeError, ValueError):
+            errors.append("Markdown total benchmark runtime is invalid.")
+
     if len(content.strip()) < 300:
         errors.append("Benchmark Markdown report is unexpectedly short.")
+
     return errors
 
 
 def validate_environment(path: Path) -> list[str]:
-    """Check the presence of essential environment evidence."""
     if not path.is_file():
         return [f"Benchmark environment file does not exist: {path}"]
 
@@ -409,6 +464,7 @@ def validate_environment(path: Path) -> list[str]:
     ]
     if len(content.strip()) < 200:
         errors.append("Environment file is unexpectedly short.")
+
     return errors
 
 
@@ -443,7 +499,6 @@ def remove_benchmark_cache(
 
 
 def validate_results(results_dir: Path) -> list[str]:
-    """Validate all four generated benchmark evidence files."""
     json_path = results_dir / JSON_FILENAME
     csv_path = results_dir / CSV_FILENAME
     markdown_path = results_dir / MARKDOWN_FILENAME
@@ -458,10 +513,11 @@ def validate_results(results_dir: Path) -> list[str]:
 
     if isinstance(report, dict):
         errors.extend(validate_csv(csv_path, report))
+        errors.extend(validate_markdown(markdown_path, report))
     else:
         errors.extend(validate_csv(csv_path))
+        errors.extend(validate_markdown(markdown_path))
 
-    errors.extend(validate_markdown(markdown_path))
     errors.extend(validate_environment(environment_path))
     return errors
 
