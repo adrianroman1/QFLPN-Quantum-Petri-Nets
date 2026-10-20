@@ -201,10 +201,11 @@ def test_rejects_wrong_dimension(tmp_path: Path) -> None:
 
     row = valid_row()
 
-    # Keep benchmark_id consistent with the modified dimension.
-    # This ensures the validator reaches the expected_n check.
+    # Keep all dimension-dependent fields consistent.
+    # This allows the validator to reach the expected_n check.
     row["dimension"] = "101"
     row["benchmark_id"] = "QFLPN-101"
+    row["non_zero_count"] = "202"
 
     write_csv(path, [row])
 
