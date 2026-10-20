@@ -26,7 +26,9 @@ concurrency:
 
 jobs:
   p1-canonical-validation:
+    name: P1 Mathematical Validation and Evidence
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout repository
@@ -45,6 +47,92 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r P1/requirements-lock.txt
+
+      - name: Capture execution environment
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          mkdir -p P1/reports
+
+          ENV_FILE="P1/reports/environment.txt"
+
+          {
+            echo "QFLPN P1 EXECUTION ENVIRONMENT"
+            echo
+            echo "UTC timestamp:"
+            date -u +%Y-%m-%dT%H:%M:%SZ
+
+            echo
+            echo "Repository:"
+            git remote get-url origin
+
+            echo
+            echo "Git branch:"
+            echo "${GITHUB_REF_NAME:-unknown}"
+
+            echo
+            echo "Git commit:"
+            git rev-parse HEAD
+
+            echo
+            echo "GitHub workflow:"
+            echo "${GITHUB_WORKFLOW:-unknown}"
+
+            echo
+            echo "GitHub run ID:"
+            echo "${GITHUB_RUN_ID:-unknown}"
+
+            echo
+            echo "GitHub run attempt:"
+            echo "${GITHUB_RUN_ATTEMPT:-unknown}"
+
+            echo
+            echo "Python:"
+            python --version
+
+            echo
+            echo "Pip:"
+            python -m pip --version
+
+            echo
+            echo "Pytest:"
+            python -m pytest --version
+
+            echo
+            echo "NumPy and SciPy:"
+            python -c "import numpy, scipy; print('NumPy:', numpy.__version__); print('SciPy:', scipy.__version__)"
+
+            echo
+            echo "Operating system:"
+            uname -a
+
+            echo
+            echo "CPU:"
+            if command -v lscpu >/dev/null 2>&1; then
+              lscpu
+            else
+              echo "lscpu unavailable"
+            fi
+
+            echo
+            echo "Memory:"
+            if command -v free >/dev/null 2>&1; then
+              free -h
+            else
+              echo "free unavailable"
+            fi
+
+            echo
+            echo "Python dependency lock:"
+            cat P1/requirements-lock.txt
+
+          } > "$ENV_FILE" 2>&1
+
+          test -s "$ENV_FILE"
+
+          echo "[PASS] P1 execution environment captured"
+          cat "$ENV_FILE"
 
       - name: Compile P1 sources
         run: |
@@ -81,16 +169,23 @@ jobs:
           mkdir -p P1/reports
 
           set +e
+
           python -m pytest -q P1/tests \
             --junitxml=P1/reports/junit.xml
 
           rc=$?
+
+          set -e
 
           printf '%s\n' "$rc" \
             > P1/reports/pytest_exit_code.txt
 
           echo "pytest_exit_code=$rc" >> "$GITHUB_OUTPUT"
 
+          echo "Pytest exit code: $rc"
+
+          # Do not stop evidence aggregation.
+          # The final verifier remains responsible for rejection.
           exit 0
 
       - name: Aggregate test and numerical evidence
@@ -106,8 +201,32 @@ jobs:
       - name: Verify final P1 package
         id: final_verification
         if: always()
+        shell: bash
         run: |
+          set +e
+
           python P1/tools/verify_final_package.py
+          rc=$?
+
+          set -e
+
+          if [ "$rc" -eq 0 ]; then
+            echo "P1_VERDICT=P1_ACCEPTED" >> "$GITHUB_ENV"
+            echo "verdict=P1_ACCEPTED" >> "$GITHUB_OUTPUT"
+            echo "[PASS] P1_ACCEPTED"
+          else
+            echo "P1_VERDICT=P1_REJECTED" >> "$GITHUB_ENV"
+            echo "verdict=P1_REJECTED" >> "$GITHUB_OUTPUT"
+            echo "[FAIL] P1_REJECTED"
+            exit "$rc"
+          fi
+
+      - name: Publish P1 validation summary
+        if: always()
+        env:
+          P1_VERDICT: ${{ steps.final_verification.outputs.verdict }}
+        run: |
+          python P1/tools/write_github_summary.py
 
       - name: Upload P1 evidence
         if: always()
@@ -115,7 +234,7 @@ jobs:
         with:
           name: P1-canonical-validation-evidence
           if-no-files-found: warn
-          retention-days: 30
+          retention-days: 90
           path: |
             P1/artifacts/
             P1/reports/
