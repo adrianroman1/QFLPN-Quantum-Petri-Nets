@@ -424,6 +424,30 @@ jobs:
             echo "The mathematical validation verdict is determined by the required mathematical, software and integrity checks."
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Remove P2 benchmark bytecode cache
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          CACHE_DIR="P2/benchmarks/__pycache__"
+
+          if [ -L "$CACHE_DIR" ]; then
+            echo "[FAIL] Refusing to remove benchmark cache symlink"
+            exit 1
+          fi
+
+          if [ -d "$CACHE_DIR" ]; then
+            rm -rf -- "$CACHE_DIR"
+          fi
+
+          if [ -e "$CACHE_DIR" ]; then
+            echo "[FAIL] P2 benchmark cache still exists"
+            exit 1
+          fi
+
+          echo "[PASS] P2 benchmark cache absent"
+
       - name: Upload P2 validation evidence
         if: always()
         uses: actions/upload-artifact@v4
