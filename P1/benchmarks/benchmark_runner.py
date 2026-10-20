@@ -1,12 +1,5 @@
-"""Reproducible P1 benchmark for the canonical four-qubit QFLPN instance.
+"""Reproducible P1 benchmark for the canonical four-qubit QFLPN instance."""
 
-Compares:
-  1. Production global-operator construction.
-  2. Independent scalar-loop reference construction.
-
-The benchmark does not claim scalability beyond the canonical q=4, D=16 case.
-All timings are measured locally with time.perf_counter_ns().
-"""
 from __future__ import annotations
 
 import argparse
@@ -78,38 +71,47 @@ def git_command(*args: str) -> str:
 
 
 def cpu_model() -> str:
-    """Return CPU model where exposed by the operating system."""
     candidates = [
         Path("/proc/cpuinfo"),
         Path("/proc/device-tree/model"),
     ]
+
     for path in candidates:
         try:
-            content = path.read_text(encoding="utf-8", errors="replace")
+            content = path.read_text(
+                encoding="utf-8",
+                errors="replace",
+            )
+
             for line in content.splitlines():
                 lower = line.lower()
+
                 if lower.startswith("model name") or lower.startswith("hardware"):
                     return line.split(":", 1)[-1].strip()
+
             if path.name == "model":
                 return content.strip().replace("\x00", "")
+
         except OSError:
             continue
+
     return platform.processor() or "UNAVAILABLE"
 
 
 def memory_bytes() -> int | None:
-    """Return physical memory when the platform exposes it."""
     try:
         pages = os.sysconf("SC_PHYS_PAGES")
         page_size = os.sysconf("SC_PAGE_SIZE")
         value = int(pages) * int(page_size)
         return value if value > 0 else None
+
     except (AttributeError, OSError, ValueError):
         return None
 
 
 def write_environment() -> dict:
     memory = memory_bytes()
+
     data = {
         "captured_at_utc": utc_now(),
         "repository_root": str(ROOT),
@@ -139,10 +141,17 @@ def write_environment() -> dict:
         "P1 BENCHMARK ENVIRONMENT",
         "========================",
     ]
-    for key, value in data.items():
-        lines.append(f"{key}: {json.dumps(value, ensure_ascii=False)}")
 
-    ENV_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    for key, value in data.items():
+        lines.append(
+            f"{key}: {json.dumps(value, ensure_ascii=False)}"
+        )
+
+    ENV_PATH.write_text(
+        "\n".join(lines) + "\n",
+        encoding="utf-8",
+    )
+
     return data
 
 
@@ -161,11 +170,13 @@ def independent_operator() -> np.ndarray:
 
 
 def verify_equivalence() -> dict:
-    """Verify both implementations before collecting timing samples."""
     production = production_operator()
     independent = independent_operator()
 
-    if production.shape != (HILBERT_DIMENSION, HILBERT_DIMENSION):
+    if production.shape != (
+        HILBERT_DIMENSION,
+        HILBERT_DIMENSION,
+    ):
         raise AssertionError(
             f"Production shape mismatch: {production.shape}"
         )
@@ -176,12 +187,18 @@ def verify_equivalence() -> dict:
         )
 
     if not np.isfinite(production).all():
-        raise AssertionError("Production operator contains non-finite values")
+        raise AssertionError(
+            "Production operator contains non-finite values"
+        )
 
     if not np.isfinite(independent).all():
-        raise AssertionError("Independent operator contains non-finite values")
+        raise AssertionError(
+            "Independent operator contains non-finite values"
+        )
 
-    difference = float(np.linalg.norm(production - independent, ord="fro"))
+    difference = float(
+        np.linalg.norm(production - independent, ord="fro")
+    )
 
     if difference > NUMERICAL_TOLERANCE:
         raise AssertionError(
@@ -209,12 +226,12 @@ def measure(
     repetitions: int,
     timestamp: str,
 ) -> tuple[list[dict], list[int]]:
-    """Run warmups and collect individual elapsed-time samples."""
+
     for _ in range(warmups):
         function()
 
-    rows: list[dict] = []
-    samples: list[int] = []
+    rows = []
+    samples = []
 
     for iteration in range(1, repetitions + 1):
         start = time.perf_counter_ns()
@@ -223,8 +240,8 @@ def measure(
 
         if not isinstance(result, np.ndarray):
             raise TypeError(
-                f"{implementation} returned {type(result).__name__}, "
-                "expected numpy.ndarray"
+                f"{implementation} returned "
+                f"{type(result).__name__}, expected numpy.ndarray"
             )
 
         if not np.isfinite(result).all():
@@ -233,6 +250,7 @@ def measure(
             )
 
         samples.append(int(elapsed_ns))
+
         rows.append({
             "timestamp_utc": timestamp,
             "operation": "global_operator_construction",
@@ -251,7 +269,10 @@ def summarize(samples: list[int]) -> dict:
     if not samples:
         raise ValueError("Cannot summarize an empty sample set")
 
-    values_ms = [value / 1_000_000.0 for value in samples]
+    values_ms = [
+        value / 1_000_000.0
+        for value in samples
+    ]
 
     return {
         "sample_count": len(samples),
@@ -260,14 +281,25 @@ def summarize(samples: list[int]) -> dict:
         "mean_ms": statistics.mean(values_ms),
         "median_ms": statistics.median(values_ms),
         "standard_deviation_ms": (
-            statistics.stdev(values_ms) if len(values_ms) > 1 else 0.0
+            statistics.stdev(values_ms)
+            if len(values_ms) > 1
+            else 0.0
         ),
     }
 
 
 def write_csv(rows: list[dict]) -> None:
-    with CSV_PATH.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=CSV_FIELDS)
+    with CSV_PATH.open(
+        "w",
+        newline="",
+        encoding="utf-8",
+    ) as handle:
+
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=CSV_FIELDS,
+        )
+
         writer.writeheader()
         writer.writerows(rows)
 
@@ -285,6 +317,7 @@ def write_json(report: dict) -> None:
 
 
 def write_markdown(report: dict) -> None:
+
     if report["status"] != "PASS":
         content = (
             "# P1 Benchmark Results\n\n"
@@ -292,10 +325,23 @@ def write_markdown(report: dict) -> None:
             "Benchmark execution did not complete successfully. "
             "Inspect `benchmark_report.json`.\n"
         )
+
     else:
         production = report["results"]["production"]
         independent = report["results"]["independent"]
-        speedup = report["comparison"]["speedup_independent_over_production"]
+        comparison = report["comparison"]
+
+        speedup = comparison[
+            "speedup_independent_over_production"
+        ]
+
+        median_difference_ms = comparison[
+            "median_difference_ms"
+        ]
+
+        production_median_reduction_percent = comparison[
+            "production_median_reduction_percent"
+        ]
 
         content = f"""# P1 Benchmark Results
 
@@ -313,21 +359,26 @@ def write_markdown(report: dict) -> None:
 
 ## Measured execution times
 
-| Metric | Production implementation | Independent implementation |
-|---|---:|---:|
-| Minimum (ms) | {production['minimum_ms']:.6f} | {independent['minimum_ms']:.6f} |
-| Median (ms) | {production['median_ms']:.6f} | {independent['median_ms']:.6f} |
-| Mean (ms) | {production['mean_ms']:.6f} | {independent['mean_ms']:.6f} |
-| Maximum (ms) | {production['maximum_ms']:.6f} | {independent['maximum_ms']:.6f} |
-| Standard deviation (ms) | {production['standard_deviation_ms']:.6f} | {independent['standard_deviation_ms']:.6f} |
-| Samples | {production['sample_count']} | {independent['sample_count']} |
+| Metric | Production implementation | Independent implementation | Comparative indicator |
+|---|---:|---:|---:|
+| Minimum (ms) | {production['minimum_ms']:.6f} | {independent['minimum_ms']:.6f} | — |
+| Median (ms) | **{production['median_ms']:.6f}** | {independent['median_ms']:.6f} | **{speedup:.6f}×** (reference / P1) |
+| Mean (ms) | {production['mean_ms']:.6f} | {independent['mean_ms']:.6f} | — |
+| Maximum (ms) | {production['maximum_ms']:.6f} | {independent['maximum_ms']:.6f} | — |
+| Standard deviation (ms) | {production['standard_deviation_ms']:.6f} | {independent['standard_deviation_ms']:.6f} | — |
+| Samples | {production['sample_count']} | {independent['sample_count']} | — |
 
-## Relative execution time
+## Comparative indicators
 
 - Independent / production median-time ratio: **{speedup:.6f}×**
-- Interpretation: values above 1 indicate that the production implementation
-  had a lower median time in this measured run. Values below 1 indicate the
-  opposite.
+- Median-time difference (independent − production): **{median_difference_ms:.6f} ms**
+- Production median-time reduction relative to the independent reference: **{production_median_reduction_percent:.3f}%**
+
+A ratio above 1 means the independent reference had a greater
+median execution time than P1 in this measured run.
+
+This is a relative runtime comparison, not a quantum speedup
+or an HPC scalability result.
 
 ## Reproducibility
 
@@ -348,22 +399,32 @@ The captured environment is stored in `environment.txt`.
 This benchmark measures construction of the **canonical four-qubit P1
 operator only**. It is not a benchmark of a scalable quantum simulator,
 a million-qubit system, a distributed implementation, or an HPC workload.
+
 The ratio compares two implementations of the same fixed-size operation;
 it must not be interpreted as an asymptotic complexity result.
 
-The measurements are machine- and environment-dependent. They are evidence
-for this execution only, not a universal performance guarantee.
+The measurements are machine- and environment-dependent.
+They are evidence for this execution only, not a universal performance guarantee.
 """
-    MD_PATH.write_text(content, encoding="utf-8")
+
+    MD_PATH.write_text(
+        content,
+        encoding="utf-8",
+    )
 
 
 def run(warmups: int, repetitions: int) -> dict:
+
     if warmups < 0:
         raise ValueError("warmups must be non-negative")
+
     if repetitions < 2:
         raise ValueError("repetitions must be at least 2")
 
-    BENCHMARK_DIR.mkdir(parents=True, exist_ok=True)
+    BENCHMARK_DIR.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
     timestamp = utc_now()
     environment = write_environment()
@@ -392,11 +453,27 @@ def run(warmups: int, repetitions: int) -> dict:
     independent_median = independent_summary["median_ms"]
 
     if production_median <= 0.0:
-        raise ArithmeticError("Production median time is not positive")
+        raise ArithmeticError(
+            "Production median time is not positive"
+        )
+
+    if independent_median <= 0.0:
+        raise ArithmeticError(
+            "Independent median time is not positive"
+        )
 
     speedup = independent_median / production_median
 
+    median_difference_ms = (
+        independent_median - production_median
+    )
+
+    production_median_reduction_percent = (
+        median_difference_ms / independent_median * 100.0
+    )
+
     rows = production_rows + independent_rows
+
     write_csv(rows)
 
     report = {
@@ -404,37 +481,59 @@ def run(warmups: int, repetitions: int) -> dict:
         "benchmark_id": "P1-CANONICAL-4Q-OPERATOR-CONSTRUCTION",
         "status": "PASS",
         "timestamp_utc": timestamp,
+
         "workload": {
             "qubit_count": QUANTUM_REGISTER_SIZE,
             "hilbert_dimension": HILBERT_DIMENSION,
             "memberships": list(CANONICAL_MEMBERSHIPS),
             "operation": "global_operator_construction",
-            "output_shape": [HILBERT_DIMENSION, HILBERT_DIMENSION],
+            "output_shape": [
+                HILBERT_DIMENSION,
+                HILBERT_DIMENSION,
+            ],
             "numeric_dtype": "complex128",
         },
+
         "configuration": {
             "warmups": warmups,
             "repetitions": repetitions,
             "timer": "time.perf_counter_ns",
         },
+
         "equivalence_check": equivalence,
+
         "results": {
             "production": production_summary,
             "independent": independent_summary,
         },
+
         "comparison": {
-            "metric": "independent_median_ms / production_median_ms",
+            "metric": (
+                "independent_median_ms / production_median_ms"
+            ),
+
             "speedup_independent_over_production": speedup,
+
+            "median_difference_ms": median_difference_ms,
+
+            "production_median_reduction_percent": (
+                production_median_reduction_percent
+            ),
+
             "interpretation": (
-                "A value greater than 1 means the production implementation "
-                "had a lower median execution time in this run."
+                "A value greater than 1 means the independent "
+                "reference had a greater median execution time "
+                "than production."
             ),
         },
+
         "raw_samples": {
             "file": "benchmark_results.csv",
             "row_count": len(rows),
         },
+
         "environment": environment,
+
         "limitations": [
             "Only the canonical four-qubit P1 instance is measured.",
             "The result does not establish asymptotic scalability.",
@@ -445,30 +544,38 @@ def run(warmups: int, repetitions: int) -> dict:
 
     write_json(report)
     write_markdown(report)
+
     return report
 
 
 def main() -> int:
+
     parser = argparse.ArgumentParser(
         description="Run the P1 canonical four-qubit benchmark."
     )
+
     parser.add_argument(
         "--warmups",
         type=int,
         default=5,
-        help="Warm-up calls per implementation (default: 5).",
     )
+
     parser.add_argument(
         "--repetitions",
         type=int,
         default=30,
-        help="Measured calls per implementation (default: 30).",
     )
+
     args = parser.parse_args()
 
     try:
-        report = run(args.warmups, args.repetitions)
+        report = run(
+            args.warmups,
+            args.repetitions,
+        )
+
     except Exception as exc:
+
         failure = {
             "schema_version": 1,
             "benchmark_id": "P1-CANONICAL-4Q-OPERATOR-CONSTRUCTION",
@@ -477,20 +584,50 @@ def main() -> int:
             "error_type": type(exc).__name__,
             "error": str(exc),
         }
-        BENCHMARK_DIR.mkdir(parents=True, exist_ok=True)
+
+        BENCHMARK_DIR.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
         write_json(failure)
         write_markdown(failure)
-        print(json.dumps(failure, indent=2), file=sys.stderr)
+
+        print(
+            json.dumps(failure, indent=2),
+            file=sys.stderr,
+        )
+
         return 1
 
     print(json.dumps({
         "status": report["status"],
         "benchmark_id": report["benchmark_id"],
-        "production_median_ms": report["results"]["production"]["median_ms"],
-        "independent_median_ms": report["results"]["independent"]["median_ms"],
-        "speedup_independent_over_production": (
-            report["comparison"]["speedup_independent_over_production"]
+
+        "production_median_ms": (
+            report["results"]["production"]["median_ms"]
         ),
+
+        "independent_median_ms": (
+            report["results"]["independent"]["median_ms"]
+        ),
+
+        "speedup_independent_over_production": (
+            report["comparison"][
+                "speedup_independent_over_production"
+            ]
+        ),
+
+        "median_difference_ms": (
+            report["comparison"]["median_difference_ms"]
+        ),
+
+        "production_median_reduction_percent": (
+            report["comparison"][
+                "production_median_reduction_percent"
+            ]
+        ),
+
         "files": [
             str(CSV_PATH.relative_to(ROOT)),
             str(JSON_PATH.relative_to(ROOT)),
