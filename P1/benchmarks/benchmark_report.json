@@ -1,9 +1,86 @@
 {
-  "schema_version": 1,
   "benchmark_id": "P1-CANONICAL-4Q-OPERATOR-CONSTRUCTION",
-  "status": "NOT_RUN",
-  "workload": {
+  "comparison": {
+    "interpretation": "A value greater than 1 means the production implementation had a lower median execution time in this run.",
+    "metric": "independent_median_ms / production_median_ms",
+    "speedup_independent_over_production": 1.214836454692472
+  },
+  "configuration": {
+    "repetitions": 30,
+    "timer": "time.perf_counter_ns",
+    "warmups": 5
+  },
+  "environment": {
+    "benchmark_timer": "time.perf_counter_ns",
+    "canonical_memberships": [
+      0.85,
+      0.9,
+      0.45,
+      0.7
+    ],
+    "captured_at_utc": "2026-10-20T03:13:31.968803+00:00",
+    "cpu_model": "AMD EPYC 9V45 96-Core Processor",
+    "git_branch": "main",
+    "git_commit": "c15aa65f8267eebd70e1d1a6db4e4d9965f3ef59",
+    "git_worktree_status": "M P1/artifacts/reference_instance.json\n M P1/reports/environment.txt\n M P1/reports/residuals.json\n M P1/reports/unitary_evolution_report.json\n?? P1/code/__pycache__/\n?? P1/tests/__pycache__/\n?? P1/tests/results/\n?? P1/tools/__pycache__/",
+    "hilbert_dimension": 16,
+    "logical_cpu_count": 4,
+    "machine": "x86_64",
+    "numerical_equivalence_tolerance": 1e-12,
+    "numpy_version": "2.3.5",
+    "operating_system": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+    "physical_memory_bytes": 16766414848,
+    "processor": "x86_64",
+    "python_executable": "/opt/hostedtoolcache/Python/3.11.17/x64/bin/python",
+    "python_implementation": "CPython",
+    "python_version": "3.11.17",
     "qubit_count": 4,
+    "repository_root": "/home/runner/work/QFLPN-Quantum-Petri-Nets/QFLPN-Quantum-Petri-Nets",
+    "scipy_version": "1.17.0",
+    "system": "Linux"
+  },
+  "equivalence_check": {
+    "comparison": "production qflpn_transition_operator versus independent_global_operator",
+    "frobenius_difference": 0.0,
+    "shape": [
+      16,
+      16
+    ],
+    "status": "PASS",
+    "tolerance": 1e-12
+  },
+  "limitations": [
+    "Only the canonical four-qubit P1 instance is measured.",
+    "The result does not establish asymptotic scalability.",
+    "The result does not establish million-qubit or HPC performance.",
+    "Timings depend on the execution machine and environment."
+  ],
+  "raw_samples": {
+    "file": "benchmark_results.csv",
+    "row_count": 60
+  },
+  "results": {
+    "independent": {
+      "maximum_ms": 0.108313,
+      "mean_ms": 0.0607617,
+      "median_ms": 0.058218,
+      "minimum_ms": 0.057447,
+      "sample_count": 30,
+      "standard_deviation_ms": 0.0093950388417468
+    },
+    "production": {
+      "maximum_ms": 0.077727,
+      "mean_ms": 0.0496083,
+      "median_ms": 0.04792250000000001,
+      "minimum_ms": 0.047301,
+      "sample_count": 30,
+      "standard_deviation_ms": 0.005631663783986228
+    }
+  },
+  "schema_version": 1,
+  "status": "PASS",
+  "timestamp_utc": "2026-10-20T03:13:31.968780+00:00",
+  "workload": {
     "hilbert_dimension": 16,
     "memberships": [
       0.85,
@@ -11,33 +88,12 @@
       0.45,
       0.7
     ],
+    "numeric_dtype": "complex128",
     "operation": "global_operator_construction",
     "output_shape": [
       16,
       16
     ],
-    "numeric_dtype": "complex128"
-  },
-  "configuration": {
-    "default_warmups": 5,
-    "default_repetitions": 30,
-    "timer": "time.perf_counter_ns"
-  },
-  "equivalence_check": {
-    "status": "NOT_RUN",
-    "tolerance": 1e-12
-  },
-  "results": null,
-  "comparison": null,
-  "raw_samples": {
-    "file": "benchmark_results.csv",
-    "row_count": 0
-  },
-  "environment": null,
-  "limitations": [
-    "Only the canonical four-qubit P1 instance is measured.",
-    "The result does not establish asymptotic scalability.",
-    "The result does not establish million-qubit or HPC performance.",
-    "Timings depend on the execution machine and environment."
-  ]
+    "qubit_count": 4
+  }
 }
