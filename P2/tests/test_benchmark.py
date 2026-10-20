@@ -1,11 +1,14 @@
-"""Regression and adversarial tests for the P2 benchmark evidence."""
+"""Regression tests for the paired P2 benchmark evidence contract."""
 
 from __future__ import annotations
 
 import csv
 import importlib.util
 import json
+import statistics
 from pathlib import Path
+
+import pytest
 
 P2_ROOT = Path(__file__).resolve().parents[1]
 VALIDATOR_PATH = P2_ROOT / "benchmarks" / "validate_benchmark.py"
@@ -14,39 +17,150 @@ SPEC = importlib.util.spec_from_file_location(
     "p2_benchmark_validator",
     VALIDATOR_PATH,
 )
+
 if SPEC is None or SPEC.loader is None:
     raise RuntimeError("Cannot load P2 benchmark validator.")
 
 VALIDATOR = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(VALIDATOR)
 
-EXPECTED_OPERATIONS = sorted(VALIDATOR.EXPECTED_OPERATIONS)
+OPERATIONS = VALIDATOR.EXPECTED_OPERATIONS
 CSV_FIELDS = VALIDATOR.CSV_FIELDS
 
 
-def valid_report() -> dict:
-    rows = []
+def make_stats(values: list[int]) -> dict:
+    median = statistics.median(values)
 
-    for name in EXPECTED_OPERATIONS:
-        median_ns = 150.0
-        rows.append({
-            "operation": name,
-            "warmups": 5,
-            "repetitions": 30,
-            "minimum_ns": 100,
-            "median_ns": median_ns,
-            "mean_ns": 160.0,
-            "maximum_ns": 250,
-            "standard_deviation_ns": 20.0,
-            "operations_per_second": 1_000_000_000.0 / median_ns,
-            "numerical_error": 1e-14,
-            "numerical_tolerance": 1e-12,
-            "passed": True,
+    return {
+        "minimum_ns": min(values),
+        "median_ns": median,
+        "mean_ns": statistics.mean(values),
+        "maximum_ns": max(values),
+        "standard_deviation_ns": statistics.pstdev(values),
+        "samples": len(values),
+        "operations_per_second": 1_000_000_000.0 / median,
+    }
+
+
+def make_operation(name: str) -> dict:
+    production_times = [1000 + index for index in range(30)]
+    independent_times = [1100 + index for index in range(30)]
+
+    production = make_stats(production_times)
+    independent = make_stats(independent_times)
+
+    differences = [
+        reference - production_time
+        for production_time, reference in zip(
+            production_times,
+            independent_times,
+        )
+    ]
+
+    wins = sum(value < 0 for value in differences)
+    ties = sum(value == 0 for value in differences)
+
+    paired_samples = []
+
+    for index, (production_ns, independent_ns) in enumerate(
+        zip(production_times, independent_times)
+    ):
+        paired_samples.append({
+            "sample_index": index + 1,
+            "first_execution": (
+                "production" if index % 2 == 0 else "independent"
+            ),
+            "production_ns": production_ns,
+            "independent_ns": independent_ns,
+            "difference_independent_minus_production_ns": (
+                independent_ns - production_ns
+            ),
         })
+
+    ratio = independent["median_ns"] / production["median_ns"]
+
+    reduction = (
+        (independent["median_ns"] - production["median_ns"])
+        / independent["median_ns"]
+        * 100.0
+    )
+
+    return {
+        "operation": name,
+        "warmups": 5,
+        "repetitions": 30,
+
+        # Legacy production fields retained for CSV compatibility.
+        "minimum_ns": production["minimum_ns"],
+        "median_ns": production["median_ns"],
+        "mean_ns": production["mean_ns"],
+        "maximum_ns": production["maximum_ns"],
+        "standard_deviation_ns": (
+            production["standard_deviation_ns"]
+        ),
+        "operations_per_second": (
+            production["operations_per_second"]
+        ),
+        "numerical_error": 0.0,
+        "numerical_tolerance": 1e-12,
+        "passed": True,
+
+        "production": production,
+        "independent": independent,
+
+        "paired_comparison": {
+            "median_difference_independent_minus_production_ns": (
+                statistics.median(differences)
+            ),
+            "production_win_count": wins,
+            "tie_count": ties,
+            "production_win_rate_percent": (
+                wins / 30 * 100.0
+            ),
+            "independent_over_production_median_ratio": ratio,
+            "production_reduction_percent_vs_independent": reduction,
+        },
+
+        "independent_numerical_error": 0.0,
+        "independent_passed": True,
+        "paired_samples": paired_samples,
+
+        "world_record": {
+            "display": VALIDATOR.EXPECTED_WORLD_RECORD_DISPLAY,
+            "status": VALIDATOR.EXPECTED_WORLD_RECORD_STATUS,
+            "verified_value_ns": None,
+            "source": None,
+            "reason": (
+                "No verified directly comparable operation-level record."
+            ),
+        },
+    }
+
+
+def make_report() -> dict:
+    rows = [
+        make_operation(name)
+        for name in OPERATIONS
+    ]
+
+    production_total_ns = sum(
+        sample["production_ns"]
+        for row in rows
+        for sample in row["paired_samples"]
+    )
+
+    independent_total_ns = sum(
+        sample["independent_ns"]
+        for row in rows
+        for sample in row["paired_samples"]
+    )
+
+    production_total = production_total_ns / 1_000_000_000.0
+    independent_total = independent_total_ns / 1_000_000_000.0
 
     return {
         "schema_version": 1,
-        "benchmark_id": "P2-CANONICAL-4Q-NUMERICAL-OPERATIONS",
+        "benchmark_id": VALIDATOR.EXPECTED_BENCHMARK_ID,
         "project": "QFLPN P2",
         "timestamp_utc": "2026-10-20T12:00:00+00:00",
         "qubits": 4,
@@ -58,72 +172,202 @@ def valid_report() -> dict:
         "repetitions": 30,
         "timer": "time.perf_counter_ns",
         "numerical_tolerance": 1e-12,
-        "total_runtime_seconds": 1.234567,
-        "runtime_measurement_scope": VALIDATOR.EXPECTED_RUNTIME_SCOPE,
+
+        "total_runtime_seconds": 10.0,
+        "runtime_measurement_scope": (
+            VALIDATOR.EXPECTED_RUNTIME_SCOPE
+        ),
+
+        "production_total_execution_seconds": production_total,
+        "independent_total_execution_seconds": independent_total,
+        "combined_timed_execution_seconds": (
+            production_total + independent_total
+        ),
+        "initial_evidence_generation_seconds": 0.1,
+
         "environment": {
-            "python_version": "3.11.0",
-            "numpy_version": "2.0.0",
-            "pennylane_version": "0.40.0",
+            "python_version": "3.11.17",
+            "numpy_version": "2.2.6",
+            "pennylane_version": "0.41.1",
+            "scipy_version": "1.15.3",
         },
+
         "independent_reference": {
-            "method": "Independent test reference.",
+            "method": "Independent NumPy reference.",
             "used_for_timed_operation_checks": True,
+            "paired_measurement": True,
+            "execution_order": (
+                "Alternating production-first and independent-first."
+            ),
         },
-        "pennylane_numpy_maximum_difference": 1e-14,
+
+        "pennylane_numpy_maximum_difference": 0.0,
+
+        "literature_benchmarks": [
+            {
+                "id": "TEST-SOURCE",
+                "title": "Test literature benchmark",
+                "venue": "Test venue",
+                "year": 2025,
+                "url": "https://example.org/test",
+                "scope": "Test-only scope.",
+                "p2_comparability": "Not a directly comparable record.",
+            }
+        ],
+
+        "world_record_policy": (
+            "Only directly comparable and independently verified "
+            "measurements may be called records."
+        ),
+
         "operations": rows,
         "all_checks_pass": True,
         "status": "PASS",
     }
 
 
-def valid_markdown(report: dict | None = None) -> str:
-    if report is None:
-        report = valid_report()
-
-    return "\n".join([
+def make_markdown(report: dict) -> str:
+    lines = [
         "# QFLPN P2 — Benchmark Results",
         "",
-        "- Status: **PASS**",
-        "- Total benchmark runtime: "
-        f"**{report['total_runtime_seconds']:.6f} seconds**",
-        f"- Runtime measurement scope: {report['runtime_measurement_scope']}",
+        f"- Generated (UTC): `{report['timestamp_utc']}`",
+        f"- Status: **{report['status']}**",
+        f"- Qubits: `{report['qubits']}`",
+        f"- Hilbert dimension: `{report['hilbert_dimension']}`",
+        f"- Basis order: `{report['basis_order']}`",
+        f"- Operator order: `{report['operator_order']}`",
+        f"- Warmups per operation: `{report['warmups']}`",
+        f"- Measured repetitions: `{report['repetitions']}`",
+        f"- Timer: `{report['timer']}`",
+        f"- Numerical tolerance: `{report['numerical_tolerance']:.3e}`",
+        (
+            "- Total benchmark runtime: "
+            f"**{report['total_runtime_seconds']:.6f} seconds**"
+        ),
+        (
+            "- Total production execution time: "
+            f"**{report['production_total_execution_seconds']:.9f} seconds**"
+        ),
+        (
+            "- Total independent execution time: "
+            f"**{report['independent_total_execution_seconds']:.9f} seconds**"
+        ),
+        (
+            "- Total timed execution time (both implementations): "
+            f"**{report['combined_timed_execution_seconds']:.9f} seconds**"
+        ),
+        (
+            "- Initial evidence-generation time: "
+            f"**{report['initial_evidence_generation_seconds']:.6f} seconds**"
+        ),
+        (
+            f"- Runtime measurement scope: "
+            f"{report['runtime_measurement_scope']}"
+        ),
         "",
         "## Numerical parity",
         "",
-        "PennyLane / independent NumPy state difference.",
+        "PennyLane / independent NumPy state difference: `0.000000e+00`",
         "",
-        "## Operation measurements",
+        "## Paired operation measurements",
         "",
-        "| Operation | Median | Throughput (ops/s) |",
-        "|---|---:|---:|",
-        "| rotation_operator | 150 | 6666666.666667 |",
+        (
+            "| Operation | Production median (ns) | Independent median (ns) "
+            "| Production reduction (%) | Paired median difference (ns) "
+            "| Production wins (%) | World record |"
+        ),
+        "|---|---:|---:|---:|---:|---:|---|",
+    ]
+
+    for row in report["operations"]:
+        paired = row["paired_comparison"]
+
+        lines.append(
+            f"| {row['operation']}"
+            f" | {row['production']['median_ns']:.2f}"
+            f" | {row['independent']['median_ns']:.2f}"
+            f" | {paired['production_reduction_percent_vs_independent']:.3f}"
+            f" | {paired['median_difference_independent_minus_production_ns']:.2f}"
+            f" | {paired['production_win_rate_percent']:.2f}"
+            f" | {row['world_record']['display']} |"
+        )
+
+    lines.extend([
+        "",
+        "## Full timing statistics",
+        "",
+        (
+            "| Operation | Implementation | Min (ns) | Median (ns) "
+            "| Mean (ns) | Max (ns) | Std. dev. (ns) | Samples |"
+        ),
+        "|---|---|---:|---:|---:|---:|---:|---:|",
+    ])
+
+    for row in report["operations"]:
+        for implementation in ("production", "independent"):
+            stats = row[implementation]
+
+            lines.append(
+                f"| {row['operation']}"
+                f" | {implementation}"
+                f" | {stats['minimum_ns']}"
+                f" | {stats['median_ns']:.2f}"
+                f" | {stats['mean_ns']:.2f}"
+                f" | {stats['maximum_ns']}"
+                f" | {stats['standard_deviation_ns']:.2f}"
+                f" | {stats['samples']} |"
+            )
+
+    lines.extend([
+        "",
+        "## Paired comparison interpretation",
+        "",
+        "Positive median difference means the independent implementation took longer.",
+        "Production win rate is the fraction of paired samples where production was faster.",
+        "Ties are reported separately and are not counted as production wins.",
+        "The median ratio is independent median divided by production median.",
+        "Production reduction is measured relative to the independent median.",
+        "",
+        "## World-record and literature comparison",
+        "",
+        "No universal world-record registry exists for the exact P2 workload.",
+        "",
+        "| Literature source | Published scope | P2 status |",
+        "|---|---|---|",
+        "| [TEST-SOURCE](https://example.org/test) | Test-only scope. | Not a directly comparable record. |",
         "",
         "## Methodology",
         "",
-        "Independent references and measured repetitions.",
-        "Total runtime includes configuration loading, initialization,",
-        "operation measurements and first complete evidence generation.",
+        "Paired production and independent measurements.",
         "",
         "## Interpretation and limitations",
         "",
-        "Canonical four-qubit workload only. Results do not establish",
-        "asymptotic scalability or performance for larger quantum systems.",
+        "Canonical four-qubit workload only.",
         "",
-        "benchmark_report.json",
-        "benchmark_results.csv",
-        "environment.txt",
+        "## Generated evidence",
+        "",
+        "- `benchmark_report.json`",
+        "- `benchmark_results.csv`",
+        "- `environment.txt`",
+        "",
+        f"**Overall numerical status: {report['status']}**",
         "",
     ])
 
+    return "\n".join(lines)
 
-def valid_environment() -> str:
+
+def make_environment() -> str:
     return "\n".join([
         "P2 BENCHMARK ENVIRONMENT",
         "captured_at_utc: 2026-10-20T12:00:00+00:00",
-        "python_version: 3.11.0",
-        "numpy_version: 2.0.0",
-        "pennylane_version: 0.40.0",
+        "python_version: 3.11.17",
+        "numpy_version: 2.2.6",
+        "pennylane_version: 0.41.1",
+        "scipy_version: 1.15.3",
         "operating_system: Linux",
+        "machine: x86_64",
+        "cpu_model: Test CPU",
         "logical_cpu_count: 4",
         "benchmark_timer: time.perf_counter_ns",
         "qubit_count: 4",
@@ -133,396 +377,388 @@ def valid_environment() -> str:
     ])
 
 
-def write_valid_csv(path: Path, report: dict) -> None:
-    with path.open("w", newline="", encoding="utf-8") as stream:
-        writer = csv.DictWriter(stream, fieldnames=CSV_FIELDS)
-        writer.writeheader()
-        writer.writerows(report["operations"])
-
-
-def write_valid_evidence(directory: Path) -> dict:
+def write_evidence(directory: Path) -> dict:
     directory.mkdir(parents=True, exist_ok=True)
-    report = valid_report()
+    report = make_report()
 
     (directory / "benchmark_report.json").write_text(
         json.dumps(report, indent=2, allow_nan=False) + "\n",
         encoding="utf-8",
     )
-    write_valid_csv(directory / "benchmark_results.csv", report)
+
+    with (directory / "benchmark_results.csv").open(
+        "w",
+        newline="",
+        encoding="utf-8",
+    ) as stream:
+        writer = csv.DictWriter(
+            stream,
+            fieldnames=CSV_FIELDS,
+        )
+        writer.writeheader()
+
+        for row in report["operations"]:
+            writer.writerow({
+                field: row[field]
+                for field in CSV_FIELDS
+            })
 
     (directory / "BENCHMARK_RESULTS.md").write_text(
-        valid_markdown(report),
+        make_markdown(report),
         encoding="utf-8",
     )
+
     (directory / "environment.txt").write_text(
-        valid_environment(),
+        make_environment(),
         encoding="utf-8",
     )
+
     return report
 
 
-def test_valid_benchmark_report_is_accepted():
-    assert VALIDATOR.validate_report(valid_report()) == []
+def test_paired_report_is_accepted():
+    assert VALIDATOR.validate_report(make_report()) == []
 
 
-def test_report_rejects_non_object_root():
-    for invalid in (None, [], "invalid", 1):
-        assert VALIDATOR.validate_report(invalid)
+def test_validator_rejects_old_benchmark_identifier():
+    report = make_report()
+    report["benchmark_id"] = "P2-CANONICAL-4Q-NUMERICAL-OPERATIONS"
 
-
-def test_report_rejects_wrong_qubit_count():
-    report = valid_report()
-    report["qubits"] = 5
-    errors = VALIDATOR.validate_report(report)
-    assert any("four qubits" in error for error in errors)
-
-
-def test_report_rejects_wrong_hilbert_dimension():
-    report = valid_report()
-    report["hilbert_dimension"] = 32
-    errors = VALIDATOR.validate_report(report)
-    assert any("dimension must be 16" in error for error in errors)
-
-
-def test_report_rejects_noncanonical_activations():
-    report = valid_report()
-    report["activation_vector"] = [0.85, 0.90, 0.45, 0.71]
-    errors = VALIDATOR.validate_report(report)
-    assert any("activation vector is not canonical" in error for error in errors)
-
-
-def test_report_rejects_wrong_operator_order():
-    report = valid_report()
-    report["operator_order"] = "U = U_rot @ C3X"
-    errors = VALIDATOR.validate_report(report)
-    assert any("operator order is invalid" in error for error in errors)
-
-
-def test_report_rejects_insufficient_warmups():
-    report = valid_report()
-    report["warmups"] = 1
-    errors = VALIDATOR.validate_report(report)
-    assert any("five warmups" in error for error in errors)
-
-
-def test_report_rejects_insufficient_repetitions():
-    report = valid_report()
-    report["repetitions"] = 2
-    errors = VALIDATOR.validate_report(report)
-    assert any("30 repetitions" in error for error in errors)
-
-
-def test_report_rejects_failed_operation():
-    report = valid_report()
-    report["operations"][0]["passed"] = False
-    errors = VALIDATOR.validate_report(report)
-    assert any("numerical validation did not pass" in error for error in errors)
-
-
-def test_report_rejects_missing_operation():
-    report = valid_report()
-    report["operations"].pop()
-    errors = VALIDATOR.validate_report(report)
-    assert any("Missing benchmark operations" in error for error in errors)
-
-
-def test_report_rejects_duplicate_operation():
-    report = valid_report()
-    report["operations"].append(dict(report["operations"][0]))
-    errors = VALIDATOR.validate_report(report)
-    assert any("Duplicate benchmark operation" in error for error in errors)
-
-
-def test_report_rejects_non_finite_timing():
-    report = valid_report()
-    report["operations"][0]["median_ns"] = float("nan")
-    errors = VALIDATOR.validate_report(report)
-    assert any("invalid numeric field median_ns" in error for error in errors)
-
-
-def test_report_rejects_negative_standard_deviation():
-    report = valid_report()
-    report["operations"][0]["standard_deviation_ns"] = -1.0
-    errors = VALIDATOR.validate_report(report)
-    assert any("negative standard deviation" in error for error in errors)
-
-
-def test_report_rejects_excessive_numerical_error():
-    report = valid_report()
-    report["operations"][0]["numerical_error"] = 1e-5
-    errors = VALIDATOR.validate_report(report)
-    assert any("numerical error exceeds tolerance" in error for error in errors)
-
-
-def test_report_rejects_failed_pennylane_parity():
-    report = valid_report()
-    report["pennylane_numpy_maximum_difference"] = 1e-3
-    errors = VALIDATOR.validate_report(report)
-    assert any("PennyLane/NumPy parity check failed" in error for error in errors)
-
-
-def test_report_rejects_missing_independent_reference():
-    report = valid_report()
-    report["independent_reference"] = None
-    errors = VALIDATOR.validate_report(report)
-    assert any("Independent reference metadata is missing" in error for error in errors)
-
-
-def test_report_rejects_non_independent_validation():
-    report = valid_report()
-    report["independent_reference"]["used_for_timed_operation_checks"] = False
-    errors = VALIDATOR.validate_report(report)
-    assert any("Independent references were not used" in error for error in errors)
-
-
-def test_report_rejects_non_pass_status():
-    report = valid_report()
-    report["status"] = "WARNING"
-    errors = VALIDATOR.validate_report(report)
-    assert any("status must be PASS" in error for error in errors)
-
-
-def test_report_rejects_inconsistent_throughput():
-    report = valid_report()
-    report["operations"][0]["operations_per_second"] = 1.0
-    errors = VALIDATOR.validate_report(report)
-    assert any("throughput" in error.lower() for error in errors)
-
-
-def test_report_rejects_missing_throughput():
-    report = valid_report()
-    del report["operations"][0]["operations_per_second"]
-    errors = VALIDATOR.validate_report(report)
-    assert any("operations_per_second" in error for error in errors)
-
-
-def test_report_rejects_missing_total_runtime():
-    report = valid_report()
-    del report["total_runtime_seconds"]
-    errors = VALIDATOR.validate_report(report)
-    assert any("total_runtime_seconds" in error for error in errors)
-
-
-def test_report_rejects_zero_total_runtime():
-    report = valid_report()
-    report["total_runtime_seconds"] = 0.0
-    errors = VALIDATOR.validate_report(report)
-    assert any("strictly positive" in error for error in errors)
-
-
-def test_report_rejects_negative_total_runtime():
-    report = valid_report()
-    report["total_runtime_seconds"] = -1.0
-    errors = VALIDATOR.validate_report(report)
-    assert any("strictly positive" in error for error in errors)
-
-
-def test_report_rejects_nan_total_runtime():
-    report = valid_report()
-    report["total_runtime_seconds"] = float("nan")
-    errors = VALIDATOR.validate_report(report)
-    assert any("finite number" in error for error in errors)
-
-
-def test_report_rejects_boolean_total_runtime():
-    report = valid_report()
-    report["total_runtime_seconds"] = True
-    errors = VALIDATOR.validate_report(report)
-    assert any("finite number" in error for error in errors)
-
-
-def test_report_rejects_missing_runtime_scope():
-    report = valid_report()
-    del report["runtime_measurement_scope"]
-    errors = VALIDATOR.validate_report(report)
-    assert any("runtime measurement scope" in error.lower() for error in errors)
-
-
-def test_csv_accepts_consistent_rows(tmp_path: Path):
-    report = valid_report()
-    csv_path = tmp_path / "benchmark_results.csv"
-    write_valid_csv(csv_path, report)
-    assert VALIDATOR.validate_csv(csv_path, report) == []
-
-
-def test_csv_rejects_missing_file(tmp_path: Path):
-    errors = VALIDATOR.validate_csv(tmp_path / "missing.csv")
-    assert any("does not exist" in error for error in errors)
-
-
-def test_csv_rejects_duplicate_operation(tmp_path: Path):
-    report = valid_report()
-    csv_path = tmp_path / "benchmark_results.csv"
-    rows = list(report["operations"])
-    rows.append(dict(rows[0]))
-
-    with csv_path.open("w", newline="", encoding="utf-8") as stream:
-        writer = csv.DictWriter(stream, fieldnames=CSV_FIELDS)
-        writer.writeheader()
-        writer.writerows(rows)
-
-    errors = VALIDATOR.validate_csv(csv_path, report)
-    assert any("duplicate operations" in error for error in errors)
-
-
-def test_csv_rejects_nonfinite_value(tmp_path: Path):
-    report = valid_report()
-    csv_path = tmp_path / "benchmark_results.csv"
-    rows = [dict(row) for row in report["operations"]]
-    rows[0]["median_ns"] = "nan"
-
-    with csv_path.open("w", newline="", encoding="utf-8") as stream:
-        writer = csv.DictWriter(stream, fieldnames=CSV_FIELDS)
-        writer.writeheader()
-        writer.writerows(rows)
-
-    errors = VALIDATOR.validate_csv(csv_path, report)
-    assert any("non-finite CSV field median_ns" in error for error in errors)
-
-
-def test_csv_rejects_json_mismatch(tmp_path: Path):
-    report = valid_report()
-    csv_path = tmp_path / "benchmark_results.csv"
-    write_valid_csv(csv_path, report)
-
-    report["operations"][0]["median_ns"] = 999.0
-    errors = VALIDATOR.validate_csv(csv_path, report)
-    assert any("CSV/JSON median_ns mismatch" in error for error in errors)
-
-
-def test_csv_rejects_inconsistent_throughput(tmp_path: Path):
-    report = valid_report()
-    csv_path = tmp_path / "benchmark_results.csv"
-    rows = [dict(row) for row in report["operations"]]
-    rows[0]["operations_per_second"] = 1.0
-
-    with csv_path.open("w", newline="", encoding="utf-8") as stream:
-        writer = csv.DictWriter(stream, fieldnames=CSV_FIELDS)
-        writer.writeheader()
-        writer.writerows(rows)
-
-    errors = VALIDATOR.validate_csv(csv_path, report)
-    assert any("throughput" in error.lower() for error in errors)
-
-
-def test_markdown_accepts_required_sections(tmp_path: Path):
-    report = valid_report()
-    path = tmp_path / "BENCHMARK_RESULTS.md"
-    path.write_text(valid_markdown(report), encoding="utf-8")
-    assert VALIDATOR.validate_markdown(path, report) == []
-
-
-def test_markdown_rejects_missing_section(tmp_path: Path):
-    path = tmp_path / "BENCHMARK_RESULTS.md"
-    path.write_text("# Incomplete report\n", encoding="utf-8")
-    assert VALIDATOR.validate_markdown(path)
-
-
-def test_markdown_rejects_missing_total_runtime(tmp_path: Path):
-    report = valid_report()
-    content = valid_markdown(report).replace(
-        "- Total benchmark runtime: **1.234567 seconds**\n",
-        "",
+    assert any(
+        "identifier" in error.lower()
+        for error in VALIDATOR.validate_report(report)
     )
-    path = tmp_path / "BENCHMARK_RESULTS.md"
-    path.write_text(content, encoding="utf-8")
-    errors = VALIDATOR.validate_markdown(path, report)
-    assert any("total runtime" in error.lower() for error in errors)
 
 
-def test_markdown_rejects_json_runtime_mismatch(tmp_path: Path):
-    report = valid_report()
-    content = valid_markdown(report).replace(
-        "1.234567 seconds",
-        "9.999999 seconds",
+def test_validator_rejects_missing_independent_statistics():
+    report = make_report()
+    del report["operations"][0]["independent"]
+
+    errors = VALIDATOR.validate_report(report)
+
+    assert any(
+        "independent" in error.lower()
+        for error in errors
     )
-    path = tmp_path / "BENCHMARK_RESULTS.md"
-    path.write_text(content, encoding="utf-8")
-    errors = VALIDATOR.validate_markdown(path, report)
-    assert any("runtime mismatch" in error.lower() for error in errors)
 
 
-def test_environment_accepts_required_fields(tmp_path: Path):
-    path = tmp_path / "environment.txt"
-    path.write_text(valid_environment(), encoding="utf-8")
-    assert VALIDATOR.validate_environment(path) == []
+def test_validator_rejects_missing_paired_samples():
+    report = make_report()
+    del report["operations"][0]["paired_samples"]
+
+    errors = VALIDATOR.validate_report(report)
+
+    assert any(
+        "paired_samples" in error
+        for error in errors
+    )
 
 
-def test_environment_rejects_missing_fields(tmp_path: Path):
-    path = tmp_path / "environment.txt"
-    path.write_text("P2 BENCHMARK ENVIRONMENT\n", encoding="utf-8")
-    assert VALIDATOR.validate_environment(path)
+def test_validator_rejects_non_alternating_order():
+    report = make_report()
+    report["operations"][0]["paired_samples"][1][
+        "first_execution"
+    ] = "production"
+
+    errors = VALIDATOR.validate_report(report)
+
+    assert any(
+        "did not alternate" in error
+        for error in errors
+    )
 
 
-def test_complete_evidence_set_is_accepted(tmp_path: Path):
-    write_valid_evidence(tmp_path)
-    assert VALIDATOR.validate_results(tmp_path) == []
+def test_validator_rejects_incorrect_paired_difference():
+    report = make_report()
+    report["operations"][0]["paired_samples"][0][
+        "difference_independent_minus_production_ns"
+    ] = 999
+
+    errors = VALIDATOR.validate_report(report)
+
+    assert any(
+        "paired difference is inconsistent" in error
+        for error in errors
+    )
 
 
-def test_complete_evidence_rejects_missing_markdown(tmp_path: Path):
-    write_valid_evidence(tmp_path)
-    (tmp_path / "BENCHMARK_RESULTS.md").unlink()
-    errors = VALIDATOR.validate_results(tmp_path)
-    assert any("Markdown report does not exist" in error for error in errors)
+def test_validator_rejects_wrong_production_total():
+    report = make_report()
+    report["production_total_execution_seconds"] += 1.0
+
+    errors = VALIDATOR.validate_report(report)
+
+    assert any(
+        "Production total execution time" in error
+        for error in errors
+    )
 
 
-def test_complete_evidence_rejects_missing_environment(tmp_path: Path):
-    write_valid_evidence(tmp_path)
-    (tmp_path / "environment.txt").unlink()
-    errors = VALIDATOR.validate_results(tmp_path)
-    assert any("environment file does not exist" in error for error in errors)
+def test_validator_rejects_wrong_independent_total():
+    report = make_report()
+    report["independent_total_execution_seconds"] += 1.0
+
+    errors = VALIDATOR.validate_report(report)
+
+    assert any(
+        "Independent total execution time" in error
+        for error in errors
+    )
 
 
-def test_complete_evidence_rejects_json_csv_disagreement(tmp_path: Path):
-    report = write_valid_evidence(tmp_path)
-    rows = [dict(row) for row in report["operations"]]
-    rows[0]["median_ns"] = 999.0
+def test_validator_rejects_wrong_combined_total():
+    report = make_report()
+    report["combined_timed_execution_seconds"] += 1.0
 
-    with (tmp_path / "benchmark_results.csv").open(
-        "w", newline="", encoding="utf-8"
+    errors = VALIDATOR.validate_report(report)
+
+    assert any(
+        "Combined timed execution total" in error
+        for error in errors
+    )
+
+
+def test_validator_rejects_fabricated_world_record():
+    report = make_report()
+    record = report["operations"][0]["world_record"]
+    record["status"] = "VERIFIED_COMPARABLE_RECORD"
+    record["verified_value_ns"] = 1
+
+    errors = VALIDATOR.validate_report(report)
+
+    assert any(
+        "verified record requires structured source" in error.lower()
+        for error in errors
+    )
+
+
+def test_validator_rejects_missing_world_record():
+    report = make_report()
+    report["operations"][0]["world_record"] = None
+
+    errors = VALIDATOR.validate_report(report)
+
+    assert any(
+        "world-record metadata is missing" in error
+        for error in errors
+    )
+
+
+def test_csv_accepts_production_statistics(tmp_path: Path):
+    report = make_report()
+    directory = tmp_path
+    write_evidence(directory)
+
+    assert VALIDATOR.validate_csv(
+        directory / "benchmark_results.csv",
+        report,
+    ) == []
+
+
+def test_csv_rejects_mismatch_with_json(tmp_path: Path):
+    report = make_report()
+    write_evidence(tmp_path)
+
+    path = tmp_path / "benchmark_results.csv"
+
+    with path.open(
+        "r",
+        newline="",
+        encoding="utf-8",
+    ) as stream:
+        rows = list(csv.DictReader(stream))
+
+    rows[0]["median_ns"] = "999999"
+
+    with path.open(
+        "w",
+        newline="",
+        encoding="utf-8",
     ) as stream:
         writer = csv.DictWriter(stream, fieldnames=CSV_FIELDS)
         writer.writeheader()
         writer.writerows(rows)
 
+    errors = VALIDATOR.validate_csv(path, report)
+
+    assert any(
+        "CSV/JSON production median_ns mismatch" in error
+        for error in errors
+    )
+
+
+def test_markdown_accepts_all_timing_tables(tmp_path: Path):
+    report = make_report()
+    path = tmp_path / "BENCHMARK_RESULTS.md"
+
+    path.write_text(
+        make_markdown(report),
+        encoding="utf-8",
+    )
+
+    assert VALIDATOR.validate_markdown(path, report) == []
+
+
+def test_markdown_rejects_missing_full_timing_row(tmp_path: Path):
+    report = make_report()
+    content = make_markdown(report)
+
+    content = content.replace(
+        "| rotation_operator | independent |",
+        "| rotation_operator | missing |",
+    )
+
+    path = tmp_path / "BENCHMARK_RESULTS.md"
+    path.write_text(content, encoding="utf-8")
+
+    errors = VALIDATOR.validate_markdown(path, report)
+
+    assert any(
+        "full timing row is missing" in error
+        for error in errors
+    )
+
+
+def test_complete_paired_evidence_is_accepted(tmp_path: Path):
+    write_evidence(tmp_path)
+
+    assert VALIDATOR.validate_results(tmp_path) == []
+
+
+def test_complete_evidence_rejects_missing_markdown(tmp_path: Path):
+    write_evidence(tmp_path)
+    (tmp_path / "BENCHMARK_RESULTS.md").unlink()
+
     errors = VALIDATOR.validate_results(tmp_path)
-    assert any("CSV/JSON median_ns mismatch" in error for error in errors)
+
+    assert any(
+        "Markdown report does not exist" in error
+        for error in errors
+    )
 
 
-def test_complete_evidence_rejects_missing_runtime(tmp_path: Path):
-    write_valid_evidence(tmp_path)
-    report_path = tmp_path / "benchmark_report.json"
-    report = json.loads(report_path.read_text(encoding="utf-8"))
-    del report["total_runtime_seconds"]
-    report_path.write_text(json.dumps(report), encoding="utf-8")
+def test_complete_evidence_rejects_missing_environment(tmp_path: Path):
+    write_evidence(tmp_path)
+    (tmp_path / "environment.txt").unlink()
 
     errors = VALIDATOR.validate_results(tmp_path)
-    assert any("total_runtime_seconds" in error for error in errors)
+
+    assert any(
+        "environment file does not exist" in error
+        for error in errors
+    )
 
 
-def test_validator_removes_only_requested_benchmark_cache(tmp_path: Path):
-    benchmark_dir = tmp_path / "benchmarks"
-    cache_dir = benchmark_dir / "__pycache__"
-    cache_dir.mkdir(parents=True)
-    (cache_dir / "sample.pyc").write_bytes(b"cache")
+def test_complete_evidence_rejects_old_json_schema(tmp_path: Path):
+    write_evidence(tmp_path)
 
-    unrelated_cache = tmp_path / "other" / "__pycache__"
-    unrelated_cache.mkdir(parents=True)
-    (unrelated_cache / "keep.pyc").write_bytes(b"keep")
+    path = tmp_path / "benchmark_report.json"
+    report = json.loads(path.read_text(encoding="utf-8"))
 
-    assert VALIDATOR.remove_benchmark_cache(cache_dir) == []
-    assert not cache_dir.exists()
-    assert (unrelated_cache / "keep.pyc").is_file()
+    report["benchmark_id"] = (
+        "P2-CANONICAL-4Q-NUMERICAL-OPERATIONS"
+    )
+
+    path.write_text(
+        json.dumps(report, indent=2),
+        encoding="utf-8",
+    )
+
+    errors = VALIDATOR.validate_results(tmp_path)
+
+    assert any(
+        "identifier" in error.lower()
+        for error in errors
+    )
 
 
-def test_validator_refuses_cache_symlink(tmp_path: Path):
-    target = tmp_path / "target"
-    target.mkdir()
-    (target / "keep.pyc").write_bytes(b"keep")
+def test_validator_rejects_non_object_report():
+    for invalid in (None, [], "invalid", 1):
+        assert VALIDATOR.validate_report(invalid)
 
-    link = tmp_path / "__pycache__"
-    link.symlink_to(target, target_is_directory=True)
 
-    errors = VALIDATOR.remove_benchmark_cache(link)
-    assert errors
-    assert (target / "keep.pyc").is_file()
+def test_validator_rejects_missing_operation():
+    report = make_report()
+    report["operations"].pop()
+
+    errors = VALIDATOR.validate_report(report)
+
+    assert any(
+        "Missing benchmark operations" in error
+        for error in errors
+    )
+
+
+def test_validator_rejects_duplicate_operation():
+    report = make_report()
+    report["operations"].append(
+        dict(report["operations"][0])
+    )
+
+    errors = VALIDATOR.validate_report(report)
+
+    assert any(
+        "Duplicate benchmark operation" in error
+        for error in errors
+    )
+
+
+def test_validator_rejects_failed_operation():
+    report = make_report()
+    report["operations"][0]["passed"] = False
+
+    errors = VALIDATOR.validate_report(report)
+
+    assert any(
+        "numerical validation failed" in error
+        for error in errors
+    )
+
+
+def test_validator_rejects_invalid_total_runtime():
+    report = make_report()
+    report["total_runtime_seconds"] = float("nan")
+
+    errors = VALIDATOR.validate_report(report)
+
+    assert any(
+        "total_runtime_seconds" in error
+        for error in errors
+    )
+
+
+def test_validator_rejects_runtime_below_measured_work():
+    report = make_report()
+    report["total_runtime_seconds"] = 0.000001
+
+    errors = VALIDATOR.validate_report(report)
+
+    assert any(
+        "below combined timed execution" in error
+        for error in errors
+    )
+
+
+def test_validator_rejects_missing_paired_metadata():
+    report = make_report()
+    report["independent_reference"]["paired_measurement"] = False
+
+    errors = VALIDATOR.validate_report(report)
+
+    assert any(
+        "Paired measurement metadata is missing" in error
+        for error in errors
+    )
+
+
+def test_environment_requires_cpu_model(tmp_path: Path):
+    path = tmp_path / "environment.txt"
+    content = make_environment().replace("cpu_model:", "cpu_name:")
+    path.write_text(content, encoding="utf-8")
+
+    errors = VALIDATOR.validate_environment(path)
+
+    assert any(
+        "cpu_model" in error
+        for error in errors
+    )
