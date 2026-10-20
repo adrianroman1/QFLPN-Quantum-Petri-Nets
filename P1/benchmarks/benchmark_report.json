@@ -1,9 +1,11 @@
 {
   "benchmark_id": "P1-CANONICAL-4Q-OPERATOR-CONSTRUCTION",
   "comparison": {
-    "interpretation": "A value greater than 1 means the production implementation had a lower median execution time in this run.",
+    "interpretation": "A value greater than 1 means the independent reference had a greater median execution time than production.",
+    "median_difference_ms": 0.0038914999999999644,
     "metric": "independent_median_ms / production_median_ms",
-    "speedup_independent_over_production": 1.214836454692472
+    "production_median_reduction_percent": 2.053090715323904,
+    "speedup_independent_over_production": 1.02096126085364
   },
   "configuration": {
     "repetitions": 30,
@@ -18,10 +20,10 @@
       0.45,
       0.7
     ],
-    "captured_at_utc": "2026-10-20T03:13:31.968803+00:00",
-    "cpu_model": "AMD EPYC 9V45 96-Core Processor",
+    "captured_at_utc": "2026-10-20T03:33:14.359116+00:00",
+    "cpu_model": "AMD EPYC 7763 64-Core Processor",
     "git_branch": "main",
-    "git_commit": "c15aa65f8267eebd70e1d1a6db4e4d9965f3ef59",
+    "git_commit": "0b6fce8b927c27aae4b50553ef5b637d7abd5880",
     "git_worktree_status": "M P1/artifacts/reference_instance.json\n M P1/reports/environment.txt\n M P1/reports/residuals.json\n M P1/reports/unitary_evolution_report.json\n?? P1/code/__pycache__/\n?? P1/tests/__pycache__/\n?? P1/tests/results/\n?? P1/tools/__pycache__/",
     "hilbert_dimension": 16,
     "logical_cpu_count": 4,
@@ -61,25 +63,25 @@
   },
   "results": {
     "independent": {
-      "maximum_ms": 0.108313,
-      "mean_ms": 0.0607617,
-      "median_ms": 0.058218,
-      "minimum_ms": 0.057447,
+      "maximum_ms": 0.292146,
+      "mean_ms": 0.17234283333333333,
+      "median_ms": 0.18954349999999998,
+      "minimum_ms": 0.095699,
       "sample_count": 30,
-      "standard_deviation_ms": 0.0093950388417468
+      "standard_deviation_ms": 0.06817579582180748
     },
     "production": {
-      "maximum_ms": 0.077727,
-      "mean_ms": 0.0496083,
-      "median_ms": 0.04792250000000001,
-      "minimum_ms": 0.047301,
+      "maximum_ms": 0.237473,
+      "mean_ms": 0.18499253333333332,
+      "median_ms": 0.185652,
+      "minimum_ms": 0.152896,
       "sample_count": 30,
-      "standard_deviation_ms": 0.005631663783986228
+      "standard_deviation_ms": 0.023608598532553014
     }
   },
   "schema_version": 1,
   "status": "PASS",
-  "timestamp_utc": "2026-10-20T03:13:31.968780+00:00",
+  "timestamp_utc": "2026-10-20T03:33:14.359088+00:00",
   "workload": {
     "hilbert_dimension": 16,
     "memberships": [

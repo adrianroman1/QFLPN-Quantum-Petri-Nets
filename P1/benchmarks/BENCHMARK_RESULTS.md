@@ -14,31 +14,36 @@
 
 ## Measured execution times
 
-| Metric | Production implementation | Independent implementation |
-|---|---:|---:|
-| Minimum (ms) | 0.047301 | 0.057447 |
-| Median (ms) | 0.047923 | 0.058218 |
-| Mean (ms) | 0.049608 | 0.060762 |
-| Maximum (ms) | 0.077727 | 0.108313 |
-| Standard deviation (ms) | 0.005632 | 0.009395 |
-| Samples | 30 | 30 |
+| Metric | Production implementation | Independent implementation | Comparative indicator |
+|---|---:|---:|---:|
+| Minimum (ms) | 0.152896 | 0.095699 | — |
+| Median (ms) | **0.185652** | 0.189543 | **1.020961×** (reference / P1) |
+| Mean (ms) | 0.184993 | 0.172343 | — |
+| Maximum (ms) | 0.237473 | 0.292146 | — |
+| Standard deviation (ms) | 0.023609 | 0.068176 | — |
+| Samples | 30 | 30 | — |
 
-## Relative execution time
+## Comparative indicators
 
-- Independent / production median-time ratio: **1.214836×**
-- Interpretation: values above 1 indicate that the production implementation
-  had a lower median time in this measured run. Values below 1 indicate the
-  opposite.
+- Independent / production median-time ratio: **1.020961×**
+- Median-time difference (independent − production): **0.003891 ms**
+- Production median-time reduction relative to the independent reference: **2.053%**
+
+A ratio above 1 means the independent reference had a greater
+median execution time than P1 in this measured run.
+
+This is a relative runtime comparison, not a quantum speedup
+or an HPC scalability result.
 
 ## Reproducibility
 
-- Timestamp (UTC): `2026-10-20T03:13:31.968780+00:00`
-- Git commit: `c15aa65f8267eebd70e1d1a6db4e4d9965f3ef59`
+- Timestamp (UTC): `2026-10-20T03:33:14.359088+00:00`
+- Git commit: `0b6fce8b927c27aae4b50553ef5b637d7abd5880`
 - Python: `3.11.17`
 - NumPy: `2.3.5`
 - SciPy: `1.17.0`
 - Platform: `Linux-6.17.0-1022-azure-x86_64-with-glibc2.39`
-- CPU: `AMD EPYC 9V45 96-Core Processor`
+- CPU: `AMD EPYC 7763 64-Core Processor`
 
 Raw samples are stored in `benchmark_results.csv`.
 Structured results are stored in `benchmark_report.json`.
@@ -49,8 +54,9 @@ The captured environment is stored in `environment.txt`.
 This benchmark measures construction of the **canonical four-qubit P1
 operator only**. It is not a benchmark of a scalable quantum simulator,
 a million-qubit system, a distributed implementation, or an HPC workload.
+
 The ratio compares two implementations of the same fixed-size operation;
 it must not be interpreted as an asymptotic complexity result.
 
-The measurements are machine- and environment-dependent. They are evidence
-for this execution only, not a universal performance guarantee.
+The measurements are machine- and environment-dependent.
+They are evidence for this execution only, not a universal performance guarantee.
