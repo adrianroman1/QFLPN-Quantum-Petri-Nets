@@ -3,35 +3,33 @@
 P2-BENCH-CONFIG-01
 Independent Numeric Equivalence Audit.
 
-Compares the eight production numerical operations exposed by:
-- the original benchmark_runner.py Git blob;
-- the current benchmark_runner.py source.
+Exit codes:
+    0 = PASS
+    1 = FAIL
+    2 = NOT VERIFIED
 
-The independent mathematical reference is implemented in this file.
-It does not use the runner's independent_reference() as its oracle.
+The audit compares:
+    1. Historical Git-blob production operations.
+    2. Current migrated production operations.
+    3. An independent NumPy mathematical reference.
 
-Comparison:
-1. baseline production output vs independent mathematical reference;
-2. migrated production output vs independent mathematical reference;
-3. baseline production output vs migrated production output.
+PennyLane execution is obtained from the actual production QNode
+exposed by benchmark_runner.build_operations().
 
-Metric:
-- Frobenius norm of the difference;
-- maximum absolute element-wise difference.
+The audit also validates the four configured benchmark artifacts:
+    JSON
+    CSV
+    Markdown
+    Environment
 
-Acceptance tolerance:
-1e-12
-
-Report:
-audit/numeric_equivalence.json
-
-This audit does not compare execution timings.
+No benchmark artifacts are generated or silently substituted here.
 """
 
 from __future__ import annotations
 
 import argparse
 import ast
+import csv
 import hashlib
 import importlib.util
 import json
@@ -49,29 +47,21 @@ from typing import Any
 import numpy as np
 
 
-# =========================================================
-# PATHS AND BASELINE
-# =========================================================
+# ============================================================
+# CONSTANTS
+# ============================================================
 
 ROOT = Path(__file__).resolve().parents[1]
 
-BENCHMARK_DIR = ROOT / "P2" / "benchmarks"
+P2_ROOT = ROOT / "P2"
+BENCHMARK_DIR = P2_ROOT / "benchmarks"
+CODE_DIR = P2_ROOT / "code"
 
-RUNNER_PATH = (
-    BENCHMARK_DIR / "benchmark_runner.py"
-)
+RUNNER_PATH = BENCHMARK_DIR / "benchmark_runner.py"
+CONTRACT_PATH = BENCHMARK_DIR / "benchmark_contract.py"
+DEFAULT_CONFIG = BENCHMARK_DIR / "benchmark_config.json"
 
-CONTRACT_PATH = (
-    BENCHMARK_DIR / "benchmark_contract.py"
-)
-
-DEFAULT_CONFIG = (
-    BENCHMARK_DIR / "benchmark_config.json"
-)
-
-REPORT_PATH = (
-    ROOT / "audit" / "numeric_equivalence.json"
-)
+REPORT_PATH = ROOT / "audit" / "numeric_equivalence.json"
 
 BASELINE_RUNNER_BLOB = (
     "03a63fec41a099944017d9c95d53c3b8656359a3"
@@ -88,18 +78,501 @@ REQUIRED_OPERATIONS = (
     "pennylane_execution",
 )
 
+REQUIRED_ARTIFACTS = (
+    "json",
+    "csv",
+    "markdown",
+    "environment",
+)
+
 REQUIRED_TOLERANCE = 1e-12
 
+VALID_STATUSES = {
+    "PASS",
+    "FAIL",
+    "NOT VERIFIED",
+}
 
-# =========================================================
-# REPORT HELPERS
-# =========================================================
+CSV_COLUMNS = [
+    "operation",
+    "warmups",
+    "repetitions",
+    "minimum_ns",
+    "median_ns",
+    "mean_ns",
+    "maximum_ns",
+    "standard_deviation_ns",
+    "operations_per_second",
+    "numerical_error",
+    "numerical_tolerance",
+    "passed",
+]
+
+
+# ============================================================
+# PURE STATUS FUNCTIONS
+# ============================================================
+
+def aggregate_operation_statuses(
+    operations: dict[str, dict],
+) -> str:
+    """
+    Aggregate operation statuses.
+
+    Priority:
+        FAIL > NOT VERIFIED > PASS
+
+    An empty or malformed collection is NOT VERIFIED.
+    """
+
+    if not isinstance(operations, dict) or not operations:
+        return "NOT VERIFIED"
+
+    statuses = []
+
+    for name, payload in operations.items():
+
+        if not isinstance(payload, dict):
+            return "NOT VERIFIED"
+
+        status = payload.get("status")
+
+        if status not in VALID_STATUSES:
+            return "NOT VERIFIED"
+
+        statuses.append(status)
+
+    if "FAIL" in statuses:
+        return "FAIL"
+
+    if "NOT VERIFIED" in statuses:
+        return "NOT VERIFIED"
+
+    return "PASS"
+
+
+def aggregate_artifact_statuses(
+    artifacts: dict[str, dict],
+) -> str:
+
+    if not isinstance(artifacts, dict):
+        return "NOT VERIFIED"
+
+    if set(artifacts) != set(REQUIRED_ARTIFACTS):
+        return "NOT VERIFIED"
+
+    statuses = []
+
+    for name in REQUIRED_ARTIFACTS:
+
+        payload = artifacts[name]
+
+        if not isinstance(payload, dict):
+            return "NOT VERIFIED"
+
+        status = payload.get("status")
+
+        if status not in VALID_STATUSES:
+            return "NOT VERIFIED"
+
+        statuses.append(status)
+
+    if "FAIL" in statuses:
+        return "FAIL"
+
+    if "NOT VERIFIED" in statuses:
+        return "NOT VERIFIED"
+
+    return "PASS"
+
+
+# ============================================================
+# REPORT VALIDATION
+# ============================================================
+
+def _finite_nonnegative_number(value: Any) -> bool:
+
+    if isinstance(value, bool):
+        return False
+
+    if not isinstance(value, (int, float)):
+        return False
+
+    return math.isfinite(float(value)) and value >= 0
+
+
+def validate_numeric_report(
+    report: dict,
+) -> dict:
+    """
+    Validate report structure and numeric consistency.
+
+    Missing evidence:
+        NOT VERIFIED
+
+    Demonstrated contradiction:
+        FAIL
+
+    Complete and coherent report:
+        PASS
+    """
+
+    if not isinstance(report, dict):
+
+        return {
+            "status": "NOT VERIFIED",
+            "errors": ["Report root must be a dictionary."],
+        }
+
+    required_fields = {
+        "audit",
+        "audit_id",
+        "timestamp_utc",
+        "status",
+        "tolerance",
+        "baseline",
+        "migrated",
+        "artifacts",
+        "operations",
+        "issues",
+    }
+
+    missing = required_fields - set(report)
+
+    if missing:
+
+        return {
+            "status": "NOT VERIFIED",
+            "errors": [
+                f"Missing report field: {name}"
+                for name in sorted(missing)
+            ],
+        }
+
+    errors = []
+    incomplete = []
+
+    if report["audit"] != "numeric_equivalence":
+        errors.append("Invalid audit identifier.")
+
+    if report["audit_id"] != "P2-BENCH-CONFIG-01":
+        errors.append("Invalid audit_id.")
+
+    if report["status"] not in VALID_STATUSES:
+        errors.append("Invalid global report status.")
+
+    tolerance = report["tolerance"]
+
+    if (
+        isinstance(tolerance, bool)
+        or not isinstance(tolerance, (int, float))
+        or not math.isfinite(float(tolerance))
+        or float(tolerance) != REQUIRED_TOLERANCE
+    ):
+        errors.append("Invalid or unsupported numerical tolerance.")
+
+    for name in ("baseline", "migrated"):
+
+        if not isinstance(report[name], dict):
+            incomplete.append(f"{name} metadata is missing.")
+
+    operations = report["operations"]
+
+    if not isinstance(operations, dict):
+
+        incomplete.append("Operations must be a dictionary.")
+
+    else:
+
+        missing_operations = (
+            set(REQUIRED_OPERATIONS) - set(operations)
+        )
+
+        unexpected_operations = (
+            set(operations) - set(REQUIRED_OPERATIONS)
+        )
+
+        for name in sorted(missing_operations):
+            incomplete.append(f"Missing operation: {name}")
+
+        for name in sorted(unexpected_operations):
+            errors.append(f"Unexpected operation: {name}")
+
+        for name in REQUIRED_OPERATIONS:
+
+            if name not in operations:
+                continue
+
+            payload = operations[name]
+
+            if not isinstance(payload, dict):
+                incomplete.append(
+                    f"{name}: operation payload is missing."
+                )
+                continue
+
+            operation_status = payload.get("status")
+
+            if operation_status not in VALID_STATUSES:
+                errors.append(
+                    f"{name}: invalid operation status."
+                )
+                continue
+
+            comparisons = (
+                "baseline_vs_reference",
+                "migrated_vs_reference",
+                "baseline_vs_migrated",
+            )
+
+            for comparison_name in comparisons:
+
+                if comparison_name not in payload:
+
+                    incomplete.append(
+                        f"{name}: missing {comparison_name}."
+                    )
+                    continue
+
+                comparison = payload[comparison_name]
+
+                if not isinstance(comparison, dict):
+
+                    incomplete.append(
+                        f"{name}: invalid {comparison_name}."
+                    )
+                    continue
+
+                comparison_status = comparison.get("status")
+
+                if comparison_status not in VALID_STATUSES:
+
+                    errors.append(
+                        f"{name}/{comparison_name}: invalid status."
+                    )
+                    continue
+
+                if "shape_match" not in comparison:
+
+                    incomplete.append(
+                        f"{name}/{comparison_name}: missing shape_match."
+                    )
+                    continue
+
+                if comparison["shape_match"] is False:
+
+                    if comparison_status != "FAIL":
+                        errors.append(
+                            f"{name}/{comparison_name}: shape mismatch "
+                            "must be FAIL."
+                        )
+
+                elif comparison["shape_match"] is not True:
+
+                    errors.append(
+                        f"{name}/{comparison_name}: invalid shape_match."
+                    )
+
+                error_fields = (
+                    "frobenius_norm_error",
+                    "max_absolute_error",
+                )
+
+                for field in error_fields:
+
+                    if field not in comparison:
+
+                        incomplete.append(
+                            f"{name}/{comparison_name}: missing {field}."
+                        )
+                        continue
+
+                    value = comparison[field]
+
+                    if value is None:
+
+                        if comparison_status == "PASS":
+
+                            errors.append(
+                                f"{name}/{comparison_name}: "
+                                f"PASS with missing {field}."
+                            )
+
+                        continue
+
+                    if not _finite_nonnegative_number(value):
+
+                        errors.append(
+                            f"{name}/{comparison_name}: "
+                            f"invalid numeric value for {field}."
+                        )
+                        continue
+
+                comparison_tolerance = comparison.get("tolerance")
+
+                if (
+                    isinstance(comparison_tolerance, bool)
+                    or not isinstance(comparison_tolerance, (int, float))
+                    or not math.isfinite(float(comparison_tolerance))
+                ):
+
+                    incomplete.append(
+                        f"{name}/{comparison_name}: invalid tolerance."
+                    )
+                    continue
+
+                if float(comparison_tolerance) != REQUIRED_TOLERANCE:
+
+                    errors.append(
+                        f"{name}/{comparison_name}: "
+                        "comparison tolerance mismatch."
+                    )
+
+                max_error = comparison.get("max_absolute_error")
+                frobenius_error = comparison.get("frobenius_norm_error")
+
+                if (
+                    _finite_nonnegative_number(max_error)
+                    and _finite_nonnegative_number(frobenius_error)
+                ):
+
+                    exceeded = (
+                        max_error > REQUIRED_TOLERANCE
+                        or frobenius_error > REQUIRED_TOLERANCE
+                    )
+
+                    if exceeded and comparison_status == "PASS":
+
+                        errors.append(
+                            f"{name}/{comparison_name}: "
+                            "PASS despite tolerance violation."
+                        )
+
+                    if not exceeded and comparison_status == "FAIL":
+
+                        # FAIL may also represent a demonstrated
+                        # shape mismatch or another explicit defect.
+                        if comparison.get("shape_match") is True:
+
+                            errors.append(
+                                f"{name}/{comparison_name}: "
+                                "FAIL without a demonstrated numeric mismatch."
+                            )
+
+            comparison_statuses = []
+
+            for comparison_name in comparisons:
+
+                comparison = payload.get(comparison_name)
+
+                if isinstance(comparison, dict):
+
+                    status = comparison.get("status")
+
+                    if status in VALID_STATUSES:
+                        comparison_statuses.append(status)
+
+            if len(comparison_statuses) == 3:
+
+                expected_status = aggregate_operation_statuses({
+                    str(index): {"status": status}
+                    for index, status in enumerate(
+                        comparison_statuses
+                    )
+                })
+
+                if payload["status"] != expected_status:
+
+                    errors.append(
+                        f"{name}: operation status contradicts "
+                        "comparison statuses."
+                    )
+
+    artifacts = report["artifacts"]
+
+    if not isinstance(artifacts, dict):
+
+        incomplete.append("Artifact metadata is missing.")
+
+    else:
+
+        for name in REQUIRED_ARTIFACTS:
+
+            if name not in artifacts:
+
+                incomplete.append(
+                    f"Missing artifact: {name}"
+                )
+                continue
+
+            payload = artifacts[name]
+
+            if not isinstance(payload, dict):
+
+                incomplete.append(
+                    f"Invalid artifact payload: {name}"
+                )
+                continue
+
+            if payload.get("status") not in VALID_STATUSES:
+
+                incomplete.append(
+                    f"Invalid artifact status: {name}"
+                )
+
+    if not isinstance(report["issues"], list):
+        errors.append("Report issues must be a list.")
+
+    if errors:
+
+        return {
+            "status": "FAIL",
+            "errors": errors + incomplete,
+        }
+
+    if incomplete:
+
+        return {
+            "status": "NOT VERIFIED",
+            "errors": incomplete,
+        }
+
+    operation_status = aggregate_operation_statuses(
+        operations
+    )
+
+    artifact_status = aggregate_artifact_statuses(
+        artifacts
+    )
+
+    expected_global = aggregate_operation_statuses({
+        "operations": {"status": operation_status},
+        "artifacts": {"status": artifact_status},
+    })
+
+    if report["status"] != expected_global:
+
+        return {
+            "status": "FAIL",
+            "errors": [
+                "Global report status contradicts "
+                "operation/artifact statuses."
+            ],
+        }
+
+    return {
+        "status": "PASS",
+        "errors": [],
+    }
+
+
+# ============================================================
+# HASH AND GIT HELPERS
+# ============================================================
 
 def utc_now() -> str:
 
-    return datetime.now(
-        timezone.utc
-    ).isoformat()
+    return datetime.now(timezone.utc).isoformat()
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -107,26 +580,10 @@ def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def sha256_file(path: Path) -> str:
-
-    return sha256_bytes(path.read_bytes())
-
-
 def git_blob(blob_sha: str) -> bytes:
-    """
-    Retrieve a Git blob by its exact object ID.
-
-    A missing baseline is NOT VERIFIED, never silently replaced
-    by the current source.
-    """
 
     object_type = subprocess.run(
-        [
-            "git",
-            "cat-file",
-            "-t",
-            blob_sha,
-        ],
+        ["git", "cat-file", "-t", blob_sha],
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -136,43 +593,20 @@ def git_blob(blob_sha: str) -> bytes:
     if object_type != "blob":
 
         raise ValueError(
-            f"Baseline object {blob_sha} is not a Git blob"
+            f"Baseline object {blob_sha} is not a Git blob."
         )
 
     return subprocess.run(
-        [
-            "git",
-            "cat-file",
-            "blob",
-            blob_sha,
-        ],
+        ["git", "cat-file", "blob", blob_sha],
         cwd=ROOT,
         capture_output=True,
         check=True,
     ).stdout
 
 
-def write_report(report: dict) -> None:
-
-    REPORT_PATH.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    REPORT_PATH.write_text(
-        json.dumps(
-            report,
-            indent=2,
-            ensure_ascii=False,
-            allow_nan=False,
-        ) + "\n",
-        encoding="utf-8",
-    )
-
-
-# =========================================================
+# ============================================================
 # MODULE LOADING
-# =========================================================
+# ============================================================
 
 def load_python_module(
     path: Path,
@@ -196,9 +630,7 @@ def load_python_module(
             f"Cannot load Python module: {path}"
         )
 
-    module = importlib.util.module_from_spec(
-        spec
-    )
+    module = importlib.util.module_from_spec(spec)
 
     sys.modules[module_name] = module
 
@@ -212,25 +644,15 @@ def load_runner_from_source(
     module_name: str,
     temporary_directory: Path,
 ) -> ModuleType:
-    """
-    Load a runner source under an isolated module name.
 
-    The original benchmark directory remains available for:
-    benchmark_contract.py and qflpn_reference.py imports.
-    """
-
-    runner_directory = (
-        temporary_directory / module_name
-    )
+    runner_directory = temporary_directory / module_name
 
     runner_directory.mkdir(
         parents=True,
         exist_ok=True,
     )
 
-    runner_file = (
-        runner_directory / "benchmark_runner.py"
-    )
+    runner_file = runner_directory / "benchmark_runner.py"
 
     runner_file.write_bytes(source)
 
@@ -239,12 +661,11 @@ def load_runner_from_source(
         filename=str(runner_file),
     )
 
-    if str(BENCHMARK_DIR) not in sys.path:
+    for directory in (BENCHMARK_DIR, CODE_DIR):
 
-        sys.path.insert(
-            0,
-            str(BENCHMARK_DIR),
-        )
+        if str(directory) not in sys.path:
+
+            sys.path.insert(0, str(directory))
 
     return load_python_module(
         runner_file,
@@ -252,13 +673,11 @@ def load_runner_from_source(
     )
 
 
-# =========================================================
-# CONTRACT AND CONFIGURATION
-# =========================================================
+# ============================================================
+# CONTRACT
+# ============================================================
 
-def load_contract(
-    config_path: Path,
-):
+def load_contract(config_path: Path):
 
     if not CONTRACT_PATH.is_file():
 
@@ -268,23 +687,16 @@ def load_contract(
 
     if str(BENCHMARK_DIR) not in sys.path:
 
-        sys.path.insert(
-            0,
-            str(BENCHMARK_DIR),
-        )
+        sys.path.insert(0, str(BENCHMARK_DIR))
 
     contract_module = load_python_module(
         CONTRACT_PATH,
         "p2_numeric_audit_contract",
     )
 
-    contract = (
-        contract_module.load_benchmark_contract(
-            config_path
-        )
+    return contract_module.load_benchmark_contract(
+        config_path
     )
-
-    return contract
 
 
 def validate_numeric_configuration(
@@ -293,106 +705,56 @@ def validate_numeric_configuration(
 
     config = contract.config
 
-    activations = config.get(
-        "activation_vector"
-    )
+    activations = config.get("activation_vector")
 
-    if not isinstance(activations, list):
+    if not isinstance(activations, list) or len(activations) != 4:
 
         raise ValueError(
-            "Configuration activation_vector must be a list"
+            "Exactly four activations are required."
         )
 
-    if len(activations) != 4:
-
-        raise ValueError(
-            "P2 numeric audit requires exactly four activations"
-        )
-
-    normalized_activations = []
+    normalized = []
 
     for index, value in enumerate(activations):
 
-        if isinstance(value, bool):
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            or not 0.0 <= float(value) <= 1.0
+        ):
 
             raise ValueError(
-                f"Activation {index} must be numeric"
+                f"Invalid activation at index {index}."
             )
 
-        if not isinstance(value, (int, float)):
+        normalized.append(float(value))
 
-            raise ValueError(
-                f"Activation {index} must be numeric"
-            )
+    tolerance = config.get("numerical_tolerance")
 
-        if not math.isfinite(float(value)):
-
-            raise ValueError(
-                f"Activation {index} must be finite"
-            )
-
-        if not 0.0 <= float(value) <= 1.0:
-
-            raise ValueError(
-                f"Activation {index} must be between 0 and 1"
-            )
-
-        normalized_activations.append(
-            float(value)
-        )
-
-    tolerance = config.get(
-        "numerical_tolerance"
-    )
-
-    if isinstance(tolerance, bool):
+    if (
+        isinstance(tolerance, bool)
+        or not isinstance(tolerance, (int, float))
+        or not math.isfinite(float(tolerance))
+        or float(tolerance) != REQUIRED_TOLERANCE
+    ):
 
         raise ValueError(
-            "Numerical tolerance must be numeric"
+            "Configuration must use tolerance 1e-12."
         )
 
-    if not isinstance(tolerance, (int, float)):
+    if tuple(config.get("operations", ())) != REQUIRED_OPERATIONS:
 
         raise ValueError(
-            "Numerical tolerance must be numeric"
+            "Configuration operation list is inconsistent."
         )
 
-    tolerance = float(tolerance)
-
-    if not math.isfinite(tolerance) or tolerance <= 0:
-
-        raise ValueError(
-            "Numerical tolerance must be positive and finite"
-        )
-
-    if tolerance != REQUIRED_TOLERANCE:
-
-        raise ValueError(
-            "P2 numeric audit requires tolerance exactly "
-            f"{REQUIRED_TOLERANCE!r}; configured value is "
-            f"{tolerance!r}"
-        )
-
-    configured_operations = config.get(
-        "operations"
-    )
-
-    if configured_operations != list(REQUIRED_OPERATIONS):
-
-        raise ValueError(
-            "Configured operation list differs from "
-            "the required eight-operation P2 contract"
-        )
-
-    return (
-        tuple(normalized_activations),
-        tolerance,
-    )
+    return tuple(normalized), float(tolerance)
 
 
-# =========================================================
-# INDEPENDENT MATHEMATICAL REFERENCE
-# =========================================================
+# ============================================================
+# INDEPENDENT NUMPY REFERENCE
+# ============================================================
 
 def reference_rotation_operator(
     activations: tuple[float, ...],
@@ -405,15 +767,9 @@ def reference_rotation_operator(
 
     for activation in activations:
 
-        theta = (
-            2.0
-            * np.arcsin(
-                np.sqrt(activation)
-            )
-        )
+        theta = 2.0 * np.arcsin(np.sqrt(activation))
 
         cosine = np.cos(theta / 2.0)
-
         sine = np.sin(theta / 2.0)
 
         ry = np.array(
@@ -424,20 +780,14 @@ def reference_rotation_operator(
             dtype=np.complex128,
         )
 
-        result = np.kron(
-            result,
-            ry,
-        )
+        result = np.kron(result, ry)
 
     return result
 
 
 def reference_c3x_operator() -> np.ndarray:
 
-    result = np.eye(
-        16,
-        dtype=np.complex128,
-    )
+    result = np.eye(16, dtype=np.complex128)
 
     result[14, 14] = 0.0
     result[15, 15] = 0.0
@@ -452,46 +802,32 @@ def reference_transition_operator(
     activations: tuple[float, ...],
 ) -> np.ndarray:
 
-    rotation = reference_rotation_operator(
-        activations
+    return (
+        reference_c3x_operator()
+        @ reference_rotation_operator(activations)
     )
-
-    c3x = reference_c3x_operator()
-
-    return c3x @ rotation
 
 
 def reference_state_evolution(
     activations: tuple[float, ...],
 ) -> np.ndarray:
 
-    initial = np.zeros(
-        16,
-        dtype=np.complex128,
-    )
-
+    initial = np.zeros(16, dtype=np.complex128)
     initial[0] = 1.0
 
-    transition = reference_transition_operator(
-        activations
+    return (
+        reference_transition_operator(activations)
+        @ initial
     )
-
-    return transition @ initial
 
 
 def reference_density_matrix(
     state: np.ndarray,
 ) -> np.ndarray:
 
-    vector = np.asarray(
-        state,
-        dtype=np.complex128,
-    )
+    vector = np.asarray(state, dtype=np.complex128)
 
-    return np.outer(
-        vector,
-        np.conjugate(vector),
-    )
+    return np.outer(vector, vector.conj())
 
 
 def reference_reduced_density_matrices(
@@ -522,28 +858,16 @@ def build_independent_reference(
     activations: tuple[float, ...],
 ) -> dict[str, np.ndarray]:
 
-    rotation = reference_rotation_operator(
-        activations
-    )
-
+    rotation = reference_rotation_operator(activations)
     c3x = reference_c3x_operator()
+    transition = c3x @ rotation
 
-    transition = reference_transition_operator(
-        activations
-    )
+    state = reference_state_evolution(activations)
 
-    state = reference_state_evolution(
-        activations
-    )
-
-    density = reference_density_matrix(
-        state
-    )
+    density = reference_density_matrix(state)
 
     rho_q4, rho_q123 = (
-        reference_reduced_density_matrices(
-            state
-        )
+        reference_reduced_density_matrices(state)
     )
 
     return {
@@ -554,56 +878,38 @@ def build_independent_reference(
         "density_matrix": density,
         "reduced_density_q4": rho_q4,
         "reduced_density_q123": rho_q123,
-        "pennylane_execution": state.copy(),
+
+        # This is the independent mathematical oracle.
+        # It is NOT claimed to be a PennyLane execution.
+        "pennylane_execution": state,
     }
 
 
-# =========================================================
-# RUNNER OPERATION EXTRACTION
-# =========================================================
+# ============================================================
+# PRODUCTION OPERATIONS
+# ============================================================
 
 def extract_production_operations(
     runner: ModuleType,
     activations: tuple[float, ...],
     expected: dict[str, np.ndarray],
-) -> dict[str, Any]:
-    """
-    Uses the runner's actual build_operations() function.
+) -> tuple[dict[str, Any], np.ndarray]:
 
-    The second tuple element is the production callable.
-    The independent callable supplied by the runner is deliberately
-    not used as the numeric oracle.
-    """
+    if not hasattr(runner, "build_operations"):
 
-    required_functions = (
-        "build_operations",
-        "EXPECTED_OPERATIONS",
-    )
+        raise AttributeError(
+            "Runner does not expose build_operations()."
+        )
 
-    for name in required_functions:
-
-        if not hasattr(runner, name):
-
-            raise AttributeError(
-                f"Runner does not expose required member: {name}"
-            )
-
-    runner_operations = tuple(
-        runner.EXPECTED_OPERATIONS
-    )
-
-    if runner_operations != REQUIRED_OPERATIONS:
+    if tuple(runner.EXPECTED_OPERATIONS) != REQUIRED_OPERATIONS:
 
         raise ValueError(
-            "Runner EXPECTED_OPERATIONS differs from the "
-            "required P2 operation set"
+            "Runner operation contract mismatch."
         )
 
-    operations, _pennylane_state = (
-        runner.build_operations(
-            activations,
-            expected,
-        )
+    operations, pennylane_state = runner.build_operations(
+        activations,
+        expected,
     )
 
     extracted = {}
@@ -613,47 +919,43 @@ def extract_production_operations(
         if not isinstance(item, tuple) or len(item) != 4:
 
             raise TypeError(
-                "build_operations() must return four-element "
-                "operation tuples"
+                "Invalid production operation tuple."
             )
 
-        name, production_function, _independent_function, _expected = item
+        name, production_function, _, _ = item
 
         if name in extracted:
 
             raise ValueError(
-                f"Duplicate operation returned by runner: {name}"
+                f"Duplicate operation: {name}"
             )
 
         if not callable(production_function):
 
             raise TypeError(
-                f"Production implementation is not callable: {name}"
+                f"Operation {name} is not callable."
             )
 
         extracted[name] = production_function
 
     if set(extracted) != set(REQUIRED_OPERATIONS):
 
-        missing = sorted(
-            set(REQUIRED_OPERATIONS) - set(extracted)
-        )
-
-        unexpected = sorted(
-            set(extracted) - set(REQUIRED_OPERATIONS)
-        )
-
         raise ValueError(
-            "Runner operation mismatch. "
-            f"Missing={missing}; unexpected={unexpected}"
+            "Runner did not expose exactly the required operations."
         )
 
-    return extracted
+    return (
+        extracted,
+        validate_array(
+            pennylane_state,
+            "pennylane_state",
+        ),
+    )
 
 
-# =========================================================
+# ============================================================
 # NUMERIC COMPARISON
-# =========================================================
+# ============================================================
 
 def validate_array(
     value: Any,
@@ -665,13 +967,13 @@ def validate_array(
     if array.dtype.kind not in {"i", "u", "f", "c"}:
 
         raise TypeError(
-            f"{operation}: output is not a numeric array"
+            f"{operation}: non-numeric output."
         )
 
     if not np.all(np.isfinite(array)):
 
         raise ValueError(
-            f"{operation}: output contains NaN or infinity"
+            f"{operation}: NaN or infinity detected."
         )
 
     return array
@@ -683,15 +985,8 @@ def compare_arrays(
     tolerance: float,
 ) -> dict:
 
-    actual_array = validate_array(
-        actual,
-        "actual",
-    )
-
-    expected_array = validate_array(
-        expected,
-        "expected",
-    )
+    actual_array = validate_array(actual, "actual")
+    expected_array = validate_array(expected, "expected")
 
     if actual_array.shape != expected_array.shape:
 
@@ -707,25 +1002,18 @@ def compare_arrays(
 
     difference = (
         actual_array.astype(np.complex128, copy=False)
-        -
-        expected_array.astype(np.complex128, copy=False)
+        - expected_array.astype(np.complex128, copy=False)
     )
 
-    frobenius_error = float(
-        np.linalg.norm(difference)
-    )
+    frobenius_error = float(np.linalg.norm(difference))
 
-    max_absolute_error = float(
-        np.max(
-            np.abs(difference)
-        )
-    )
+    max_error = float(np.max(np.abs(difference)))
 
-    passed = bool(
-        np.isfinite(frobenius_error)
-        and np.isfinite(max_absolute_error)
+    passed = (
+        math.isfinite(frobenius_error)
+        and math.isfinite(max_error)
         and frobenius_error <= tolerance
-        and max_absolute_error <= tolerance
+        and max_error <= tolerance
     )
 
     return {
@@ -734,7 +1022,7 @@ def compare_arrays(
         "actual_shape": list(actual_array.shape),
         "expected_shape": list(expected_array.shape),
         "frobenius_norm_error": frobenius_error,
-        "max_absolute_error": max_absolute_error,
+        "max_absolute_error": max_error,
         "tolerance": tolerance,
     }
 
@@ -743,38 +1031,334 @@ def evaluate_runner(
     runner: ModuleType,
     activations: tuple[float, ...],
     expected: dict[str, np.ndarray],
-    tolerance: float,
-) -> dict:
+) -> tuple[dict[str, np.ndarray], np.ndarray]:
 
-    production_operations = extract_production_operations(
+    functions, pennylane_state = extract_production_operations(
         runner,
         activations,
         expected,
     )
 
-    results = {}
+    outputs = {}
 
     for operation in REQUIRED_OPERATIONS:
 
-        output = production_operations[operation]()
-
-        results[operation] = validate_array(
-            output,
+        outputs[operation] = validate_array(
+            functions[operation](),
             operation,
         )
 
-    return results
+    return outputs, pennylane_state
 
 
-# =========================================================
+# ============================================================
+# ARTIFACT VALIDATION
+# ============================================================
+
+def artifact_result(
+    status: str,
+    **metadata,
+) -> dict:
+
+    return {
+        "status": status,
+        **metadata,
+    }
+
+
+def validate_json_artifact(path: Path) -> dict:
+
+    if not path.is_file():
+
+        return artifact_result(
+            "NOT VERIFIED",
+            exists=False,
+        )
+
+    try:
+
+        raw = path.read_bytes()
+        parsed = json.loads(raw.decode("utf-8"))
+
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+
+        return artifact_result(
+            "FAIL",
+            exists=True,
+            error=str(exc),
+        )
+
+    if not isinstance(parsed, dict):
+
+        return artifact_result(
+            "FAIL",
+            exists=True,
+            error="JSON root must be an object.",
+        )
+
+    required = {
+        "schema_version",
+        "benchmark_id",
+        "timestamp_utc",
+        "operations",
+        "status",
+        "environment",
+    }
+
+    missing = sorted(required - set(parsed))
+
+    if missing:
+
+        return artifact_result(
+            "FAIL",
+            exists=True,
+            sha256=sha256_bytes(raw),
+            keys=sorted(parsed),
+            error=f"Missing JSON keys: {missing}",
+        )
+
+    if not isinstance(parsed["operations"], list):
+
+        return artifact_result(
+            "FAIL",
+            exists=True,
+            sha256=sha256_bytes(raw),
+            keys=sorted(parsed),
+            error="JSON operations must be a list.",
+        )
+
+    operation_names = [
+        item.get("operation")
+        for item in parsed["operations"]
+        if isinstance(item, dict)
+    ]
+
+    if tuple(operation_names) != REQUIRED_OPERATIONS:
+
+        return artifact_result(
+            "FAIL",
+            exists=True,
+            sha256=sha256_bytes(raw),
+            keys=sorted(parsed),
+            error="JSON operation sequence is inconsistent.",
+        )
+
+    return artifact_result(
+        "PASS",
+        exists=True,
+        sha256=sha256_bytes(raw),
+        keys=sorted(parsed),
+    )
+
+
+def validate_csv_artifact(path: Path) -> dict:
+
+    if not path.is_file():
+
+        return artifact_result(
+            "NOT VERIFIED",
+            exists=False,
+        )
+
+    try:
+
+        with path.open(
+            "r",
+            newline="",
+            encoding="utf-8",
+        ) as stream:
+
+            reader = csv.DictReader(stream)
+
+            columns = reader.fieldnames
+
+            if columns != CSV_COLUMNS:
+
+                return artifact_result(
+                    "FAIL",
+                    exists=True,
+                    columns=columns or [],
+                    row_count=0,
+                    error="CSV columns or their order are incorrect.",
+                )
+
+            rows = list(reader)
+
+    except (OSError, UnicodeDecodeError, csv.Error) as exc:
+
+        return artifact_result(
+            "FAIL",
+            exists=True,
+            error=str(exc),
+        )
+
+    names = [row.get("operation") for row in rows]
+
+    if names != list(REQUIRED_OPERATIONS):
+
+        return artifact_result(
+            "FAIL",
+            exists=True,
+            columns=columns,
+            row_count=len(rows),
+            error="CSV operation rows are incomplete or unordered.",
+        )
+
+    return artifact_result(
+        "PASS",
+        exists=True,
+        columns=columns,
+        row_count=len(rows),
+    )
+
+
+def validate_markdown_artifact(
+    path: Path,
+    artifacts: dict[str, str],
+) -> dict:
+
+    if not path.is_file():
+
+        return artifact_result(
+            "NOT VERIFIED",
+            exists=False,
+        )
+
+    try:
+
+        content = path.read_text(encoding="utf-8")
+
+    except (OSError, UnicodeDecodeError) as exc:
+
+        return artifact_result(
+            "FAIL",
+            exists=True,
+            error=str(exc),
+        )
+
+    generated_evidence_present = (
+        "## Generated evidence" in content
+    )
+
+    missing_names = [
+        filename
+        for filename in artifacts.values()
+        if filename not in content
+    ]
+
+    if not generated_evidence_present or missing_names:
+
+        return artifact_result(
+            "FAIL",
+            exists=True,
+            generated_evidence_present=generated_evidence_present,
+            missing_artifacts=missing_names,
+        )
+
+    return artifact_result(
+        "PASS",
+        exists=True,
+        generated_evidence_present=True,
+        missing_artifacts=[],
+    )
+
+
+def validate_environment_artifact(path: Path) -> dict:
+
+    if not path.is_file():
+
+        return artifact_result(
+            "NOT VERIFIED",
+            exists=False,
+        )
+
+    try:
+
+        content = path.read_text(encoding="utf-8")
+
+    except (OSError, UnicodeDecodeError) as exc:
+
+        return artifact_result(
+            "FAIL",
+            exists=True,
+            error=str(exc),
+        )
+
+    if not content.strip():
+
+        return artifact_result(
+            "FAIL",
+            exists=True,
+            format="text",
+            size_bytes=0,
+            error="Environment artifact is empty.",
+        )
+
+    lines = content.splitlines()
+
+    if not lines or lines[0] != "P2 BENCHMARK ENVIRONMENT":
+
+        return artifact_result(
+            "FAIL",
+            exists=True,
+            format="text",
+            size_bytes=len(content.encode("utf-8")),
+            error="Invalid environment artifact header.",
+        )
+
+    fields = [
+        line.partition(":")[0]
+        for line in lines
+        if ":" in line
+    ]
+
+    if not fields:
+
+        return artifact_result(
+            "FAIL",
+            exists=True,
+            format="text",
+            size_bytes=len(content.encode("utf-8")),
+            error="No environment fields found.",
+        )
+
+    return artifact_result(
+        "PASS",
+        exists=True,
+        format="text",
+        size_bytes=len(content.encode("utf-8")),
+        field_count=len(fields),
+    )
+
+
+def validate_artifacts(contract) -> dict:
+
+    return {
+        "json": validate_json_artifact(
+            Path(contract.json_path)
+        ),
+        "csv": validate_csv_artifact(
+            Path(contract.csv_path)
+        ),
+        "markdown": validate_markdown_artifact(
+            Path(contract.markdown_path),
+            contract.artifacts,
+        ),
+        "environment": validate_environment_artifact(
+            Path(contract.environment_path)
+        ),
+    }
+
+
+# ============================================================
 # MAIN AUDIT
-# =========================================================
+# ============================================================
 
 def main() -> int:
 
     parser = argparse.ArgumentParser(
         description=(
-            "P2-BENCH-CONFIG-01 independent numeric equivalence audit"
+            "P2-BENCH-CONFIG-01 numeric equivalence audit."
         )
     )
 
@@ -782,7 +1366,6 @@ def main() -> int:
         "--config",
         type=Path,
         default=DEFAULT_CONFIG,
-        help="Canonical benchmark configuration JSON.",
     )
 
     args = parser.parse_args()
@@ -793,13 +1376,6 @@ def main() -> int:
         "timestamp_utc": utc_now(),
         "status": "NOT VERIFIED",
         "tolerance": REQUIRED_TOLERANCE,
-        "metric": {
-            "primary": "frobenius_norm",
-            "secondary": "maximum_absolute_element_error",
-            "acceptance_rule": (
-                "Both metrics must be finite and <= tolerance."
-            ),
-        },
         "baseline": {
             "blob": BASELINE_RUNNER_BLOB,
             "sha256": None,
@@ -807,6 +1383,13 @@ def main() -> int:
         "migrated": {
             "path": str(RUNNER_PATH),
             "sha256": None,
+        },
+        "artifacts": {
+            name: {
+                "status": "NOT VERIFIED",
+                "exists": False,
+            }
+            for name in REQUIRED_ARTIFACTS
         },
         "operations": {},
         "issues": [],
@@ -817,33 +1400,14 @@ def main() -> int:
         if not RUNNER_PATH.is_file():
 
             raise FileNotFoundError(
-                f"Migrated runner is missing: {RUNNER_PATH}"
+                f"Migrated runner missing: {RUNNER_PATH}"
             )
 
-        if not args.config.is_file():
+        contract = load_contract(args.config)
 
-            raise FileNotFoundError(
-                f"Configuration is missing: {args.config}"
-            )
-
-        contract = load_contract(
-            args.config
+        activations, tolerance = validate_numeric_configuration(
+            contract
         )
-
-        activations, tolerance = (
-            validate_numeric_configuration(
-                contract
-            )
-        )
-
-        report["tolerance"] = tolerance
-
-        report["configuration"] = {
-            "path": str(contract.config_path),
-            "activation_vector": list(activations),
-            "operations": list(REQUIRED_OPERATIONS),
-            "tolerance": tolerance,
-        }
 
         baseline_source = git_blob(
             BASELINE_RUNNER_BLOB
@@ -851,13 +1415,30 @@ def main() -> int:
 
         migrated_source = RUNNER_PATH.read_bytes()
 
-        report["baseline"]["sha256"] = (
-            sha256_bytes(baseline_source)
+        report["baseline"]["sha256"] = sha256_bytes(
+            baseline_source
         )
 
-        report["migrated"]["sha256"] = (
-            sha256_bytes(migrated_source)
+        report["migrated"]["sha256"] = sha256_bytes(
+            migrated_source
         )
+
+        report["baseline"]["matches_migrated_blob"] = (
+            report["baseline"]["sha256"]
+            == report["migrated"]["sha256"]
+        )
+
+        report["tolerance"] = tolerance
+
+        report["configuration"] = {
+            "activation_vector": list(activations),
+            "operations": list(REQUIRED_OPERATIONS),
+            "tolerance": tolerance,
+            "artifact_paths": {
+                name: str(path)
+                for name, path in contract.artifact_paths.items()
+            },
+        }
 
         expected = build_independent_reference(
             activations
@@ -866,127 +1447,125 @@ def main() -> int:
         if set(expected) != set(REQUIRED_OPERATIONS):
 
             raise ValueError(
-                "Independent reference does not contain "
-                "exactly the eight required operations"
+                "Independent reference operation set mismatch."
             )
 
         with tempfile.TemporaryDirectory(
             prefix="p2_numeric_equivalence_"
         ) as temporary_name:
 
-            temporary_directory = Path(
-                temporary_name
-            )
+            temporary_directory = Path(temporary_name)
 
             baseline_runner = load_runner_from_source(
                 baseline_source,
-                "p2_numeric_baseline_runner",
+                "p2_numeric_baseline",
                 temporary_directory,
             )
 
             migrated_runner = load_runner_from_source(
                 migrated_source,
-                "p2_numeric_migrated_runner",
+                "p2_numeric_migrated",
                 temporary_directory,
             )
 
-            baseline_outputs = evaluate_runner(
+            baseline_outputs, baseline_pl_state = evaluate_runner(
                 baseline_runner,
                 activations,
                 expected,
-                tolerance,
             )
 
-            migrated_outputs = evaluate_runner(
+            migrated_outputs, migrated_pl_state = evaluate_runner(
                 migrated_runner,
                 activations,
                 expected,
-                tolerance,
             )
-
-        # -------------------------------------------------
-        # Compare each runner with the independent oracle
-        # and compare baseline directly with migrated output.
-        # -------------------------------------------------
-
-        all_operation_statuses = []
 
         for operation in REQUIRED_OPERATIONS:
 
+            baseline_value = baseline_outputs[operation]
+            migrated_value = migrated_outputs[operation]
+
+            if operation == "pennylane_execution":
+
+                # Confirm that the separately returned QNode state
+                # agrees with the actual operation callable output.
+                baseline_qnode_check = compare_arrays(
+                    baseline_pl_state,
+                    baseline_value,
+                    tolerance,
+                )
+
+                migrated_qnode_check = compare_arrays(
+                    migrated_pl_state,
+                    migrated_value,
+                    tolerance,
+                )
+
+                report.setdefault(
+                    "pennylane_execution_checks",
+                    {},
+                )
+
+                report["pennylane_execution_checks"] = {
+                    "baseline_qnode_vs_callable": baseline_qnode_check,
+                    "migrated_qnode_vs_callable": migrated_qnode_check,
+                    "baseline_qnode_vs_reference": compare_arrays(
+                        baseline_pl_state,
+                        expected["state_evolution"],
+                        tolerance,
+                    ),
+                    "migrated_qnode_vs_reference": compare_arrays(
+                        migrated_pl_state,
+                        expected["state_evolution"],
+                        tolerance,
+                    ),
+                }
+
             baseline_vs_reference = compare_arrays(
-                baseline_outputs[operation],
+                baseline_value,
                 expected[operation],
                 tolerance,
             )
 
             migrated_vs_reference = compare_arrays(
-                migrated_outputs[operation],
+                migrated_value,
                 expected[operation],
                 tolerance,
             )
 
             baseline_vs_migrated = compare_arrays(
-                baseline_outputs[operation],
-                migrated_outputs[operation],
+                baseline_value,
+                migrated_value,
                 tolerance,
             )
 
-            operation_passed = all(
-                result["status"] == "PASS"
-                for result in (
-                    baseline_vs_reference,
-                    migrated_vs_reference,
-                    baseline_vs_migrated,
-                )
+            comparisons = (
+                baseline_vs_reference,
+                migrated_vs_reference,
+                baseline_vs_migrated,
             )
+
+            operation_status = aggregate_operation_statuses({
+                str(index): {
+                    "status": item["status"]
+                }
+                for index, item in enumerate(comparisons)
+            })
 
             report["operations"][operation] = {
-                "status": (
-                    "PASS"
-                    if operation_passed
-                    else "FAIL"
-                ),
-                "baseline_vs_independent_reference": (
-                    baseline_vs_reference
-                ),
-                "migrated_vs_independent_reference": (
-                    migrated_vs_reference
-                ),
-                "baseline_vs_migrated": (
-                    baseline_vs_migrated
-                ),
+                "status": operation_status,
+                "baseline_vs_reference": baseline_vs_reference,
+                "migrated_vs_reference": migrated_vs_reference,
+                "baseline_vs_migrated": baseline_vs_migrated,
             }
 
-            all_operation_statuses.append(
-                "PASS"
-                if operation_passed
-                else "FAIL"
-            )
-
         report["execution"] = {
-            "mode": (
-                "In-process execution of the actual production "
-                "operation callables exposed by each runner's "
-                "build_operations() function."
-            ),
             "baseline_runner_executed": True,
             "migrated_runner_executed": True,
-            "independent_reference_executed": True,
-            "benchmark_timing_comparison": (
-                "Not part of this audit."
-            ),
+            "independent_numpy_reference_executed": True,
+            "pennylane_qnode_executed": True,
+            "timing_comparison": False,
         }
-
-        if all(
-            status == "PASS"
-            for status in all_operation_statuses
-        ):
-
-            report["status"] = "PASS"
-
-        else:
-
-            report["status"] = "FAIL"
 
     except Exception as exc:
 
@@ -998,7 +1577,76 @@ def main() -> int:
 
         report["traceback"] = traceback.format_exc()
 
-    write_report(report)
+    # Artifact checks are independent of numerical execution.
+    try:
+
+        if "contract" in locals():
+
+            report["artifacts"] = validate_artifacts(contract)
+
+    except Exception as exc:
+
+        report["issues"].append(
+            f"Artifact validation: {type(exc).__name__}: {exc}"
+        )
+
+    operation_status = aggregate_operation_statuses(
+        report["operations"]
+    )
+
+    artifact_status = aggregate_artifact_statuses(
+        report["artifacts"]
+    )
+
+    report["status"] = aggregate_operation_statuses({
+        "operations": {
+            "status": operation_status
+        },
+        "artifacts": {
+            "status": artifact_status
+        },
+    })
+
+    if report["issues"] and report["status"] == "PASS":
+        report["status"] = "NOT VERIFIED"
+
+    validation = validate_numeric_report(report)
+
+    report["report_validation"] = validation
+
+    if validation["status"] == "FAIL":
+
+        report["status"] = "FAIL"
+
+        report["issues"].extend(
+            validation["errors"]
+        )
+
+    elif (
+        validation["status"] == "NOT VERIFIED"
+        and report["status"] == "PASS"
+    ):
+
+        report["status"] = "NOT VERIFIED"
+
+        report["issues"].extend(
+            validation["errors"]
+        )
+
+    REPORT_PATH.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    REPORT_PATH.write_text(
+        json.dumps(
+            report,
+            indent=2,
+            ensure_ascii=False,
+            allow_nan=False,
+        ) + "\n",
+        encoding="utf-8",
+    )
 
     print(
         json.dumps(
@@ -1008,17 +1656,14 @@ def main() -> int:
         )
     )
 
-    if report["status"] == "FAIL":
+    if report["status"] == "PASS":
+        return 0
 
+    if report["status"] == "FAIL":
         return 1
 
-    if report["status"] == "NOT VERIFIED":
-
-        return 2
-
-    return 0
+    return 2
 
 
 if __name__ == "__main__":
-
     raise SystemExit(main())
