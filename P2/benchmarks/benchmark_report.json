@@ -8,7 +8,7 @@
   "all_checks_pass": true,
   "basis_order": "big-endian",
   "benchmark_id": "P2-CANONICAL-4Q-PAIRED-OPERATIONS",
-  "combined_timed_execution_seconds": 0.031371988,
+  "combined_timed_execution_seconds": 0.032679912,
   "environment": {
     "benchmark_timer": "time.perf_counter_ns",
     "canonical_memberships": [
@@ -17,15 +17,15 @@
       0.45,
       0.7
     ],
-    "captured_at_utc": "2026-10-21T20:20:51.001038+00:00",
+    "captured_at_utc": "2026-10-21T20:34:55.751445+00:00",
     "cpu_model": "AMD EPYC 9V45 96-Core Processor",
     "git": {
       "branch": "main",
-      "commit": "4db9ad8416224f99dd86db8fdada4420a66f96df",
+      "commit": "119b0f45a2cf82ea8fdd0eb7938335926d0b9556",
       "github_run_attempt": "1",
-      "github_run_id": "39669447093",
+      "github_run_id": "39671489507",
       "github_workflow": "P2 Canonical Reproducibility and Acceptance",
-      "worktree_status": "M P2/reports/environment.txt\n M P2/reports/junit.xml\n M P2/reports/pytest-run.json\n M P2/reports/reference_artifacts/metadata.json\n?? P2/benchmarks/__pycache__/\n?? P2/code/__pycache__/\n?? P2/tests/__pycache__/\n?? P2/tools/__pycache__/"
+      "worktree_status": "M P2/reports/environment.txt\n M P2/reports/junit.xml\n M P2/reports/pytest-run.json\n?? P2/benchmarks/__pycache__/\n?? P2/code/__pycache__/\n?? P2/tests/__pycache__/\n?? P2/tools/__pycache__/"
     },
     "hilbert_dimension": 16,
     "logical_cpu_count": 4,
@@ -52,8 +52,8 @@
     "paired_measurement": true,
     "used_for_timed_operation_checks": true
   },
-  "independent_total_execution_seconds": 0.006110884,
-  "initial_evidence_generation_seconds": 0.00184353,
+  "independent_total_execution_seconds": 0.006388489,
+  "initial_evidence_generation_seconds": 0.002364977,
   "limitations": [
     "Only the canonical four-qubit P2 instance is measured.",
     "The Hilbert-space dimension is 16.",
@@ -105,256 +105,256 @@
   "operations": [
     {
       "independent": {
-        "maximum_ns": 60371,
-        "mean_ns": 42490.4,
-        "median_ns": 41021.5,
-        "minimum_ns": 39910,
-        "operations_per_second": 24377.460599929305,
+        "maximum_ns": 55735,
+        "mean_ns": 44053.933333333334,
+        "median_ns": 43270.0,
+        "minimum_ns": 42464,
+        "operations_per_second": 23110.700254217703,
         "samples": 30,
-        "standard_deviation_ns": 4811.881361796029
+        "standard_deviation_ns": 2478.4822497291
       },
       "independent_numerical_error": 0.0,
       "independent_passed": true,
-      "maximum_ns": 81122,
-      "mean_ns": 50089.5,
-      "median_ns": 48042.5,
-      "minimum_ns": 46951,
+      "maximum_ns": 68814,
+      "mean_ns": 52649.6,
+      "median_ns": 51303.0,
+      "minimum_ns": 50216,
       "numerical_error": 0.0,
       "numerical_tolerance": 1e-12,
       "operation": "rotation_operator",
-      "operations_per_second": 20814.903470885154,
+      "operations_per_second": 19492.037502680156,
       "paired_comparison": {
-        "independent_over_production_median_ratio": 0.8538585627309153,
-        "median_difference_independent_minus_production_ns": -7571.0,
-        "production_reduction_percent_vs_independent": -17.115415087210366,
-        "production_win_count": 2,
-        "production_win_rate_percent": 6.666666666666667,
+        "independent_over_production_median_ratio": 0.8434204627409703,
+        "median_difference_independent_minus_production_ns": -7847.0,
+        "production_reduction_percent_vs_independent": -18.564825514213084,
+        "production_win_count": 1,
+        "production_win_rate_percent": 3.3333333333333335,
         "tie_count": 0
       },
       "paired_samples": [
         {
-          "difference_independent_minus_production_ns": -7902,
+          "difference_independent_minus_production_ns": -8874,
           "first_execution": "production",
-          "independent_ns": 41573,
-          "production_ns": 49475,
+          "independent_ns": 44186,
+          "production_ns": 53060,
           "sample_index": 1
         },
         {
-          "difference_independent_minus_production_ns": -6871,
+          "difference_independent_minus_production_ns": -8243,
           "first_execution": "independent",
-          "independent_ns": 43285,
-          "production_ns": 50156,
+          "independent_ns": 45469,
+          "production_ns": 53712,
           "sample_index": 2
         },
         {
-          "difference_independent_minus_production_ns": -11798,
+          "difference_independent_minus_production_ns": -11217,
           "first_execution": "production",
-          "independent_ns": 43856,
-          "production_ns": 55654,
+          "independent_ns": 43876,
+          "production_ns": 55093,
           "sample_index": 3
         },
         {
-          "difference_independent_minus_production_ns": -35152,
+          "difference_independent_minus_production_ns": -6640,
           "first_execution": "independent",
-          "independent_ns": 45970,
-          "production_ns": 81122,
+          "independent_ns": 45179,
+          "production_ns": 51819,
           "sample_index": 4
         },
         {
-          "difference_independent_minus_production_ns": -9764,
+          "difference_independent_minus_production_ns": -8362,
           "first_execution": "production",
-          "independent_ns": 41233,
-          "production_ns": 50997,
+          "independent_ns": 43727,
+          "production_ns": 52089,
           "sample_index": 5
         },
         {
-          "difference_independent_minus_production_ns": -7400,
+          "difference_independent_minus_production_ns": -7561,
           "first_execution": "independent",
-          "independent_ns": 41143,
-          "production_ns": 48543,
+          "independent_ns": 43797,
+          "production_ns": 51358,
           "sample_index": 6
         },
         {
-          "difference_independent_minus_production_ns": -8484,
+          "difference_independent_minus_production_ns": -8233,
           "first_execution": "production",
-          "independent_ns": 41031,
-          "production_ns": 49515,
+          "independent_ns": 43135,
+          "production_ns": 51368,
           "sample_index": 7
         },
         {
-          "difference_independent_minus_production_ns": -8282,
+          "difference_independent_minus_production_ns": -24006,
           "first_execution": "independent",
-          "independent_ns": 41012,
-          "production_ns": 49294,
+          "independent_ns": 42795,
+          "production_ns": 66801,
           "sample_index": 8
         },
         {
-          "difference_independent_minus_production_ns": -7832,
+          "difference_independent_minus_production_ns": -8332,
           "first_execution": "production",
-          "independent_ns": 41633,
-          "production_ns": 49465,
+          "independent_ns": 43196,
+          "production_ns": 51528,
           "sample_index": 9
         },
         {
-          "difference_independent_minus_production_ns": -7761,
+          "difference_independent_minus_production_ns": -8512,
           "first_execution": "independent",
-          "independent_ns": 41143,
-          "production_ns": 48904,
+          "independent_ns": 43666,
+          "production_ns": 52178,
           "sample_index": 10
         },
         {
-          "difference_independent_minus_production_ns": -8092,
+          "difference_independent_minus_production_ns": -9044,
           "first_execution": "production",
-          "independent_ns": 40180,
-          "production_ns": 48272,
+          "independent_ns": 43065,
+          "production_ns": 52109,
           "sample_index": 11
-        },
-        {
-          "difference_independent_minus_production_ns": -6931,
-          "first_execution": "independent",
-          "independent_ns": 40461,
-          "production_ns": 47392,
-          "sample_index": 12
-        },
-        {
-          "difference_independent_minus_production_ns": 13160,
-          "first_execution": "production",
-          "independent_ns": 60371,
-          "production_ns": 47211,
-          "sample_index": 13
-        },
-        {
-          "difference_independent_minus_production_ns": -6309,
-          "first_execution": "independent",
-          "independent_ns": 41282,
-          "production_ns": 47591,
-          "sample_index": 14
-        },
-        {
-          "difference_independent_minus_production_ns": -7702,
-          "first_execution": "production",
-          "independent_ns": 39910,
-          "production_ns": 47612,
-          "sample_index": 15
-        },
-        {
-          "difference_independent_minus_production_ns": -7511,
-          "first_execution": "independent",
-          "independent_ns": 40251,
-          "production_ns": 47762,
-          "sample_index": 16
-        },
-        {
-          "difference_independent_minus_production_ns": -7300,
-          "first_execution": "production",
-          "independent_ns": 40371,
-          "production_ns": 47671,
-          "sample_index": 17
-        },
-        {
-          "difference_independent_minus_production_ns": -5949,
-          "first_execution": "independent",
-          "independent_ns": 41953,
-          "production_ns": 47902,
-          "sample_index": 18
-        },
-        {
-          "difference_independent_minus_production_ns": -7171,
-          "first_execution": "production",
-          "independent_ns": 40340,
-          "production_ns": 47511,
-          "sample_index": 19
-        },
-        {
-          "difference_independent_minus_production_ns": -7231,
-          "first_execution": "independent",
-          "independent_ns": 40000,
-          "production_ns": 47231,
-          "sample_index": 20
-        },
-        {
-          "difference_independent_minus_production_ns": -6781,
-          "first_execution": "production",
-          "independent_ns": 40170,
-          "production_ns": 46951,
-          "sample_index": 21
-        },
-        {
-          "difference_independent_minus_production_ns": -7412,
-          "first_execution": "independent",
-          "independent_ns": 40030,
-          "production_ns": 47442,
-          "sample_index": 22
-        },
-        {
-          "difference_independent_minus_production_ns": 11207,
-          "first_execution": "production",
-          "independent_ns": 58929,
-          "production_ns": 47722,
-          "sample_index": 23
-        },
-        {
-          "difference_independent_minus_production_ns": -7221,
-          "first_execution": "independent",
-          "independent_ns": 40280,
-          "production_ns": 47501,
-          "sample_index": 24
-        },
-        {
-          "difference_independent_minus_production_ns": -7631,
-          "first_execution": "production",
-          "independent_ns": 44868,
-          "production_ns": 52499,
-          "sample_index": 25
-        },
-        {
-          "difference_independent_minus_production_ns": -7921,
-          "first_execution": "independent",
-          "independent_ns": 42004,
-          "production_ns": 49925,
-          "sample_index": 26
-        },
-        {
-          "difference_independent_minus_production_ns": -17367,
-          "first_execution": "production",
-          "independent_ns": 40841,
-          "production_ns": 58208,
-          "sample_index": 27
         },
         {
           "difference_independent_minus_production_ns": -7772,
           "first_execution": "independent",
-          "independent_ns": 40411,
-          "production_ns": 48183,
+          "independent_ns": 43055,
+          "production_ns": 50827,
+          "sample_index": 12
+        },
+        {
+          "difference_independent_minus_production_ns": -7852,
+          "first_execution": "production",
+          "independent_ns": 42995,
+          "production_ns": 50847,
+          "sample_index": 13
+        },
+        {
+          "difference_independent_minus_production_ns": -9985,
+          "first_execution": "independent",
+          "independent_ns": 42464,
+          "production_ns": 52449,
+          "sample_index": 14
+        },
+        {
+          "difference_independent_minus_production_ns": -7731,
+          "first_execution": "production",
+          "independent_ns": 42925,
+          "production_ns": 50656,
+          "sample_index": 15
+        },
+        {
+          "difference_independent_minus_production_ns": -8082,
+          "first_execution": "independent",
+          "independent_ns": 42565,
+          "production_ns": 50647,
+          "sample_index": 16
+        },
+        {
+          "difference_independent_minus_production_ns": 4718,
+          "first_execution": "production",
+          "independent_ns": 55735,
+          "production_ns": 51017,
+          "sample_index": 17
+        },
+        {
+          "difference_independent_minus_production_ns": -7211,
+          "first_execution": "independent",
+          "independent_ns": 43405,
+          "production_ns": 50616,
+          "sample_index": 18
+        },
+        {
+          "difference_independent_minus_production_ns": -7651,
+          "first_execution": "production",
+          "independent_ns": 42875,
+          "production_ns": 50526,
+          "sample_index": 19
+        },
+        {
+          "difference_independent_minus_production_ns": -7652,
+          "first_execution": "independent",
+          "independent_ns": 42944,
+          "production_ns": 50596,
+          "sample_index": 20
+        },
+        {
+          "difference_independent_minus_production_ns": -6941,
+          "first_execution": "production",
+          "independent_ns": 43275,
+          "production_ns": 50216,
+          "sample_index": 21
+        },
+        {
+          "difference_independent_minus_production_ns": -7190,
+          "first_execution": "independent",
+          "independent_ns": 43366,
+          "production_ns": 50556,
+          "sample_index": 22
+        },
+        {
+          "difference_independent_minus_production_ns": -7521,
+          "first_execution": "production",
+          "independent_ns": 43205,
+          "production_ns": 50726,
+          "sample_index": 23
+        },
+        {
+          "difference_independent_minus_production_ns": -7542,
+          "first_execution": "independent",
+          "independent_ns": 43075,
+          "production_ns": 50617,
+          "sample_index": 24
+        },
+        {
+          "difference_independent_minus_production_ns": -1994,
+          "first_execution": "production",
+          "independent_ns": 48773,
+          "production_ns": 50767,
+          "sample_index": 25
+        },
+        {
+          "difference_independent_minus_production_ns": -23396,
+          "first_execution": "independent",
+          "independent_ns": 45418,
+          "production_ns": 68814,
+          "sample_index": 26
+        },
+        {
+          "difference_independent_minus_production_ns": -9685,
+          "first_execution": "production",
+          "independent_ns": 43265,
+          "production_ns": 52950,
+          "sample_index": 27
+        },
+        {
+          "difference_independent_minus_production_ns": -7601,
+          "first_execution": "independent",
+          "independent_ns": 43566,
+          "production_ns": 51167,
           "sample_index": 28
         },
         {
-          "difference_independent_minus_production_ns": -7072,
+          "difference_independent_minus_production_ns": -7842,
           "first_execution": "production",
-          "independent_ns": 40110,
-          "production_ns": 47182,
+          "independent_ns": 43406,
+          "production_ns": 51248,
           "sample_index": 29
         },
         {
-          "difference_independent_minus_production_ns": -7721,
+          "difference_independent_minus_production_ns": -9916,
           "first_execution": "independent",
-          "independent_ns": 40071,
-          "production_ns": 47792,
+          "independent_ns": 43215,
+          "production_ns": 53131,
           "sample_index": 30
         }
       ],
       "passed": true,
       "production": {
-        "maximum_ns": 81122,
-        "mean_ns": 50089.5,
-        "median_ns": 48042.5,
-        "minimum_ns": 46951,
-        "operations_per_second": 20814.903470885154,
+        "maximum_ns": 68814,
+        "mean_ns": 52649.6,
+        "median_ns": 51303.0,
+        "minimum_ns": 50216,
+        "operations_per_second": 19492.037502680156,
         "samples": 30,
-        "standard_deviation_ns": 6273.560912007364
+        "standard_deviation_ns": 4207.909319365141
       },
       "repetitions": 30,
-      "standard_deviation_ns": 6273.560912007364,
+      "standard_deviation_ns": 4207.909319365141,
       "warmups": 5,
       "world_record": {
         "display": "N/A \u2014 no verified directly comparable record",
@@ -366,256 +366,256 @@
     },
     {
       "independent": {
-        "maximum_ns": 14662,
-        "mean_ns": 1714.2333333333333,
-        "median_ns": 1226.5,
-        "minimum_ns": 1132,
-        "operations_per_second": 815328.1695882593,
+        "maximum_ns": 2243,
+        "mean_ns": 1339.9333333333334,
+        "median_ns": 1312.0,
+        "minimum_ns": 1202,
+        "operations_per_second": 762195.1219512195,
         "samples": 30,
-        "standard_deviation_ns": 2412.0983628828703
+        "standard_deviation_ns": 186.40438716820898
       },
       "independent_numerical_error": 0.0,
       "independent_passed": true,
-      "maximum_ns": 1813,
-      "mean_ns": 1243.2,
-      "median_ns": 1201.5,
-      "minimum_ns": 1131,
+      "maximum_ns": 1752,
+      "mean_ns": 1310.9666666666667,
+      "median_ns": 1262.0,
+      "minimum_ns": 1201,
       "numerical_error": 0.0,
       "numerical_tolerance": 1e-12,
       "operation": "c3x_operator",
-      "operations_per_second": 832292.9671244278,
+      "operations_per_second": 792393.0269413629,
       "paired_comparison": {
-        "independent_over_production_median_ratio": 1.0208073241781106,
-        "median_difference_independent_minus_production_ns": 30.0,
-        "production_reduction_percent_vs_independent": 2.038320423970648,
+        "independent_over_production_median_ratio": 1.0396196513470681,
+        "median_difference_independent_minus_production_ns": 14.5,
+        "production_reduction_percent_vs_independent": 3.8109756097560976,
         "production_win_count": 16,
         "production_win_rate_percent": 53.333333333333336,
-        "tie_count": 3
+        "tie_count": 1
       },
       "paired_samples": [
         {
-          "difference_independent_minus_production_ns": 13270,
+          "difference_independent_minus_production_ns": -100,
           "first_execution": "production",
-          "independent_ns": 14662,
-          "production_ns": 1392,
+          "independent_ns": 1392,
+          "production_ns": 1492,
           "sample_index": 1
         },
         {
-          "difference_independent_minus_production_ns": 400,
+          "difference_independent_minus_production_ns": 491,
           "first_execution": "independent",
-          "independent_ns": 2213,
-          "production_ns": 1813,
+          "independent_ns": 2243,
+          "production_ns": 1752,
           "sample_index": 2
+        },
+        {
+          "difference_independent_minus_production_ns": -200,
+          "first_execution": "production",
+          "independent_ns": 1483,
+          "production_ns": 1683,
+          "sample_index": 3
+        },
+        {
+          "difference_independent_minus_production_ns": 180,
+          "first_execution": "independent",
+          "independent_ns": 1522,
+          "production_ns": 1342,
+          "sample_index": 4
+        },
+        {
+          "difference_independent_minus_production_ns": -130,
+          "first_execution": "production",
+          "independent_ns": 1222,
+          "production_ns": 1352,
+          "sample_index": 5
+        },
+        {
+          "difference_independent_minus_production_ns": 110,
+          "first_execution": "independent",
+          "independent_ns": 1392,
+          "production_ns": 1282,
+          "sample_index": 6
+        },
+        {
+          "difference_independent_minus_production_ns": -41,
+          "first_execution": "production",
+          "independent_ns": 1221,
+          "production_ns": 1262,
+          "sample_index": 7
+        },
+        {
+          "difference_independent_minus_production_ns": 120,
+          "first_execution": "independent",
+          "independent_ns": 1342,
+          "production_ns": 1222,
+          "sample_index": 8
         },
         {
           "difference_independent_minus_production_ns": -131,
           "first_execution": "production",
-          "independent_ns": 1402,
-          "production_ns": 1533,
-          "sample_index": 3
-        },
-        {
-          "difference_independent_minus_production_ns": 160,
-          "first_execution": "independent",
-          "independent_ns": 1482,
-          "production_ns": 1322,
-          "sample_index": 4
-        },
-        {
-          "difference_independent_minus_production_ns": -100,
-          "first_execution": "production",
-          "independent_ns": 1192,
-          "production_ns": 1292,
-          "sample_index": 5
-        },
-        {
-          "difference_independent_minus_production_ns": 50,
-          "first_execution": "independent",
-          "independent_ns": 1342,
-          "production_ns": 1292,
-          "sample_index": 6
-        },
-        {
-          "difference_independent_minus_production_ns": 0,
-          "first_execution": "production",
-          "independent_ns": 1192,
-          "production_ns": 1192,
-          "sample_index": 7
-        },
-        {
-          "difference_independent_minus_production_ns": 110,
-          "first_execution": "independent",
-          "independent_ns": 1272,
-          "production_ns": 1162,
-          "sample_index": 8
-        },
-        {
-          "difference_independent_minus_production_ns": -210,
-          "first_execution": "production",
-          "independent_ns": 1162,
-          "production_ns": 1372,
+          "independent_ns": 1261,
+          "production_ns": 1392,
           "sample_index": 9
         },
         {
-          "difference_independent_minus_production_ns": 60,
+          "difference_independent_minus_production_ns": 91,
           "first_execution": "independent",
-          "independent_ns": 1191,
-          "production_ns": 1131,
+          "independent_ns": 1292,
+          "production_ns": 1201,
           "sample_index": 10
-        },
-        {
-          "difference_independent_minus_production_ns": -90,
-          "first_execution": "production",
-          "independent_ns": 1142,
-          "production_ns": 1232,
-          "sample_index": 11
-        },
-        {
-          "difference_independent_minus_production_ns": 0,
-          "first_execution": "independent",
-          "independent_ns": 1212,
-          "production_ns": 1212,
-          "sample_index": 12
-        },
-        {
-          "difference_independent_minus_production_ns": 0,
-          "first_execution": "production",
-          "independent_ns": 1252,
-          "production_ns": 1252,
-          "sample_index": 13
-        },
-        {
-          "difference_independent_minus_production_ns": 200,
-          "first_execution": "independent",
-          "independent_ns": 1392,
-          "production_ns": 1192,
-          "sample_index": 14
-        },
-        {
-          "difference_independent_minus_production_ns": -50,
-          "first_execution": "production",
-          "independent_ns": 1182,
-          "production_ns": 1232,
-          "sample_index": 15
-        },
-        {
-          "difference_independent_minus_production_ns": 100,
-          "first_execution": "independent",
-          "independent_ns": 1252,
-          "production_ns": 1152,
-          "sample_index": 16
-        },
-        {
-          "difference_independent_minus_production_ns": -10,
-          "first_execution": "production",
-          "independent_ns": 1151,
-          "production_ns": 1161,
-          "sample_index": 17
-        },
-        {
-          "difference_independent_minus_production_ns": 71,
-          "first_execution": "independent",
-          "independent_ns": 1222,
-          "production_ns": 1151,
-          "sample_index": 18
-        },
-        {
-          "difference_independent_minus_production_ns": 10,
-          "first_execution": "production",
-          "independent_ns": 1202,
-          "production_ns": 1192,
-          "sample_index": 19
-        },
-        {
-          "difference_independent_minus_production_ns": 80,
-          "first_execution": "independent",
-          "independent_ns": 1231,
-          "production_ns": 1151,
-          "sample_index": 20
-        },
-        {
-          "difference_independent_minus_production_ns": -30,
-          "first_execution": "production",
-          "independent_ns": 1172,
-          "production_ns": 1202,
-          "sample_index": 21
-        },
-        {
-          "difference_independent_minus_production_ns": 110,
-          "first_execution": "independent",
-          "independent_ns": 1242,
-          "production_ns": 1132,
-          "sample_index": 22
         },
         {
           "difference_independent_minus_production_ns": -60,
           "first_execution": "production",
-          "independent_ns": 1152,
-          "production_ns": 1212,
-          "sample_index": 23
+          "independent_ns": 1202,
+          "production_ns": 1262,
+          "sample_index": 11
         },
         {
           "difference_independent_minus_production_ns": 50,
           "first_execution": "independent",
-          "independent_ns": 1262,
+          "independent_ns": 1312,
+          "production_ns": 1262,
+          "sample_index": 12
+        },
+        {
+          "difference_independent_minus_production_ns": 10,
+          "first_execution": "production",
+          "independent_ns": 1362,
+          "production_ns": 1352,
+          "sample_index": 13
+        },
+        {
+          "difference_independent_minus_production_ns": 40,
+          "first_execution": "independent",
+          "independent_ns": 1362,
+          "production_ns": 1322,
+          "sample_index": 14
+        },
+        {
+          "difference_independent_minus_production_ns": 0,
+          "first_execution": "production",
+          "independent_ns": 1282,
+          "production_ns": 1282,
+          "sample_index": 15
+        },
+        {
+          "difference_independent_minus_production_ns": 121,
+          "first_execution": "independent",
+          "independent_ns": 1362,
+          "production_ns": 1241,
+          "sample_index": 16
+        },
+        {
+          "difference_independent_minus_production_ns": -40,
+          "first_execution": "production",
+          "independent_ns": 1222,
+          "production_ns": 1262,
+          "sample_index": 17
+        },
+        {
+          "difference_independent_minus_production_ns": 100,
+          "first_execution": "independent",
+          "independent_ns": 1312,
           "production_ns": 1212,
+          "sample_index": 18
+        },
+        {
+          "difference_independent_minus_production_ns": -30,
+          "first_execution": "production",
+          "independent_ns": 1232,
+          "production_ns": 1262,
+          "sample_index": 19
+        },
+        {
+          "difference_independent_minus_production_ns": 130,
+          "first_execution": "independent",
+          "independent_ns": 1382,
+          "production_ns": 1252,
+          "sample_index": 20
+        },
+        {
+          "difference_independent_minus_production_ns": -31,
+          "first_execution": "production",
+          "independent_ns": 1231,
+          "production_ns": 1262,
+          "sample_index": 21
+        },
+        {
+          "difference_independent_minus_production_ns": 30,
+          "first_execution": "independent",
+          "independent_ns": 1272,
+          "production_ns": 1242,
+          "sample_index": 22
+        },
+        {
+          "difference_independent_minus_production_ns": -90,
+          "first_execution": "production",
+          "independent_ns": 1242,
+          "production_ns": 1332,
+          "sample_index": 23
+        },
+        {
+          "difference_independent_minus_production_ns": -20,
+          "first_execution": "independent",
+          "independent_ns": 1312,
+          "production_ns": 1332,
           "sample_index": 24
         },
         {
           "difference_independent_minus_production_ns": -40,
           "first_execution": "production",
-          "independent_ns": 1132,
-          "production_ns": 1172,
+          "independent_ns": 1222,
+          "production_ns": 1262,
           "sample_index": 25
         },
         {
-          "difference_independent_minus_production_ns": 120,
+          "difference_independent_minus_production_ns": 110,
           "first_execution": "independent",
-          "independent_ns": 1271,
-          "production_ns": 1151,
+          "independent_ns": 1332,
+          "production_ns": 1222,
           "sample_index": 26
         },
         {
-          "difference_independent_minus_production_ns": -30,
+          "difference_independent_minus_production_ns": 19,
           "first_execution": "production",
-          "independent_ns": 1162,
-          "production_ns": 1192,
+          "independent_ns": 1231,
+          "production_ns": 1212,
           "sample_index": 27
         },
         {
-          "difference_independent_minus_production_ns": 60,
+          "difference_independent_minus_production_ns": 140,
           "first_execution": "independent",
-          "independent_ns": 1292,
-          "production_ns": 1232,
+          "independent_ns": 1422,
+          "production_ns": 1282,
           "sample_index": 28
         },
         {
-          "difference_independent_minus_production_ns": -39,
+          "difference_independent_minus_production_ns": -70,
           "first_execution": "production",
-          "independent_ns": 1162,
-          "production_ns": 1201,
+          "independent_ns": 1202,
+          "production_ns": 1272,
           "sample_index": 29
         },
         {
-          "difference_independent_minus_production_ns": 70,
+          "difference_independent_minus_production_ns": 110,
           "first_execution": "independent",
-          "independent_ns": 1232,
-          "production_ns": 1162,
+          "independent_ns": 1332,
+          "production_ns": 1222,
           "sample_index": 30
         }
       ],
       "passed": true,
       "production": {
-        "maximum_ns": 1813,
-        "mean_ns": 1243.2,
-        "median_ns": 1201.5,
-        "minimum_ns": 1131,
-        "operations_per_second": 832292.9671244278,
+        "maximum_ns": 1752,
+        "mean_ns": 1310.9666666666667,
+        "median_ns": 1262.0,
+        "minimum_ns": 1201,
+        "operations_per_second": 792393.0269413629,
         "samples": 30,
-        "standard_deviation_ns": 136.56314778641175
+        "standard_deviation_ns": 124.76257006365687
       },
       "repetitions": 30,
-      "standard_deviation_ns": 136.56314778641175,
+      "standard_deviation_ns": 124.76257006365687,
       "warmups": 5,
       "world_record": {
         "display": "N/A \u2014 no verified directly comparable record",
@@ -627,256 +627,256 @@
     },
     {
       "independent": {
-        "maximum_ns": 49435,
-        "mean_ns": 43643.46666666667,
-        "median_ns": 43045.0,
-        "minimum_ns": 42554,
-        "operations_per_second": 23231.501916598907,
+        "maximum_ns": 50937,
+        "mean_ns": 46600.23333333333,
+        "median_ns": 46185.0,
+        "minimum_ns": 45589,
+        "operations_per_second": 21652.051531882647,
         "samples": 30,
-        "standard_deviation_ns": 1549.4286416468349
+        "standard_deviation_ns": 1137.2080045249222
       },
       "independent_numerical_error": 0.0,
       "independent_passed": true,
-      "maximum_ns": 60100,
-      "mean_ns": 51253.9,
-      "median_ns": 50521.0,
-      "minimum_ns": 49945,
+      "maximum_ns": 68764,
+      "mean_ns": 55331.1,
+      "median_ns": 54197.0,
+      "minimum_ns": 53311,
       "numerical_error": 0.0,
       "numerical_tolerance": 1e-12,
       "operation": "transition_operator",
-      "operations_per_second": 19793.749134023474,
+      "operations_per_second": 18451.205786298135,
       "paired_comparison": {
-        "independent_over_production_median_ratio": 0.8520219314740405,
-        "median_difference_independent_minus_production_ns": -7461.0,
-        "production_reduction_percent_vs_independent": -17.367870832849345,
+        "independent_over_production_median_ratio": 0.8521689392401793,
+        "median_difference_independent_minus_production_ns": -7947.5,
+        "production_reduction_percent_vs_independent": -17.347623687344377,
         "production_win_count": 0,
         "production_win_rate_percent": 0.0,
         "tie_count": 0
       },
       "paired_samples": [
         {
-          "difference_independent_minus_production_ns": -7402,
+          "difference_independent_minus_production_ns": -7621,
           "first_execution": "production",
-          "independent_ns": 43856,
-          "production_ns": 51258,
+          "independent_ns": 46871,
+          "production_ns": 54492,
           "sample_index": 1
         },
         {
-          "difference_independent_minus_production_ns": -8073,
+          "difference_independent_minus_production_ns": -8603,
           "first_execution": "independent",
-          "independent_ns": 44847,
-          "production_ns": 52920,
+          "independent_ns": 47783,
+          "production_ns": 56386,
           "sample_index": 2
         },
         {
-          "difference_independent_minus_production_ns": -7281,
+          "difference_independent_minus_production_ns": -7812,
           "first_execution": "production",
-          "independent_ns": 44467,
-          "production_ns": 51748,
+          "independent_ns": 50937,
+          "production_ns": 58749,
           "sample_index": 3
         },
         {
-          "difference_independent_minus_production_ns": -2844,
+          "difference_independent_minus_production_ns": -7111,
           "first_execution": "independent",
-          "independent_ns": 48593,
-          "production_ns": 51437,
+          "independent_ns": 47742,
+          "production_ns": 54853,
           "sample_index": 4
         },
         {
-          "difference_independent_minus_production_ns": -7601,
+          "difference_independent_minus_production_ns": -8563,
           "first_execution": "production",
-          "independent_ns": 43616,
-          "production_ns": 51217,
+          "independent_ns": 46300,
+          "production_ns": 54863,
           "sample_index": 5
         },
         {
-          "difference_independent_minus_production_ns": -6789,
+          "difference_independent_minus_production_ns": -7712,
           "first_execution": "independent",
-          "independent_ns": 43596,
-          "production_ns": 50385,
+          "independent_ns": 46230,
+          "production_ns": 53942,
           "sample_index": 6
         },
         {
-          "difference_independent_minus_production_ns": -7502,
+          "difference_independent_minus_production_ns": -8613,
           "first_execution": "production",
-          "independent_ns": 43455,
-          "production_ns": 50957,
+          "independent_ns": 46090,
+          "production_ns": 54703,
           "sample_index": 7
         },
         {
-          "difference_independent_minus_production_ns": -7271,
+          "difference_independent_minus_production_ns": -7851,
           "first_execution": "independent",
-          "independent_ns": 43596,
-          "production_ns": 50867,
+          "independent_ns": 46701,
+          "production_ns": 54552,
           "sample_index": 8
         },
         {
-          "difference_independent_minus_production_ns": -16735,
+          "difference_independent_minus_production_ns": -7731,
           "first_execution": "production",
-          "independent_ns": 43365,
-          "production_ns": 60100,
+          "independent_ns": 46371,
+          "production_ns": 54102,
           "sample_index": 9
         },
         {
-          "difference_independent_minus_production_ns": -8162,
+          "difference_independent_minus_production_ns": -8683,
           "first_execution": "independent",
-          "independent_ns": 43015,
-          "production_ns": 51177,
+          "independent_ns": 45589,
+          "production_ns": 54272,
           "sample_index": 10
         },
         {
-          "difference_independent_minus_production_ns": -7581,
+          "difference_independent_minus_production_ns": -21843,
           "first_execution": "production",
-          "independent_ns": 42845,
-          "production_ns": 50426,
+          "independent_ns": 46921,
+          "production_ns": 68764,
           "sample_index": 11
         },
         {
-          "difference_independent_minus_production_ns": -7481,
+          "difference_independent_minus_production_ns": -8653,
           "first_execution": "independent",
-          "independent_ns": 43245,
-          "production_ns": 50726,
+          "independent_ns": 46180,
+          "production_ns": 54833,
           "sample_index": 12
         },
         {
-          "difference_independent_minus_production_ns": -7261,
+          "difference_independent_minus_production_ns": -7923,
           "first_execution": "production",
-          "independent_ns": 43005,
-          "production_ns": 50266,
+          "independent_ns": 45919,
+          "production_ns": 53842,
           "sample_index": 13
         },
         {
-          "difference_independent_minus_production_ns": -7421,
+          "difference_independent_minus_production_ns": -7762,
           "first_execution": "independent",
-          "independent_ns": 43065,
-          "production_ns": 50486,
+          "independent_ns": 46190,
+          "production_ns": 53952,
           "sample_index": 14
         },
         {
-          "difference_independent_minus_production_ns": -7091,
+          "difference_independent_minus_production_ns": -8192,
           "first_execution": "production",
-          "independent_ns": 42865,
-          "production_ns": 49956,
+          "independent_ns": 45659,
+          "production_ns": 53851,
           "sample_index": 15
         },
         {
-          "difference_independent_minus_production_ns": -7672,
+          "difference_independent_minus_production_ns": -7772,
           "first_execution": "independent",
-          "independent_ns": 42874,
-          "production_ns": 50546,
+          "independent_ns": 46090,
+          "production_ns": 53862,
           "sample_index": 16
         },
         {
-          "difference_independent_minus_production_ns": -6920,
+          "difference_independent_minus_production_ns": -4838,
           "first_execution": "production",
-          "independent_ns": 43025,
-          "production_ns": 49945,
+          "independent_ns": 48473,
+          "production_ns": 53311,
           "sample_index": 17
         },
         {
-          "difference_independent_minus_production_ns": -15464,
+          "difference_independent_minus_production_ns": -8152,
           "first_execution": "independent",
-          "independent_ns": 42584,
-          "production_ns": 58048,
+          "independent_ns": 45970,
+          "production_ns": 54122,
           "sample_index": 18
         },
         {
-          "difference_independent_minus_production_ns": -7261,
+          "difference_independent_minus_production_ns": -7901,
           "first_execution": "production",
-          "independent_ns": 43014,
-          "production_ns": 50275,
+          "independent_ns": 45840,
+          "production_ns": 53741,
           "sample_index": 19
         },
         {
-          "difference_independent_minus_production_ns": -7771,
+          "difference_independent_minus_production_ns": -5909,
           "first_execution": "independent",
-          "independent_ns": 42735,
-          "production_ns": 50506,
+          "independent_ns": 48243,
+          "production_ns": 54152,
           "sample_index": 20
         },
         {
-          "difference_independent_minus_production_ns": -7441,
+          "difference_independent_minus_production_ns": -8372,
           "first_execution": "production",
-          "independent_ns": 42885,
-          "production_ns": 50326,
+          "independent_ns": 45739,
+          "production_ns": 54111,
           "sample_index": 21
         },
         {
-          "difference_independent_minus_production_ns": -7642,
+          "difference_independent_minus_production_ns": -8092,
           "first_execution": "independent",
-          "independent_ns": 42554,
-          "production_ns": 50196,
+          "independent_ns": 45629,
+          "production_ns": 53721,
           "sample_index": 22
         },
         {
-          "difference_independent_minus_production_ns": -6510,
+          "difference_independent_minus_production_ns": -7151,
           "first_execution": "production",
-          "independent_ns": 44767,
-          "production_ns": 51277,
+          "independent_ns": 48123,
+          "production_ns": 55274,
           "sample_index": 23
-        },
-        {
-          "difference_independent_minus_production_ns": -6921,
-          "first_execution": "independent",
-          "independent_ns": 43295,
-          "production_ns": 50216,
-          "sample_index": 24
-        },
-        {
-          "difference_independent_minus_production_ns": -7651,
-          "first_execution": "production",
-          "independent_ns": 42745,
-          "production_ns": 50396,
-          "sample_index": 25
         },
         {
           "difference_independent_minus_production_ns": -7611,
           "first_execution": "independent",
-          "independent_ns": 42855,
-          "production_ns": 50466,
+          "independent_ns": 46381,
+          "production_ns": 53992,
+          "sample_index": 24
+        },
+        {
+          "difference_independent_minus_production_ns": -7972,
+          "first_execution": "production",
+          "independent_ns": 46270,
+          "production_ns": 54242,
+          "sample_index": 25
+        },
+        {
+          "difference_independent_minus_production_ns": -8293,
+          "first_execution": "independent",
+          "independent_ns": 46019,
+          "production_ns": 54312,
           "sample_index": 26
         },
         {
-          "difference_independent_minus_production_ns": -521,
+          "difference_independent_minus_production_ns": -7572,
           "first_execution": "production",
-          "independent_ns": 49435,
-          "production_ns": 49956,
+          "independent_ns": 46180,
+          "production_ns": 53752,
           "sample_index": 27
         },
         {
-          "difference_independent_minus_production_ns": -7191,
+          "difference_independent_minus_production_ns": -21062,
           "first_execution": "independent",
-          "independent_ns": 43345,
-          "production_ns": 50536,
+          "independent_ns": 45729,
+          "production_ns": 66791,
           "sample_index": 28
         },
         {
-          "difference_independent_minus_production_ns": -7741,
+          "difference_independent_minus_production_ns": -8363,
           "first_execution": "production",
-          "independent_ns": 42835,
-          "production_ns": 50576,
+          "independent_ns": 46059,
+          "production_ns": 54422,
           "sample_index": 29
         },
         {
-          "difference_independent_minus_production_ns": -7501,
+          "difference_independent_minus_production_ns": -8193,
           "first_execution": "independent",
-          "independent_ns": 42925,
-          "production_ns": 50426,
+          "independent_ns": 45779,
+          "production_ns": 53972,
           "sample_index": 30
         }
       ],
       "passed": true,
       "production": {
-        "maximum_ns": 60100,
-        "mean_ns": 51253.9,
-        "median_ns": 50521.0,
-        "minimum_ns": 49945,
-        "operations_per_second": 19793.749134023474,
+        "maximum_ns": 68764,
+        "mean_ns": 55331.1,
+        "median_ns": 54197.0,
+        "minimum_ns": 53311,
+        "operations_per_second": 18451.205786298135,
         "samples": 30,
-        "standard_deviation_ns": 2192.2039191948666
+        "standard_deviation_ns": 3477.2088361212936
       },
       "repetitions": 30,
-      "standard_deviation_ns": 2192.2039191948666,
+      "standard_deviation_ns": 3477.2088361212936,
       "warmups": 5,
       "world_record": {
         "display": "N/A \u2014 no verified directly comparable record",
@@ -888,256 +888,256 @@
     },
     {
       "independent": {
-        "maximum_ns": 59790,
-        "mean_ns": 44822.166666666664,
-        "median_ns": 43806.0,
-        "minimum_ns": 43105,
-        "operations_per_second": 22827.923115554946,
+        "maximum_ns": 66220,
+        "mean_ns": 48902.666666666664,
+        "median_ns": 47477.0,
+        "minimum_ns": 46961,
+        "operations_per_second": 21062.830423152263,
         "samples": 30,
-        "standard_deviation_ns": 3406.6064647322496
+        "standard_deviation_ns": 4622.74656694721
       },
       "independent_numerical_error": 0.0,
       "independent_passed": true,
-      "maximum_ns": 67161,
-      "mean_ns": 52244.166666666664,
-      "median_ns": 51328.0,
-      "minimum_ns": 50576,
+      "maximum_ns": 72940,
+      "mean_ns": 56807.566666666666,
+      "median_ns": 55539.0,
+      "minimum_ns": 54483,
       "numerical_error": 0.0,
       "numerical_tolerance": 1e-12,
       "operation": "state_evolution",
-      "operations_per_second": 19482.543640897755,
+      "operations_per_second": 18005.365598948487,
       "paired_comparison": {
-        "independent_over_production_median_ratio": 0.8534523067331671,
-        "median_difference_independent_minus_production_ns": -7616.5,
-        "production_reduction_percent_vs_independent": -17.17116376752043,
+        "independent_over_production_median_ratio": 0.8548407425412773,
+        "median_difference_independent_minus_production_ns": -8107.5,
+        "production_reduction_percent_vs_independent": -16.980853887145354,
         "production_win_count": 2,
         "production_win_rate_percent": 6.666666666666667,
         "tie_count": 0
       },
       "paired_samples": [
         {
-          "difference_independent_minus_production_ns": 8162,
+          "difference_independent_minus_production_ns": 10295,
           "first_execution": "production",
-          "independent_ns": 59790,
-          "production_ns": 51628,
+          "independent_ns": 66220,
+          "production_ns": 55925,
           "sample_index": 1
         },
         {
-          "difference_independent_minus_production_ns": -6910,
+          "difference_independent_minus_production_ns": -8782,
           "first_execution": "independent",
-          "independent_ns": 46040,
-          "production_ns": 52950,
+          "independent_ns": 49906,
+          "production_ns": 58688,
           "sample_index": 2
         },
         {
-          "difference_independent_minus_production_ns": -7462,
+          "difference_independent_minus_production_ns": -7481,
           "first_execution": "production",
-          "independent_ns": 45078,
-          "production_ns": 52540,
+          "independent_ns": 48734,
+          "production_ns": 56215,
           "sample_index": 3
         },
         {
-          "difference_independent_minus_production_ns": -8072,
+          "difference_independent_minus_production_ns": -8293,
           "first_execution": "independent",
-          "independent_ns": 44527,
-          "production_ns": 52599,
+          "independent_ns": 47522,
+          "production_ns": 55815,
           "sample_index": 4
         },
         {
-          "difference_independent_minus_production_ns": -7601,
+          "difference_independent_minus_production_ns": -8071,
           "first_execution": "production",
-          "independent_ns": 44267,
-          "production_ns": 51868,
+          "independent_ns": 47823,
+          "production_ns": 55894,
           "sample_index": 5
         },
         {
-          "difference_independent_minus_production_ns": -8132,
+          "difference_independent_minus_production_ns": -8303,
           "first_execution": "independent",
-          "independent_ns": 43936,
-          "production_ns": 52068,
+          "independent_ns": 47842,
+          "production_ns": 56145,
           "sample_index": 6
         },
         {
-          "difference_independent_minus_production_ns": -7832,
+          "difference_independent_minus_production_ns": -8133,
           "first_execution": "production",
-          "independent_ns": 43896,
-          "production_ns": 51728,
+          "independent_ns": 47862,
+          "production_ns": 55995,
           "sample_index": 7
         },
         {
-          "difference_independent_minus_production_ns": -7632,
+          "difference_independent_minus_production_ns": -7872,
           "first_execution": "independent",
-          "independent_ns": 43686,
-          "production_ns": 51318,
+          "independent_ns": 47292,
+          "production_ns": 55164,
           "sample_index": 8
         },
         {
-          "difference_independent_minus_production_ns": -10395,
+          "difference_independent_minus_production_ns": -8393,
           "first_execution": "production",
-          "independent_ns": 43546,
-          "production_ns": 53941,
+          "independent_ns": 47502,
+          "production_ns": 55895,
           "sample_index": 9
         },
         {
-          "difference_independent_minus_production_ns": -23585,
+          "difference_independent_minus_production_ns": 8994,
           "first_execution": "independent",
-          "independent_ns": 43576,
-          "production_ns": 67161,
+          "independent_ns": 65719,
+          "production_ns": 56725,
           "sample_index": 10
         },
         {
-          "difference_independent_minus_production_ns": -7262,
+          "difference_independent_minus_production_ns": -8092,
           "first_execution": "production",
-          "independent_ns": 43966,
-          "production_ns": 51228,
+          "independent_ns": 47452,
+          "production_ns": 55544,
           "sample_index": 11
         },
         {
-          "difference_independent_minus_production_ns": -8052,
+          "difference_independent_minus_production_ns": -8232,
           "first_execution": "independent",
-          "independent_ns": 43366,
-          "production_ns": 51418,
+          "independent_ns": 47372,
+          "production_ns": 55604,
           "sample_index": 12
         },
         {
-          "difference_independent_minus_production_ns": -5108,
+          "difference_independent_minus_production_ns": -4736,
           "first_execution": "production",
-          "independent_ns": 46029,
-          "production_ns": 51137,
+          "independent_ns": 50407,
+          "production_ns": 55143,
           "sample_index": 13
         },
         {
-          "difference_independent_minus_production_ns": -6299,
+          "difference_independent_minus_production_ns": -9754,
           "first_execution": "independent",
-          "independent_ns": 45449,
-          "production_ns": 51748,
+          "independent_ns": 47933,
+          "production_ns": 57687,
           "sample_index": 14
         },
         {
-          "difference_independent_minus_production_ns": -7321,
+          "difference_independent_minus_production_ns": -8303,
           "first_execution": "production",
-          "independent_ns": 43886,
-          "production_ns": 51207,
+          "independent_ns": 47211,
+          "production_ns": 55514,
           "sample_index": 15
         },
         {
-          "difference_independent_minus_production_ns": -7802,
+          "difference_independent_minus_production_ns": -8143,
           "first_execution": "independent",
-          "independent_ns": 43395,
-          "production_ns": 51197,
+          "independent_ns": 47161,
+          "production_ns": 55304,
           "sample_index": 16
         },
         {
-          "difference_independent_minus_production_ns": -7761,
+          "difference_independent_minus_production_ns": -7752,
           "first_execution": "production",
-          "independent_ns": 43766,
-          "production_ns": 51527,
+          "independent_ns": 47561,
+          "production_ns": 55313,
           "sample_index": 17
         },
         {
-          "difference_independent_minus_production_ns": -7562,
+          "difference_independent_minus_production_ns": -24167,
           "first_execution": "independent",
-          "independent_ns": 43786,
-          "production_ns": 51348,
+          "independent_ns": 47552,
+          "production_ns": 71719,
           "sample_index": 18
         },
         {
-          "difference_independent_minus_production_ns": 3175,
+          "difference_independent_minus_production_ns": -7962,
           "first_execution": "production",
-          "independent_ns": 54101,
-          "production_ns": 50926,
+          "independent_ns": 47391,
+          "production_ns": 55353,
           "sample_index": 19
         },
         {
-          "difference_independent_minus_production_ns": -7973,
+          "difference_independent_minus_production_ns": -8403,
           "first_execution": "independent",
-          "independent_ns": 43365,
-          "production_ns": 51338,
+          "independent_ns": 47131,
+          "production_ns": 55534,
           "sample_index": 20
         },
         {
-          "difference_independent_minus_production_ns": -7121,
+          "difference_independent_minus_production_ns": -7912,
           "first_execution": "production",
-          "independent_ns": 43685,
-          "production_ns": 50806,
+          "independent_ns": 47051,
+          "production_ns": 54963,
           "sample_index": 21
         },
         {
-          "difference_independent_minus_production_ns": -8003,
+          "difference_independent_minus_production_ns": -8893,
           "first_execution": "independent",
-          "independent_ns": 43225,
-          "production_ns": 51228,
+          "independent_ns": 46961,
+          "production_ns": 55854,
           "sample_index": 22
         },
         {
-          "difference_independent_minus_production_ns": -7102,
+          "difference_independent_minus_production_ns": -7211,
           "first_execution": "production",
-          "independent_ns": 44116,
-          "production_ns": 51218,
+          "independent_ns": 47272,
+          "production_ns": 54483,
           "sample_index": 23
         },
         {
-          "difference_independent_minus_production_ns": -8022,
+          "difference_independent_minus_production_ns": -8123,
           "first_execution": "independent",
-          "independent_ns": 43185,
-          "production_ns": 51207,
+          "independent_ns": 47091,
+          "production_ns": 55214,
           "sample_index": 24
         },
         {
-          "difference_independent_minus_production_ns": -7331,
+          "difference_independent_minus_production_ns": -7351,
           "first_execution": "production",
-          "independent_ns": 43846,
-          "production_ns": 51177,
+          "independent_ns": 47402,
+          "production_ns": 54753,
           "sample_index": 25
         },
         {
-          "difference_independent_minus_production_ns": -7101,
+          "difference_independent_minus_production_ns": -7661,
           "first_execution": "independent",
-          "independent_ns": 43596,
-          "production_ns": 50697,
+          "independent_ns": 47382,
+          "production_ns": 55043,
           "sample_index": 26
         },
         {
-          "difference_independent_minus_production_ns": -7081,
+          "difference_independent_minus_production_ns": -24968,
           "first_execution": "production",
-          "independent_ns": 43495,
-          "production_ns": 50576,
+          "independent_ns": 47972,
+          "production_ns": 72940,
           "sample_index": 27
         },
         {
-          "difference_independent_minus_production_ns": -7792,
+          "difference_independent_minus_production_ns": -8212,
           "first_execution": "independent",
-          "independent_ns": 43135,
-          "production_ns": 50927,
+          "independent_ns": 47282,
+          "production_ns": 55494,
           "sample_index": 28
         },
         {
-          "difference_independent_minus_production_ns": -13981,
+          "difference_independent_minus_production_ns": -8002,
           "first_execution": "production",
-          "independent_ns": 43826,
-          "production_ns": 57807,
+          "independent_ns": 47432,
+          "production_ns": 55434,
           "sample_index": 29
         },
         {
-          "difference_independent_minus_production_ns": -7702,
+          "difference_independent_minus_production_ns": -7231,
           "first_execution": "independent",
-          "independent_ns": 43105,
-          "production_ns": 50807,
+          "independent_ns": 47642,
+          "production_ns": 54873,
           "sample_index": 30
         }
       ],
       "passed": true,
       "production": {
-        "maximum_ns": 67161,
-        "mean_ns": 52244.166666666664,
-        "median_ns": 51328.0,
-        "minimum_ns": 50576,
-        "operations_per_second": 19482.543640897755,
+        "maximum_ns": 72940,
+        "mean_ns": 56807.566666666666,
+        "median_ns": 55539.0,
+        "minimum_ns": 54483,
+        "operations_per_second": 18005.365598948487,
         "samples": 30,
-        "standard_deviation_ns": 3073.029168788058
+        "standard_deviation_ns": 4231.514935050514
       },
       "repetitions": 30,
-      "standard_deviation_ns": 3073.029168788058,
+      "standard_deviation_ns": 4231.514935050514,
       "warmups": 5,
       "world_record": {
         "display": "N/A \u2014 no verified directly comparable record",
@@ -1149,256 +1149,256 @@
     },
     {
       "independent": {
-        "maximum_ns": 2835,
-        "mean_ns": 2012.5333333333333,
-        "median_ns": 1963.0,
-        "minimum_ns": 1882,
-        "operations_per_second": 509424.35048395314,
+        "maximum_ns": 3035,
+        "mean_ns": 2156.366666666667,
+        "median_ns": 2088.0,
+        "minimum_ns": 2003,
+        "operations_per_second": 478927.2030651341,
         "samples": 30,
-        "standard_deviation_ns": 173.82610723235896
+        "standard_deviation_ns": 202.88198266206118
       },
       "independent_numerical_error": 0.0,
       "independent_passed": true,
-      "maximum_ns": 16365,
-      "mean_ns": 8473.1,
-      "median_ns": 7531.5,
-      "minimum_ns": 7291,
+      "maximum_ns": 13371,
+      "mean_ns": 8568.266666666666,
+      "median_ns": 8027.0,
+      "minimum_ns": 7802,
       "numerical_error": 0.0,
       "numerical_tolerance": 1e-12,
       "operation": "density_matrix",
-      "operations_per_second": 132775.67549624908,
+      "operations_per_second": 124579.54403886881,
       "paired_comparison": {
-        "independent_over_production_median_ratio": 0.26063865099913697,
-        "median_difference_independent_minus_production_ns": -5574.0,
-        "production_reduction_percent_vs_independent": -283.6729495669893,
+        "independent_over_production_median_ratio": 0.2601220879531581,
+        "median_difference_independent_minus_production_ns": -5954.0,
+        "production_reduction_percent_vs_independent": -284.43486590038316,
         "production_win_count": 0,
         "production_win_rate_percent": 0.0,
         "tie_count": 0
       },
       "paired_samples": [
         {
-          "difference_independent_minus_production_ns": -6640,
+          "difference_independent_minus_production_ns": -6981,
           "first_execution": "production",
-          "independent_ns": 2093,
-          "production_ns": 8733,
+          "independent_ns": 2273,
+          "production_ns": 9254,
           "sample_index": 1
         },
         {
-          "difference_independent_minus_production_ns": -10215,
+          "difference_independent_minus_production_ns": -10336,
           "first_execution": "independent",
-          "independent_ns": 2835,
-          "production_ns": 13050,
+          "independent_ns": 3035,
+          "production_ns": 13371,
           "sample_index": 2
         },
         {
-          "difference_independent_minus_production_ns": -8482,
+          "difference_independent_minus_production_ns": -8853,
           "first_execution": "production",
-          "independent_ns": 2294,
-          "production_ns": 10776,
+          "independent_ns": 2544,
+          "production_ns": 11397,
           "sample_index": 3
         },
         {
-          "difference_independent_minus_production_ns": -6570,
+          "difference_independent_minus_production_ns": -7511,
           "first_execution": "independent",
-          "independent_ns": 2163,
-          "production_ns": 8733,
+          "independent_ns": 2384,
+          "production_ns": 9895,
           "sample_index": 4
         },
         {
-          "difference_independent_minus_production_ns": -6249,
+          "difference_independent_minus_production_ns": -6730,
           "first_execution": "production",
-          "independent_ns": 1993,
-          "production_ns": 8242,
+          "independent_ns": 2153,
+          "production_ns": 8883,
           "sample_index": 5
         },
         {
-          "difference_independent_minus_production_ns": -6209,
+          "difference_independent_minus_production_ns": -6349,
           "first_execution": "independent",
-          "independent_ns": 2083,
-          "production_ns": 8292,
+          "independent_ns": 2304,
+          "production_ns": 8653,
           "sample_index": 6
         },
         {
-          "difference_independent_minus_production_ns": -6359,
+          "difference_independent_minus_production_ns": -6450,
           "first_execution": "production",
-          "independent_ns": 1953,
-          "production_ns": 8312,
+          "independent_ns": 2073,
+          "production_ns": 8523,
           "sample_index": 7
         },
         {
-          "difference_independent_minus_production_ns": -5989,
+          "difference_independent_minus_production_ns": -5869,
           "first_execution": "independent",
-          "independent_ns": 1963,
-          "production_ns": 7952,
+          "independent_ns": 2133,
+          "production_ns": 8002,
           "sample_index": 8
         },
         {
-          "difference_independent_minus_production_ns": -5739,
+          "difference_independent_minus_production_ns": -5838,
           "first_execution": "production",
-          "independent_ns": 1953,
-          "production_ns": 7692,
+          "independent_ns": 2014,
+          "production_ns": 7852,
           "sample_index": 9
         },
         {
-          "difference_independent_minus_production_ns": -5598,
+          "difference_independent_minus_production_ns": -5899,
           "first_execution": "independent",
-          "independent_ns": 1943,
-          "production_ns": 7541,
+          "independent_ns": 2113,
+          "production_ns": 8012,
           "sample_index": 10
         },
         {
-          "difference_independent_minus_production_ns": -5589,
+          "difference_independent_minus_production_ns": -5748,
           "first_execution": "production",
-          "independent_ns": 1933,
-          "production_ns": 7522,
+          "independent_ns": 2064,
+          "production_ns": 7812,
           "sample_index": 11
         },
         {
-          "difference_independent_minus_production_ns": -5458,
+          "difference_independent_minus_production_ns": -5699,
           "first_execution": "independent",
-          "independent_ns": 1963,
-          "production_ns": 7421,
+          "independent_ns": 2133,
+          "production_ns": 7832,
           "sample_index": 12
         },
         {
-          "difference_independent_minus_production_ns": -5559,
+          "difference_independent_minus_production_ns": -5970,
           "first_execution": "production",
-          "independent_ns": 2013,
-          "production_ns": 7572,
+          "independent_ns": 2173,
+          "production_ns": 8143,
           "sample_index": 13
         },
         {
-          "difference_independent_minus_production_ns": -5830,
+          "difference_independent_minus_production_ns": -5949,
           "first_execution": "independent",
-          "independent_ns": 1952,
-          "production_ns": 7782,
+          "independent_ns": 2113,
+          "production_ns": 8062,
           "sample_index": 14
         },
         {
-          "difference_independent_minus_production_ns": -5419,
+          "difference_independent_minus_production_ns": -5799,
           "first_execution": "production",
-          "independent_ns": 1882,
-          "production_ns": 7301,
+          "independent_ns": 2003,
+          "production_ns": 7802,
           "sample_index": 15
         },
         {
-          "difference_independent_minus_production_ns": -5369,
+          "difference_independent_minus_production_ns": -6049,
           "first_execution": "independent",
-          "independent_ns": 1932,
-          "production_ns": 7301,
+          "independent_ns": 2293,
+          "production_ns": 8342,
           "sample_index": 16
         },
         {
-          "difference_independent_minus_production_ns": -5419,
+          "difference_independent_minus_production_ns": -5909,
           "first_execution": "production",
-          "independent_ns": 1912,
-          "production_ns": 7331,
+          "independent_ns": 2013,
+          "production_ns": 7922,
           "sample_index": 17
         },
         {
-          "difference_independent_minus_production_ns": -5489,
+          "difference_independent_minus_production_ns": -5990,
           "first_execution": "independent",
-          "independent_ns": 1993,
-          "production_ns": 7482,
+          "independent_ns": 2113,
+          "production_ns": 8103,
           "sample_index": 18
         },
         {
-          "difference_independent_minus_production_ns": -5398,
+          "difference_independent_minus_production_ns": -5768,
           "first_execution": "production",
-          "independent_ns": 1953,
-          "production_ns": 7351,
+          "independent_ns": 2044,
+          "production_ns": 7812,
           "sample_index": 19
         },
         {
-          "difference_independent_minus_production_ns": -5329,
+          "difference_independent_minus_production_ns": -5889,
           "first_execution": "independent",
-          "independent_ns": 1962,
-          "production_ns": 7291,
+          "independent_ns": 2083,
+          "production_ns": 7972,
           "sample_index": 20
         },
         {
-          "difference_independent_minus_production_ns": -5449,
+          "difference_independent_minus_production_ns": -5879,
           "first_execution": "production",
-          "independent_ns": 1882,
-          "production_ns": 7331,
+          "independent_ns": 2023,
+          "production_ns": 7902,
           "sample_index": 21
         },
         {
-          "difference_independent_minus_production_ns": -12840,
+          "difference_independent_minus_production_ns": -8473,
           "first_execution": "independent",
-          "independent_ns": 2003,
-          "production_ns": 14843,
+          "independent_ns": 2053,
+          "production_ns": 10526,
           "sample_index": 22
         },
         {
-          "difference_independent_minus_production_ns": -5549,
+          "difference_independent_minus_production_ns": -5969,
           "first_execution": "production",
-          "independent_ns": 1902,
-          "production_ns": 7451,
+          "independent_ns": 2033,
+          "production_ns": 8002,
           "sample_index": 23
         },
         {
-          "difference_independent_minus_production_ns": -5398,
+          "difference_independent_minus_production_ns": -5959,
           "first_execution": "independent",
-          "independent_ns": 1963,
-          "production_ns": 7361,
+          "independent_ns": 2033,
+          "production_ns": 7992,
           "sample_index": 24
         },
         {
-          "difference_independent_minus_production_ns": -5318,
+          "difference_independent_minus_production_ns": -5858,
           "first_execution": "production",
-          "independent_ns": 1973,
-          "production_ns": 7291,
+          "independent_ns": 2053,
+          "production_ns": 7911,
           "sample_index": 25
         },
         {
-          "difference_independent_minus_production_ns": -5428,
+          "difference_independent_minus_production_ns": -5868,
           "first_execution": "independent",
-          "independent_ns": 1983,
-          "production_ns": 7411,
+          "independent_ns": 2043,
+          "production_ns": 7911,
           "sample_index": 26
         },
         {
-          "difference_independent_minus_production_ns": -14382,
+          "difference_independent_minus_production_ns": -6961,
           "first_execution": "production",
-          "independent_ns": 1983,
-          "production_ns": 16365,
+          "independent_ns": 2093,
+          "production_ns": 9054,
           "sample_index": 27
         },
         {
-          "difference_independent_minus_production_ns": -5408,
+          "difference_independent_minus_production_ns": -5878,
           "first_execution": "independent",
-          "independent_ns": 2053,
-          "production_ns": 7461,
+          "independent_ns": 2164,
+          "production_ns": 8042,
           "sample_index": 28
         },
         {
-          "difference_independent_minus_production_ns": -5718,
+          "difference_independent_minus_production_ns": -6118,
           "first_execution": "production",
-          "independent_ns": 1933,
-          "production_ns": 7651,
+          "independent_ns": 2064,
+          "production_ns": 8182,
           "sample_index": 29
         },
         {
-          "difference_independent_minus_production_ns": -5418,
+          "difference_independent_minus_production_ns": -5808,
           "first_execution": "independent",
-          "independent_ns": 1933,
-          "production_ns": 7351,
+          "independent_ns": 2074,
+          "production_ns": 7882,
           "sample_index": 30
         }
       ],
       "passed": true,
       "production": {
-        "maximum_ns": 16365,
-        "mean_ns": 8473.1,
-        "median_ns": 7531.5,
-        "minimum_ns": 7291,
-        "operations_per_second": 132775.67549624908,
+        "maximum_ns": 13371,
+        "mean_ns": 8568.266666666666,
+        "median_ns": 8027.0,
+        "minimum_ns": 7802,
+        "operations_per_second": 124579.54403886881,
         "samples": 30,
-        "standard_deviation_ns": 2244.766140009541
+        "standard_deviation_ns": 1227.835872129858
       },
       "repetitions": 30,
-      "standard_deviation_ns": 2244.766140009541,
+      "standard_deviation_ns": 1227.835872129858,
       "warmups": 5,
       "world_record": {
         "display": "N/A \u2014 no verified directly comparable record",
@@ -1410,517 +1410,256 @@
     },
     {
       "independent": {
-        "maximum_ns": 6270,
-        "mean_ns": 4113.933333333333,
-        "median_ns": 3926.0,
-        "minimum_ns": 3846,
-        "operations_per_second": 254712.17524197657,
+        "maximum_ns": 6049,
+        "mean_ns": 4513.533333333334,
+        "median_ns": 4301.5,
+        "minimum_ns": 4156,
+        "operations_per_second": 232477.0428920144,
         "samples": 30,
-        "standard_deviation_ns": 495.41140703684067
+        "standard_deviation_ns": 530.3571584843138
       },
       "independent_numerical_error": 0.0,
       "independent_passed": true,
-      "maximum_ns": 2123,
-      "mean_ns": 1448.8,
-      "median_ns": 1412.0,
-      "minimum_ns": 1352,
+      "maximum_ns": 2383,
+      "mean_ns": 1598.5333333333333,
+      "median_ns": 1562.5,
+      "minimum_ns": 1462,
       "numerical_error": 0.0,
       "numerical_tolerance": 1e-12,
       "operation": "reduced_density_q4",
-      "operations_per_second": 708215.297450425,
+      "operations_per_second": 640000.0,
       "paired_comparison": {
-        "independent_over_production_median_ratio": 2.7804532577903682,
-        "median_difference_independent_minus_production_ns": 2534.0,
-        "production_reduction_percent_vs_independent": 64.03464085583292,
+        "independent_over_production_median_ratio": 2.75296,
+        "median_difference_independent_minus_production_ns": 2753.5,
+        "production_reduction_percent_vs_independent": 63.675462048122746,
         "production_win_count": 30,
         "production_win_rate_percent": 100.0,
         "tie_count": 0
       },
       "paired_samples": [
         {
-          "difference_independent_minus_production_ns": 2574,
+          "difference_independent_minus_production_ns": 2624,
           "first_execution": "production",
-          "independent_ns": 4076,
-          "production_ns": 1502,
+          "independent_ns": 4297,
+          "production_ns": 1673,
           "sample_index": 1
         },
         {
-          "difference_independent_minus_production_ns": 3786,
+          "difference_independent_minus_production_ns": 4297,
           "first_execution": "independent",
-          "independent_ns": 5328,
-          "production_ns": 1542,
+          "independent_ns": 6049,
+          "production_ns": 1752,
           "sample_index": 2
         },
         {
-          "difference_independent_minus_production_ns": 2554,
+          "difference_independent_minus_production_ns": 2584,
           "first_execution": "production",
-          "independent_ns": 4677,
-          "production_ns": 2123,
+          "independent_ns": 4967,
+          "production_ns": 2383,
           "sample_index": 3
         },
         {
-          "difference_independent_minus_production_ns": 2764,
+          "difference_independent_minus_production_ns": 2974,
           "first_execution": "independent",
-          "independent_ns": 4296,
-          "production_ns": 1532,
+          "independent_ns": 4707,
+          "production_ns": 1733,
           "sample_index": 4
         },
         {
-          "difference_independent_minus_production_ns": 2574,
+          "difference_independent_minus_production_ns": 2825,
           "first_execution": "production",
-          "independent_ns": 4116,
-          "production_ns": 1542,
+          "independent_ns": 4447,
+          "production_ns": 1622,
           "sample_index": 5
         },
         {
-          "difference_independent_minus_production_ns": 2795,
+          "difference_independent_minus_production_ns": 2904,
           "first_execution": "independent",
-          "independent_ns": 4227,
-          "production_ns": 1432,
+          "independent_ns": 4647,
+          "production_ns": 1743,
           "sample_index": 6
         },
         {
-          "difference_independent_minus_production_ns": 4768,
+          "difference_independent_minus_production_ns": 2643,
           "first_execution": "production",
-          "independent_ns": 6270,
-          "production_ns": 1502,
+          "independent_ns": 4306,
+          "production_ns": 1663,
           "sample_index": 7
         },
         {
-          "difference_independent_minus_production_ns": 2524,
+          "difference_independent_minus_production_ns": 2834,
           "first_execution": "independent",
-          "independent_ns": 3926,
-          "production_ns": 1402,
+          "independent_ns": 4407,
+          "production_ns": 1573,
           "sample_index": 8
         },
         {
-          "difference_independent_minus_production_ns": 2594,
+          "difference_independent_minus_production_ns": 2733,
           "first_execution": "production",
-          "independent_ns": 4016,
-          "production_ns": 1422,
+          "independent_ns": 4246,
+          "production_ns": 1513,
           "sample_index": 9
         },
         {
-          "difference_independent_minus_production_ns": 2503,
+          "difference_independent_minus_production_ns": 2744,
           "first_execution": "independent",
-          "independent_ns": 3926,
-          "production_ns": 1423,
+          "independent_ns": 4307,
+          "production_ns": 1563,
           "sample_index": 10
         },
         {
-          "difference_independent_minus_production_ns": 2554,
+          "difference_independent_minus_production_ns": 2654,
           "first_execution": "production",
-          "independent_ns": 3956,
-          "production_ns": 1402,
+          "independent_ns": 4247,
+          "production_ns": 1593,
           "sample_index": 11
         },
         {
-          "difference_independent_minus_production_ns": 2574,
+          "difference_independent_minus_production_ns": 2814,
           "first_execution": "independent",
-          "independent_ns": 3956,
-          "production_ns": 1382,
+          "independent_ns": 4327,
+          "production_ns": 1513,
           "sample_index": 12
         },
         {
-          "difference_independent_minus_production_ns": 2734,
+          "difference_independent_minus_production_ns": 2915,
           "first_execution": "production",
-          "independent_ns": 4136,
-          "production_ns": 1402,
+          "independent_ns": 4417,
+          "production_ns": 1502,
           "sample_index": 13
         },
         {
-          "difference_independent_minus_production_ns": 2444,
+          "difference_independent_minus_production_ns": 2665,
           "first_execution": "independent",
-          "independent_ns": 3926,
-          "production_ns": 1482,
+          "independent_ns": 4297,
+          "production_ns": 1632,
           "sample_index": 14
         },
         {
-          "difference_independent_minus_production_ns": 2514,
+          "difference_independent_minus_production_ns": 2663,
           "first_execution": "production",
-          "independent_ns": 3896,
-          "production_ns": 1382,
+          "independent_ns": 4176,
+          "production_ns": 1513,
           "sample_index": 15
         },
         {
-          "difference_independent_minus_production_ns": 2514,
+          "difference_independent_minus_production_ns": 2735,
           "first_execution": "independent",
-          "independent_ns": 3916,
-          "production_ns": 1402,
+          "independent_ns": 4307,
+          "production_ns": 1572,
           "sample_index": 16
         },
         {
-          "difference_independent_minus_production_ns": 2484,
+          "difference_independent_minus_production_ns": 2804,
           "first_execution": "production",
-          "independent_ns": 3886,
-          "production_ns": 1402,
+          "independent_ns": 4276,
+          "production_ns": 1472,
           "sample_index": 17
         },
         {
-          "difference_independent_minus_production_ns": 2544,
+          "difference_independent_minus_production_ns": 2695,
           "first_execution": "independent",
-          "independent_ns": 3956,
-          "production_ns": 1412,
+          "independent_ns": 4257,
+          "production_ns": 1562,
           "sample_index": 18
         },
         {
-          "difference_independent_minus_production_ns": 2564,
+          "difference_independent_minus_production_ns": 4506,
           "first_execution": "production",
-          "independent_ns": 3926,
-          "production_ns": 1362,
+          "independent_ns": 5999,
+          "production_ns": 1493,
           "sample_index": 19
         },
         {
-          "difference_independent_minus_production_ns": 2504,
+          "difference_independent_minus_production_ns": 2674,
           "first_execution": "independent",
-          "independent_ns": 3926,
-          "production_ns": 1422,
+          "independent_ns": 4216,
+          "production_ns": 1542,
           "sample_index": 20
         },
         {
-          "difference_independent_minus_production_ns": 2454,
+          "difference_independent_minus_production_ns": 2814,
           "first_execution": "production",
-          "independent_ns": 3846,
-          "production_ns": 1392,
+          "independent_ns": 4276,
+          "production_ns": 1462,
           "sample_index": 21
         },
         {
-          "difference_independent_minus_production_ns": 2474,
+          "difference_independent_minus_production_ns": 2785,
           "first_execution": "independent",
-          "independent_ns": 3886,
-          "production_ns": 1412,
+          "independent_ns": 4327,
+          "production_ns": 1542,
           "sample_index": 22
         },
         {
-          "difference_independent_minus_production_ns": 2484,
+          "difference_independent_minus_production_ns": 2834,
           "first_execution": "production",
-          "independent_ns": 3876,
-          "production_ns": 1392,
+          "independent_ns": 4296,
+          "production_ns": 1462,
           "sample_index": 23
         },
         {
-          "difference_independent_minus_production_ns": 2484,
+          "difference_independent_minus_production_ns": 2634,
           "first_execution": "independent",
-          "independent_ns": 3896,
-          "production_ns": 1412,
+          "independent_ns": 4156,
+          "production_ns": 1522,
           "sample_index": 24
-        },
-        {
-          "difference_independent_minus_production_ns": 2554,
-          "first_execution": "production",
-          "independent_ns": 3906,
-          "production_ns": 1352,
-          "sample_index": 25
-        },
-        {
-          "difference_independent_minus_production_ns": 2484,
-          "first_execution": "independent",
-          "independent_ns": 3896,
-          "production_ns": 1412,
-          "sample_index": 26
-        },
-        {
-          "difference_independent_minus_production_ns": 2494,
-          "first_execution": "production",
-          "independent_ns": 3856,
-          "production_ns": 1362,
-          "sample_index": 27
-        },
-        {
-          "difference_independent_minus_production_ns": 2723,
-          "first_execution": "independent",
-          "independent_ns": 4116,
-          "production_ns": 1393,
-          "sample_index": 28
-        },
-        {
-          "difference_independent_minus_production_ns": 2484,
-          "first_execution": "production",
-          "independent_ns": 3896,
-          "production_ns": 1412,
-          "sample_index": 29
-        },
-        {
-          "difference_independent_minus_production_ns": 2453,
-          "first_execution": "independent",
-          "independent_ns": 3906,
-          "production_ns": 1453,
-          "sample_index": 30
-        }
-      ],
-      "passed": true,
-      "production": {
-        "maximum_ns": 2123,
-        "mean_ns": 1448.8,
-        "median_ns": 1412.0,
-        "minimum_ns": 1352,
-        "operations_per_second": 708215.297450425,
-        "samples": 30,
-        "standard_deviation_ns": 135.23520251768767
-      },
-      "repetitions": 30,
-      "standard_deviation_ns": 135.23520251768767,
-      "warmups": 5,
-      "world_record": {
-        "display": "N/A \u2014 no verified directly comparable record",
-        "reason": "No verified published measurement was found for the same operation, four-qubit configuration, numerical semantics, hardware and timing protocol.",
-        "source": null,
-        "status": "NO_DIRECTLY_COMPARABLE_RECORD",
-        "verified_value_ns": null
-      }
-    },
-    {
-      "independent": {
-        "maximum_ns": 4166,
-        "mean_ns": 3999.6666666666665,
-        "median_ns": 3991.0,
-        "minimum_ns": 3866,
-        "operations_per_second": 250563.76847907793,
-        "samples": 30,
-        "standard_deviation_ns": 78.79946418317549
-      },
-      "independent_numerical_error": 0.0,
-      "independent_passed": true,
-      "maximum_ns": 1963,
-      "mean_ns": 1474.8333333333333,
-      "median_ns": 1442.0,
-      "minimum_ns": 1392,
-      "numerical_error": 1.0694608919428887e-16,
-      "numerical_tolerance": 1e-12,
-      "operation": "reduced_density_q123",
-      "operations_per_second": 693481.2760055478,
-      "paired_comparison": {
-        "independent_over_production_median_ratio": 2.7676837725381414,
-        "median_difference_independent_minus_production_ns": 2529.5,
-        "production_reduction_percent_vs_independent": 63.86870458531696,
-        "production_win_count": 30,
-        "production_win_rate_percent": 100.0,
-        "tie_count": 0
-      },
-      "paired_samples": [
-        {
-          "difference_independent_minus_production_ns": 2454,
-          "first_execution": "production",
-          "independent_ns": 3986,
-          "production_ns": 1532,
-          "sample_index": 1
-        },
-        {
-          "difference_independent_minus_production_ns": 2573,
-          "first_execution": "independent",
-          "independent_ns": 4106,
-          "production_ns": 1533,
-          "sample_index": 2
-        },
-        {
-          "difference_independent_minus_production_ns": 2203,
-          "first_execution": "production",
-          "independent_ns": 4166,
-          "production_ns": 1963,
-          "sample_index": 3
-        },
-        {
-          "difference_independent_minus_production_ns": 2444,
-          "first_execution": "independent",
-          "independent_ns": 4036,
-          "production_ns": 1592,
-          "sample_index": 4
-        },
-        {
-          "difference_independent_minus_production_ns": 2504,
-          "first_execution": "production",
-          "independent_ns": 3996,
-          "production_ns": 1492,
-          "sample_index": 5
-        },
-        {
-          "difference_independent_minus_production_ns": 2524,
-          "first_execution": "independent",
-          "independent_ns": 3996,
-          "production_ns": 1472,
-          "sample_index": 6
-        },
-        {
-          "difference_independent_minus_production_ns": 2514,
-          "first_execution": "production",
-          "independent_ns": 3996,
-          "production_ns": 1482,
-          "sample_index": 7
-        },
-        {
-          "difference_independent_minus_production_ns": 2474,
-          "first_execution": "independent",
-          "independent_ns": 3966,
-          "production_ns": 1492,
-          "sample_index": 8
-        },
-        {
-          "difference_independent_minus_production_ns": 2534,
-          "first_execution": "production",
-          "independent_ns": 3966,
-          "production_ns": 1432,
-          "sample_index": 9
-        },
-        {
-          "difference_independent_minus_production_ns": 2544,
-          "first_execution": "independent",
-          "independent_ns": 3966,
-          "production_ns": 1422,
-          "sample_index": 10
-        },
-        {
-          "difference_independent_minus_production_ns": 2534,
-          "first_execution": "production",
-          "independent_ns": 3976,
-          "production_ns": 1442,
-          "sample_index": 11
-        },
-        {
-          "difference_independent_minus_production_ns": 2503,
-          "first_execution": "independent",
-          "independent_ns": 3986,
-          "production_ns": 1483,
-          "sample_index": 12
         },
         {
           "difference_independent_minus_production_ns": 2735,
           "first_execution": "production",
-          "independent_ns": 4157,
-          "production_ns": 1422,
-          "sample_index": 13
-        },
-        {
-          "difference_independent_minus_production_ns": 2583,
-          "first_execution": "independent",
-          "independent_ns": 4156,
-          "production_ns": 1573,
-          "sample_index": 14
-        },
-        {
-          "difference_independent_minus_production_ns": 2564,
-          "first_execution": "production",
-          "independent_ns": 4026,
-          "production_ns": 1462,
-          "sample_index": 15
-        },
-        {
-          "difference_independent_minus_production_ns": 2494,
-          "first_execution": "independent",
-          "independent_ns": 3896,
-          "production_ns": 1402,
-          "sample_index": 16
-        },
-        {
-          "difference_independent_minus_production_ns": 2424,
-          "first_execution": "production",
-          "independent_ns": 3866,
-          "production_ns": 1442,
-          "sample_index": 17
-        },
-        {
-          "difference_independent_minus_production_ns": 2534,
-          "first_execution": "independent",
-          "independent_ns": 3996,
-          "production_ns": 1462,
-          "sample_index": 18
-        },
-        {
-          "difference_independent_minus_production_ns": 2503,
-          "first_execution": "production",
-          "independent_ns": 3926,
-          "production_ns": 1423,
-          "sample_index": 19
-        },
-        {
-          "difference_independent_minus_production_ns": 2614,
-          "first_execution": "independent",
-          "independent_ns": 4026,
-          "production_ns": 1412,
-          "sample_index": 20
-        },
-        {
-          "difference_independent_minus_production_ns": 2594,
-          "first_execution": "production",
-          "independent_ns": 4016,
-          "production_ns": 1422,
-          "sample_index": 21
-        },
-        {
-          "difference_independent_minus_production_ns": 2564,
-          "first_execution": "independent",
-          "independent_ns": 3996,
-          "production_ns": 1432,
-          "sample_index": 22
-        },
-        {
-          "difference_independent_minus_production_ns": 2554,
-          "first_execution": "production",
-          "independent_ns": 3946,
-          "production_ns": 1392,
-          "sample_index": 23
-        },
-        {
-          "difference_independent_minus_production_ns": 2754,
-          "first_execution": "independent",
-          "independent_ns": 4156,
-          "production_ns": 1402,
-          "sample_index": 24
-        },
-        {
-          "difference_independent_minus_production_ns": 2544,
-          "first_execution": "production",
-          "independent_ns": 3956,
-          "production_ns": 1412,
+          "independent_ns": 4207,
+          "production_ns": 1472,
           "sample_index": 25
         },
         {
-          "difference_independent_minus_production_ns": 2504,
+          "difference_independent_minus_production_ns": 2945,
           "first_execution": "independent",
-          "independent_ns": 3936,
-          "production_ns": 1432,
+          "independent_ns": 4457,
+          "production_ns": 1512,
           "sample_index": 26
         },
         {
-          "difference_independent_minus_production_ns": 2544,
+          "difference_independent_minus_production_ns": 2763,
           "first_execution": "production",
-          "independent_ns": 3976,
-          "production_ns": 1432,
+          "independent_ns": 4246,
+          "production_ns": 1483,
           "sample_index": 27
         },
         {
-          "difference_independent_minus_production_ns": 2463,
+          "difference_independent_minus_production_ns": 4336,
           "first_execution": "independent",
-          "independent_ns": 3905,
-          "production_ns": 1442,
+          "independent_ns": 6029,
+          "production_ns": 1693,
           "sample_index": 28
         },
         {
-          "difference_independent_minus_production_ns": 2525,
+          "difference_independent_minus_production_ns": 2644,
           "first_execution": "production",
-          "independent_ns": 4027,
-          "production_ns": 1502,
+          "independent_ns": 4257,
+          "production_ns": 1613,
           "sample_index": 29
         },
         {
-          "difference_independent_minus_production_ns": 2443,
+          "difference_independent_minus_production_ns": 2673,
           "first_execution": "independent",
-          "independent_ns": 3885,
-          "production_ns": 1442,
+          "independent_ns": 4256,
+          "production_ns": 1583,
           "sample_index": 30
         }
       ],
       "passed": true,
       "production": {
-        "maximum_ns": 1963,
-        "mean_ns": 1474.8333333333333,
-        "median_ns": 1442.0,
-        "minimum_ns": 1392,
-        "operations_per_second": 693481.2760055478,
+        "maximum_ns": 2383,
+        "mean_ns": 1598.5333333333333,
+        "median_ns": 1562.5,
+        "minimum_ns": 1462,
+        "operations_per_second": 640000.0,
         "samples": 30,
-        "standard_deviation_ns": 102.98611017457107
+        "standard_deviation_ns": 168.0689805473402
       },
       "repetitions": 30,
-      "standard_deviation_ns": 102.98611017457107,
+      "standard_deviation_ns": 168.0689805473402,
       "warmups": 5,
       "world_record": {
         "display": "N/A \u2014 no verified directly comparable record",
@@ -1932,256 +1671,517 @@
     },
     {
       "independent": {
-        "maximum_ns": 87732,
-        "mean_ns": 60899.73333333333,
-        "median_ns": 62654.0,
-        "minimum_ns": 49094,
-        "operations_per_second": 15960.672901969547,
+        "maximum_ns": 4627,
+        "mean_ns": 4287.533333333334,
+        "median_ns": 4266.5,
+        "minimum_ns": 4107,
+        "operations_per_second": 234384.15563107934,
         "samples": 30,
-        "standard_deviation_ns": 10630.860965238056
+        "standard_deviation_ns": 114.49388144738953
       },
       "independent_numerical_error": 0.0,
       "independent_passed": true,
-      "maximum_ns": 786787,
-      "mean_ns": 675809.3,
-      "median_ns": 669744.5,
-      "minimum_ns": 630440,
+      "maximum_ns": 2503,
+      "mean_ns": 1627.8,
+      "median_ns": 1562.5,
+      "minimum_ns": 1512,
+      "numerical_error": 1.0694608919428887e-16,
+      "numerical_tolerance": 1e-12,
+      "operation": "reduced_density_q123",
+      "operations_per_second": 640000.0,
+      "paired_comparison": {
+        "independent_over_production_median_ratio": 2.73056,
+        "median_difference_independent_minus_production_ns": 2674.0,
+        "production_reduction_percent_vs_independent": 63.377475682643855,
+        "production_win_count": 30,
+        "production_win_rate_percent": 100.0,
+        "tie_count": 0
+      },
+      "paired_samples": [
+        {
+          "difference_independent_minus_production_ns": 2674,
+          "first_execution": "production",
+          "independent_ns": 4317,
+          "production_ns": 1643,
+          "sample_index": 1
+        },
+        {
+          "difference_independent_minus_production_ns": 2885,
+          "first_execution": "independent",
+          "independent_ns": 4607,
+          "production_ns": 1722,
+          "sample_index": 2
+        },
+        {
+          "difference_independent_minus_production_ns": 2124,
+          "first_execution": "production",
+          "independent_ns": 4627,
+          "production_ns": 2503,
+          "sample_index": 3
+        },
+        {
+          "difference_independent_minus_production_ns": 2534,
+          "first_execution": "independent",
+          "independent_ns": 4397,
+          "production_ns": 1863,
+          "sample_index": 4
+        },
+        {
+          "difference_independent_minus_production_ns": 2714,
+          "first_execution": "production",
+          "independent_ns": 4336,
+          "production_ns": 1622,
+          "sample_index": 5
+        },
+        {
+          "difference_independent_minus_production_ns": 2674,
+          "first_execution": "independent",
+          "independent_ns": 4327,
+          "production_ns": 1653,
+          "sample_index": 6
+        },
+        {
+          "difference_independent_minus_production_ns": 2464,
+          "first_execution": "production",
+          "independent_ns": 4217,
+          "production_ns": 1753,
+          "sample_index": 7
+        },
+        {
+          "difference_independent_minus_production_ns": 2624,
+          "first_execution": "independent",
+          "independent_ns": 4276,
+          "production_ns": 1652,
+          "sample_index": 8
+        },
+        {
+          "difference_independent_minus_production_ns": 2655,
+          "first_execution": "production",
+          "independent_ns": 4207,
+          "production_ns": 1552,
+          "sample_index": 9
+        },
+        {
+          "difference_independent_minus_production_ns": 2774,
+          "first_execution": "independent",
+          "independent_ns": 4317,
+          "production_ns": 1543,
+          "sample_index": 10
+        },
+        {
+          "difference_independent_minus_production_ns": 2574,
+          "first_execution": "production",
+          "independent_ns": 4176,
+          "production_ns": 1602,
+          "sample_index": 11
+        },
+        {
+          "difference_independent_minus_production_ns": 2734,
+          "first_execution": "independent",
+          "independent_ns": 4286,
+          "production_ns": 1552,
+          "sample_index": 12
+        },
+        {
+          "difference_independent_minus_production_ns": 2744,
+          "first_execution": "production",
+          "independent_ns": 4296,
+          "production_ns": 1552,
+          "sample_index": 13
+        },
+        {
+          "difference_independent_minus_production_ns": 2534,
+          "first_execution": "independent",
+          "independent_ns": 4266,
+          "production_ns": 1732,
+          "sample_index": 14
+        },
+        {
+          "difference_independent_minus_production_ns": 2685,
+          "first_execution": "production",
+          "independent_ns": 4197,
+          "production_ns": 1512,
+          "sample_index": 15
+        },
+        {
+          "difference_independent_minus_production_ns": 2703,
+          "first_execution": "independent",
+          "independent_ns": 4276,
+          "production_ns": 1573,
+          "sample_index": 16
+        },
+        {
+          "difference_independent_minus_production_ns": 2674,
+          "first_execution": "production",
+          "independent_ns": 4227,
+          "production_ns": 1553,
+          "sample_index": 17
+        },
+        {
+          "difference_independent_minus_production_ns": 2555,
+          "first_execution": "independent",
+          "independent_ns": 4107,
+          "production_ns": 1552,
+          "sample_index": 18
+        },
+        {
+          "difference_independent_minus_production_ns": 2654,
+          "first_execution": "production",
+          "independent_ns": 4186,
+          "production_ns": 1532,
+          "sample_index": 19
+        },
+        {
+          "difference_independent_minus_production_ns": 2715,
+          "first_execution": "independent",
+          "independent_ns": 4267,
+          "production_ns": 1552,
+          "sample_index": 20
+        },
+        {
+          "difference_independent_minus_production_ns": 2784,
+          "first_execution": "production",
+          "independent_ns": 4297,
+          "production_ns": 1513,
+          "sample_index": 21
+        },
+        {
+          "difference_independent_minus_production_ns": 2634,
+          "first_execution": "independent",
+          "independent_ns": 4206,
+          "production_ns": 1572,
+          "sample_index": 22
+        },
+        {
+          "difference_independent_minus_production_ns": 2645,
+          "first_execution": "production",
+          "independent_ns": 4197,
+          "production_ns": 1552,
+          "sample_index": 23
+        },
+        {
+          "difference_independent_minus_production_ns": 2994,
+          "first_execution": "independent",
+          "independent_ns": 4517,
+          "production_ns": 1523,
+          "sample_index": 24
+        },
+        {
+          "difference_independent_minus_production_ns": 2724,
+          "first_execution": "production",
+          "independent_ns": 4256,
+          "production_ns": 1532,
+          "sample_index": 25
+        },
+        {
+          "difference_independent_minus_production_ns": 2724,
+          "first_execution": "independent",
+          "independent_ns": 4277,
+          "production_ns": 1553,
+          "sample_index": 26
+        },
+        {
+          "difference_independent_minus_production_ns": 2644,
+          "first_execution": "production",
+          "independent_ns": 4216,
+          "production_ns": 1572,
+          "sample_index": 27
+        },
+        {
+          "difference_independent_minus_production_ns": 2683,
+          "first_execution": "independent",
+          "independent_ns": 4236,
+          "production_ns": 1553,
+          "sample_index": 28
+        },
+        {
+          "difference_independent_minus_production_ns": 2603,
+          "first_execution": "production",
+          "independent_ns": 4256,
+          "production_ns": 1653,
+          "sample_index": 29
+        },
+        {
+          "difference_independent_minus_production_ns": 2663,
+          "first_execution": "independent",
+          "independent_ns": 4256,
+          "production_ns": 1593,
+          "sample_index": 30
+        }
+      ],
+      "passed": true,
+      "production": {
+        "maximum_ns": 2503,
+        "mean_ns": 1627.8,
+        "median_ns": 1562.5,
+        "minimum_ns": 1512,
+        "operations_per_second": 640000.0,
+        "samples": 30,
+        "standard_deviation_ns": 181.13575019857345
+      },
+      "repetitions": 30,
+      "standard_deviation_ns": 181.13575019857345,
+      "warmups": 5,
+      "world_record": {
+        "display": "N/A \u2014 no verified directly comparable record",
+        "reason": "No verified published measurement was found for the same operation, four-qubit configuration, numerical semantics, hardware and timing protocol.",
+        "source": null,
+        "status": "NO_DIRECTLY_COMPARABLE_RECORD",
+        "verified_value_ns": null
+      }
+    },
+    {
+      "independent": {
+        "maximum_ns": 81603,
+        "mean_ns": 61095.433333333334,
+        "median_ns": 59935.5,
+        "minimum_ns": 51759,
+        "operations_per_second": 16684.60261447723,
+        "samples": 30,
+        "standard_deviation_ns": 8523.550428795634
+      },
+      "independent_numerical_error": 0.0,
+      "independent_passed": true,
+      "maximum_ns": 856195,
+      "mean_ns": 698486.9333333333,
+      "median_ns": 686924.0,
+      "minimum_ns": 659057,
       "numerical_error": 0.0,
       "numerical_tolerance": 1e-12,
       "operation": "pennylane_execution",
-      "operations_per_second": 1493.1066996444167,
+      "operations_per_second": 1455.7651210323122,
       "paired_comparison": {
-        "independent_over_production_median_ratio": 0.09354910715952128,
-        "median_difference_independent_minus_production_ns": -614196.5,
-        "production_reduction_percent_vs_independent": -968.9572892393143,
+        "independent_over_production_median_ratio": 0.08725201041163215,
+        "median_difference_independent_minus_production_ns": -629743.0,
+        "production_reduction_percent_vs_independent": -1046.1053966347156,
         "production_win_count": 0,
         "production_win_rate_percent": 0.0,
         "tie_count": 0
       },
       "paired_samples": [
         {
-          "difference_independent_minus_production_ns": -658643,
+          "difference_independent_minus_production_ns": -680509,
           "first_execution": "production",
-          "independent_ns": 63986,
-          "production_ns": 722629,
+          "independent_ns": 70567,
+          "production_ns": 751076,
           "sample_index": 1
         },
         {
-          "difference_independent_minus_production_ns": -736521,
+          "difference_independent_minus_production_ns": -802344,
           "first_execution": "independent",
-          "independent_ns": 50266,
-          "production_ns": 786787,
+          "independent_ns": 53851,
+          "production_ns": 856195,
           "sample_index": 2
         },
         {
-          "difference_independent_minus_production_ns": -620736,
+          "difference_independent_minus_production_ns": -667780,
           "first_execution": "production",
-          "independent_ns": 65639,
-          "production_ns": 686375,
+          "independent_ns": 69916,
+          "production_ns": 737696,
           "sample_index": 3
         },
         {
-          "difference_independent_minus_production_ns": -619394,
+          "difference_independent_minus_production_ns": -672678,
           "first_execution": "independent",
-          "independent_ns": 49104,
-          "production_ns": 668498,
+          "independent_ns": 53611,
+          "production_ns": 726289,
           "sample_index": 4
         },
         {
-          "difference_independent_minus_production_ns": -596890,
+          "difference_independent_minus_production_ns": -626968,
           "first_execution": "production",
-          "independent_ns": 64828,
-          "production_ns": 661718,
+          "independent_ns": 68524,
+          "production_ns": 695492,
           "sample_index": 5
         },
         {
-          "difference_independent_minus_production_ns": -618082,
+          "difference_independent_minus_production_ns": -652508,
           "first_execution": "independent",
-          "independent_ns": 49575,
-          "production_ns": 667657,
+          "independent_ns": 52679,
+          "production_ns": 705187,
           "sample_index": 6
         },
         {
-          "difference_independent_minus_production_ns": -584402,
+          "difference_independent_minus_production_ns": -638625,
           "first_execution": "production",
-          "independent_ns": 65118,
-          "production_ns": 649520,
+          "independent_ns": 69245,
+          "production_ns": 707870,
           "sample_index": 7
         },
         {
-          "difference_independent_minus_production_ns": -610070,
+          "difference_independent_minus_production_ns": -672217,
           "first_execution": "independent",
-          "independent_ns": 49094,
-          "production_ns": 659164,
+          "independent_ns": 53140,
+          "production_ns": 725357,
           "sample_index": 8
         },
         {
-          "difference_independent_minus_production_ns": -585673,
+          "difference_independent_minus_production_ns": -604295,
           "first_execution": "production",
-          "independent_ns": 71678,
-          "production_ns": 657351,
+          "independent_ns": 81603,
+          "production_ns": 685898,
           "sample_index": 9
         },
         {
-          "difference_independent_minus_production_ns": -621617,
+          "difference_independent_minus_production_ns": -629011,
           "first_execution": "independent",
-          "independent_ns": 49395,
-          "production_ns": 671012,
+          "independent_ns": 54392,
+          "production_ns": 683403,
           "sample_index": 10
         },
         {
-          "difference_independent_minus_production_ns": -642830,
+          "difference_independent_minus_production_ns": -658868,
           "first_execution": "production",
-          "independent_ns": 69825,
-          "production_ns": 712655,
+          "independent_ns": 70556,
+          "production_ns": 729424,
           "sample_index": 11
         },
         {
-          "difference_independent_minus_production_ns": -617741,
+          "difference_independent_minus_production_ns": -656783,
           "first_execution": "independent",
-          "independent_ns": 53250,
-          "production_ns": 670991,
+          "independent_ns": 54343,
+          "production_ns": 711126,
           "sample_index": 12
         },
         {
-          "difference_independent_minus_production_ns": -590481,
+          "difference_independent_minus_production_ns": -635210,
           "first_execution": "production",
-          "independent_ns": 69575,
-          "production_ns": 660056,
+          "independent_ns": 71078,
+          "production_ns": 706288,
           "sample_index": 13
         },
         {
-          "difference_independent_minus_production_ns": -624322,
+          "difference_independent_minus_production_ns": -631345,
           "first_execution": "independent",
-          "independent_ns": 50155,
-          "production_ns": 674477,
+          "independent_ns": 53120,
+          "production_ns": 684465,
           "sample_index": 14
         },
         {
-          "difference_independent_minus_production_ns": -582429,
+          "difference_independent_minus_production_ns": -612697,
           "first_execution": "production",
-          "independent_ns": 67952,
-          "production_ns": 650381,
+          "independent_ns": 67422,
+          "production_ns": 680119,
           "sample_index": 15
         },
         {
-          "difference_independent_minus_production_ns": -607566,
+          "difference_independent_minus_production_ns": -629242,
           "first_execution": "independent",
-          "independent_ns": 50095,
-          "production_ns": 657661,
+          "independent_ns": 52970,
+          "production_ns": 682212,
           "sample_index": 16
         },
         {
-          "difference_independent_minus_production_ns": -617702,
+          "difference_independent_minus_production_ns": -612155,
           "first_execution": "production",
-          "independent_ns": 69284,
-          "production_ns": 686986,
+          "independent_ns": 70357,
+          "production_ns": 682512,
           "sample_index": 17
         },
         {
-          "difference_independent_minus_production_ns": -628297,
+          "difference_independent_minus_production_ns": -622811,
           "first_execution": "independent",
-          "independent_ns": 52890,
-          "production_ns": 681187,
+          "independent_ns": 53001,
+          "production_ns": 675812,
           "sample_index": 18
         },
         {
-          "difference_independent_minus_production_ns": -588246,
+          "difference_independent_minus_production_ns": -621780,
           "first_execution": "production",
-          "independent_ns": 68273,
-          "production_ns": 656519,
+          "independent_ns": 67022,
+          "production_ns": 688802,
           "sample_index": 19
         },
         {
-          "difference_independent_minus_production_ns": -623269,
+          "difference_independent_minus_production_ns": -628621,
           "first_execution": "independent",
-          "independent_ns": 53531,
-          "production_ns": 676800,
+          "independent_ns": 51989,
+          "production_ns": 680610,
           "sample_index": 20
         },
         {
-          "difference_independent_minus_production_ns": -606044,
+          "difference_independent_minus_production_ns": -618085,
           "first_execution": "production",
-          "independent_ns": 87732,
-          "production_ns": 693776,
+          "independent_ns": 67472,
+          "production_ns": 685557,
           "sample_index": 21
         },
         {
-          "difference_independent_minus_production_ns": -672304,
+          "difference_independent_minus_production_ns": -639878,
           "first_execution": "independent",
-          "independent_ns": 61322,
-          "production_ns": 733626,
+          "independent_ns": 52730,
+          "production_ns": 692608,
           "sample_index": 22
         },
         {
-          "difference_independent_minus_production_ns": -610691,
+          "difference_independent_minus_production_ns": -602823,
           "first_execution": "production",
-          "independent_ns": 79680,
-          "production_ns": 690371,
+          "independent_ns": 66540,
+          "production_ns": 669363,
           "sample_index": 23
         },
         {
-          "difference_independent_minus_production_ns": -640135,
+          "difference_independent_minus_production_ns": -630244,
           "first_execution": "independent",
-          "independent_ns": 53250,
-          "production_ns": 693385,
+          "independent_ns": 52609,
+          "production_ns": 682853,
           "sample_index": 24
         },
         {
-          "difference_independent_minus_production_ns": -565883,
+          "difference_independent_minus_production_ns": -598225,
           "first_execution": "production",
-          "independent_ns": 76776,
-          "production_ns": 642659,
+          "independent_ns": 65699,
+          "production_ns": 663924,
           "sample_index": 25
         },
         {
-          "difference_independent_minus_production_ns": -630240,
+          "difference_independent_minus_production_ns": -639939,
           "first_execution": "independent",
-          "independent_ns": 50016,
-          "production_ns": 680256,
+          "independent_ns": 51858,
+          "production_ns": 691797,
           "sample_index": 26
         },
         {
-          "difference_independent_minus_production_ns": -583731,
+          "difference_independent_minus_production_ns": -597504,
           "first_execution": "production",
-          "independent_ns": 68573,
-          "production_ns": 652304,
+          "independent_ns": 65960,
+          "production_ns": 663464,
           "sample_index": 27
         },
         {
-          "difference_independent_minus_production_ns": -598933,
+          "difference_independent_minus_production_ns": -634579,
           "first_execution": "independent",
-          "independent_ns": 50546,
-          "production_ns": 649479,
+          "independent_ns": 53371,
+          "production_ns": 687950,
           "sample_index": 28
         },
         {
-          "difference_independent_minus_production_ns": -564551,
+          "difference_independent_minus_production_ns": -593578,
           "first_execution": "production",
-          "independent_ns": 65889,
-          "production_ns": 630440,
+          "independent_ns": 65479,
+          "production_ns": 659057,
           "sample_index": 29
         },
         {
-          "difference_independent_minus_production_ns": -599864,
+          "difference_independent_minus_production_ns": -610443,
           "first_execution": "independent",
-          "independent_ns": 49695,
-          "production_ns": 649559,
+          "independent_ns": 51759,
+          "production_ns": 662202,
           "sample_index": 30
         }
       ],
       "passed": true,
       "production": {
-        "maximum_ns": 786787,
-        "mean_ns": 675809.3,
-        "median_ns": 669744.5,
-        "minimum_ns": 630440,
-        "operations_per_second": 1493.1066996444167,
+        "maximum_ns": 856195,
+        "mean_ns": 698486.9333333333,
+        "median_ns": 686924.0,
+        "minimum_ns": 659057,
+        "operations_per_second": 1455.7651210323122,
         "samples": 30,
-        "standard_deviation_ns": 30931.26493280437
+        "standard_deviation_ns": 37013.34698630872
       },
       "repetitions": 30,
-      "standard_deviation_ns": 30931.26493280437,
+      "standard_deviation_ns": 37013.34698630872,
       "warmups": 5,
       "world_record": {
         "display": "N/A \u2014 no verified directly comparable record",
@@ -2194,7 +2194,7 @@
   ],
   "operator_order": "U = C3X @ U_rot",
   "pennylane_numpy_maximum_difference": 0.0,
-  "production_total_execution_seconds": 0.025261104,
+  "production_total_execution_seconds": 0.026291423,
   "project": "QFLPN P2",
   "qubits": 4,
   "repetitions": 30,
@@ -2202,8 +2202,8 @@
   "schema_version": 1,
   "status": "PASS",
   "timer": "time.perf_counter_ns",
-  "timestamp_utc": "2026-10-21T20:20:51.065705+00:00",
-  "total_runtime_seconds": 0.068826891,
+  "timestamp_utc": "2026-10-21T20:34:55.816487+00:00",
+  "total_runtime_seconds": 0.069885861,
   "warmups": 5,
   "world_record_policy": "A world-record value is populated only for an independently verified, directly comparable published measurement. No such measurement is currently established for the exact P2 operation-level workload."
 }
