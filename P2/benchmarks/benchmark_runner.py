@@ -18,7 +18,18 @@ from typing import Callable
 import numpy as np
 import pennylane as qml
 
-P2_ROOT = Path(__file__).resolve().parents[1]
+CURRENT_DIR = Path(__file__).resolve().parent
+if str(CURRENT_DIR) not in sys.path:
+    sys.path.insert(0, str(CURRENT_DIR))
+
+from benchmark_contract import (  # noqa: E402
+    P2_ROOT,
+    DEFAULT_CONFIG_PATH,
+    BenchmarkContract,
+    load_benchmark_contract,
+    assert_cli_output_directory,
+)
+
 REPOSITORY_ROOT = P2_ROOT.parent
 BENCHMARK_DIR = P2_ROOT / "benchmarks"
 CODE_DIR = P2_ROOT / "code"
@@ -35,13 +46,6 @@ from qflpn_reference import (  # noqa: E402
     rotation_operator,
     transition_operator,
 )
-
-CONFIG_PATH = BENCHMARK_DIR / "benchmark_config.json"
-
-JSON_FILENAME = "benchmark_report.json"
-CSV_FILENAME = "benchmark_results.csv"
-MARKDOWN_FILENAME = "BENCHMARK_RESULTS.md"
-ENVIRONMENT_FILENAME = "environment.txt"
 
 EXPECTED_OPERATIONS = (
     "rotation_operator",
@@ -267,65 +271,6 @@ def environment_text(environment: dict) -> str:
         lines.append(f"{key}: {rendered}")
 
     return "\n".join(lines) + "\n"
-
-
-def load_config(path: Path) -> dict:
-    data = json.loads(path.read_text(encoding="utf-8"))
-
-    if not isinstance(data, dict):
-        raise ValueError("Benchmark configuration must be a JSON object.")
-
-    if data.get("schema_version") != 1:
-        raise ValueError("Unsupported benchmark configuration schema.")
-
-    if data.get("project") != "QFLPN P2":
-        raise ValueError("Unexpected benchmark project.")
-
-    if data.get("qubits") != 4:
-        raise ValueError("P2 benchmark requires four qubits.")
-
-    if data.get("hilbert_dimension") != 16:
-        raise ValueError("P2 benchmark dimension must be 16.")
-
-    if data.get("basis_order") != "big-endian":
-        raise ValueError("Unsupported basis ordering.")
-
-    if data.get("operator_order") != "U = C3X @ U_rot":
-        raise ValueError("Unexpected operator ordering.")
-
-    if data.get("activation_vector") != list(DEFAULT_ACTIVATIONS):
-        raise ValueError(
-            "Benchmark activations differ from the canonical P2 model."
-        )
-
-    warmups = data.get("warmups")
-    repetitions = data.get("repetitions")
-    tolerance = data.get("numerical_tolerance")
-
-    if type(warmups) is not int or warmups < 5:
-        raise ValueError("At least five warm-up iterations are required.")
-
-    if type(repetitions) is not int or repetitions < 30:
-        raise ValueError("At least 30 measured repetitions are required.")
-
-    if (
-        isinstance(tolerance, bool)
-        or not isinstance(tolerance, (int, float))
-        or not np.isfinite(tolerance)
-        or tolerance <= 0
-    ):
-        raise ValueError("Invalid numerical tolerance.")
-
-    if data.get("operations") != list(EXPECTED_OPERATIONS):
-        raise ValueError(
-            "Configured benchmark operations do not match "
-            "the required P2 operation set."
-        )
-
-    if data.get("timer") != "time.perf_counter_ns":
-        raise ValueError("Unsupported benchmark timer.")
-
-    return data
 
 
 # ---------------------------------------------------------------------
@@ -834,7 +779,7 @@ def write_csv(path: Path, rows: list[dict]) -> None:
             })
 
 
-def markdown_report(report: dict) -> str:
+def markdown_report(report: dict, artifacts: dict[str, str]) -> str:
     lines = [
         "# QFLPN P2 — Benchmark Results",
         "",
@@ -989,9 +934,9 @@ def markdown_report(report: dict) -> str:
         "",
         "## Generated evidence",
         "",
-        "- `benchmark_report.json` — structured paired measurements and metadata.",
-        "- `benchmark_results.csv` — production operation summary.",
-        "- `environment.txt` — execution environment.",
+        f"- `{artifacts['json']}` — structured paired measurements and metadata.",
+        f"- `{artifacts['csv']}` — production operation summary.",
+        f"- `{artifacts['environment']}` — execution environment.",
         "",
         f"**Overall numerical status: {report['status']}**",
         "",
@@ -1014,7 +959,7 @@ def write_json(path: Path, report: dict) -> None:
 
 def run_benchmark(
     config: dict,
-    output_dir: Path,
+    contract: BenchmarkContract,
     started_ns: int | None = None,
 ) -> dict:
     if started_ns is None:
@@ -1151,12 +1096,13 @@ def run_benchmark(
         ],
     }
 
+    output_dir = contract.output_directory
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    json_path = output_dir / JSON_FILENAME
-    csv_path = output_dir / CSV_FILENAME
-    markdown_path = output_dir / MARKDOWN_FILENAME
-    environment_path = output_dir / ENVIRONMENT_FILENAME
+    json_path = contract.artifact_paths["json"]
+    csv_path = contract.artifact_paths["csv"]
+    markdown_path = contract.artifact_paths["markdown"]
+    environment_path = contract.artifact_paths["environment"]
 
     # Measure the first evidence-generation pass separately.
     evidence_start_ns = time.perf_counter_ns()
@@ -1178,7 +1124,7 @@ def run_benchmark(
     )
 
     markdown_path.write_text(
-        markdown_report(report),
+        markdown_report(report, contract.artifacts),
         encoding="utf-8",
     )
 
@@ -1201,7 +1147,7 @@ def run_benchmark(
     write_json(json_path, report)
 
     markdown_path.write_text(
-        markdown_report(report),
+        markdown_report(report, contract.artifacts),
         encoding="utf-8",
     )
 
@@ -1216,14 +1162,18 @@ def main() -> int:
     parser.add_argument(
         "--config",
         type=Path,
-        default=CONFIG_PATH,
+        default=DEFAULT_CONFIG_PATH,
+        help="Path to the canonical benchmark configuration.",
     )
 
     parser.add_argument(
         "--output",
         type=Path,
-        default=BENCHMARK_DIR,
-        help="Directory for the four benchmark evidence files.",
+        default=None,
+        help=(
+            "Optional consistency check. If supplied, it must resolve "
+            "to the configured output_directory."
+        ),
     )
 
     args = parser.parse_args()
@@ -1231,13 +1181,16 @@ def main() -> int:
     started_ns = time.perf_counter_ns()
 
     try:
-        config = load_config(
-            args.config.resolve(strict=True)
+        contract = load_benchmark_contract(args.config)
+        assert_cli_output_directory(
+            args.output,
+            contract,
+            option_name="--output",
         )
 
         report = run_benchmark(
-            config,
-            args.output.resolve(),
+            contract.config,
+            contract,
             started_ns=started_ns,
         )
 
@@ -1252,7 +1205,7 @@ def main() -> int:
         print("FAIL:", exc)
         return 2
 
-    print("Benchmark output:", args.output.resolve())
+    print("Benchmark output:", contract.output_directory)
     print("Operations:", len(report["operations"]))
 
     print(
