@@ -6,7 +6,6 @@ import argparse
 import csv
 import json
 import math
-import re
 import shutil
 import statistics
 from pathlib import Path
@@ -40,7 +39,6 @@ EXPECTED_RUNTIME_SCOPE = (
 )
 
 EXPECTED_WORLD_RECORD_STATUS = "NO_DIRECTLY_COMPARABLE_RECORD"
-
 EXPECTED_WORLD_RECORD_DISPLAY = (
     "N/A — no verified directly comparable record"
 )
@@ -244,7 +242,10 @@ def validate_world_record(
                 f"{label}: unverified record cannot claim a source."
             )
 
-        if not isinstance(record.get("reason"), str) or not record["reason"].strip():
+        if (
+            not isinstance(record.get("reason"), str)
+            or not record["reason"].strip()
+        ):
             errors.append(
                 f"{label}: reason for missing comparable record is required."
             )
@@ -283,15 +284,17 @@ def validate_world_record(
                     f"{label}: verified source is missing {field}."
                 )
 
-        if not isinstance(source.get("url"), str) or not source.get(
-            "url", ""
-        ).startswith("https://"):
+        if (
+            not isinstance(source.get("url"), str)
+            or not source.get("url", "").startswith("https://")
+        ):
             errors.append(
                 f"{label}: verified record source URL must use HTTPS."
             )
 
-        if not isinstance(source.get("authors"), list) or not source.get(
-            "authors"
+        if (
+            not isinstance(source.get("authors"), list)
+            or not source.get("authors")
         ):
             errors.append(
                 f"{label}: verified record must identify its authors."
@@ -877,7 +880,10 @@ def validate_report(report: object) -> list[str]:
                 continue
 
             for field in ("id", "title", "venue", "scope", "url"):
-                if not isinstance(source.get(field), str) or not source[field]:
+                if (
+                    not isinstance(source.get(field), str)
+                    or not source[field]
+                ):
                     errors.append(
                         f"{label}: missing or invalid {field}."
                     )
@@ -932,9 +938,15 @@ def validate_csv(path: Path, report: dict | None = None) -> list[str]:
     }
 
     for row in rows:
-        name = row.get("operation", "<unknown>")
+        name = row.get("operation") or "<unknown>"
 
-        if row.get("passed", "").lower() != "true":
+        # Fail closed without calling .lower() on None or a non-string.
+        passed_value = row.get("passed")
+
+        if (
+            not isinstance(passed_value, str)
+            or passed_value.strip().lower() != "true"
+        ):
             errors.append(f"{name}: CSV numerical status is not PASS.")
 
         parsed = {}
@@ -1010,12 +1022,14 @@ def validate_csv(path: Path, report: dict | None = None) -> list[str]:
             )
 
     if report is not None and isinstance(report, dict):
+        raw_report_rows = report.get("operations", [])
+
         report_rows = {
             row["operation"]: row
-            for row in report.get("operations", [])
+            for row in raw_report_rows
             if isinstance(row, dict)
             and isinstance(row.get("operation"), str)
-        }
+        } if isinstance(raw_report_rows, list) else {}
 
         if set(report_rows) != set(csv_by_name):
             errors.append("CSV and JSON operation sets differ.")
@@ -1023,7 +1037,13 @@ def validate_csv(path: Path, report: dict | None = None) -> list[str]:
             for name in EXPECTED_OPERATIONS:
                 json_row = report_rows[name]
                 csv_row = csv_by_name[name]
-                production = json_row.get("production", {})
+                production = json_row.get("production")
+
+                if not isinstance(production, dict):
+                    errors.append(
+                        f"{name}: JSON production statistics are missing."
+                    )
+                    continue
 
                 for field in ("warmups", "repetitions"):
                     try:
@@ -1089,9 +1109,13 @@ def validate_csv(path: Path, report: dict | None = None) -> list[str]:
                             f"{name}: CSV/JSON {csv_field} mismatch."
                         )
 
-                if (
-                    csv_row.get("passed", "").lower() == "true"
-                ) != (json_row.get("passed") is True):
+                csv_passed = csv_row.get("passed")
+                csv_is_passed = (
+                    isinstance(csv_passed, str)
+                    and csv_passed.strip().lower() == "true"
+                )
+
+                if csv_is_passed != (json_row.get("passed") is True):
                     errors.append(
                         f"{name}: CSV/JSON passed status mismatch."
                     )
@@ -1174,11 +1198,7 @@ def validate_markdown(
         return errors
 
     for label, field, digits in (
-        (
-            "- Total benchmark runtime:",
-            "total_runtime_seconds",
-            6,
-        ),
+        ("- Total benchmark runtime:", "total_runtime_seconds", 6),
         (
             "- Total production execution time:",
             "production_total_execution_seconds",
@@ -1211,9 +1231,15 @@ def validate_markdown(
                 digits,
             )
 
+    raw_operations = report.get("operations")
+
+    if not isinstance(raw_operations, list):
+        errors.append("Markdown validation cannot inspect malformed operations.")
+        return errors
+
     operations = {
         row["operation"]: row
-        for row in report.get("operations", [])
+        for row in raw_operations
         if isinstance(row, dict)
         and isinstance(row.get("operation"), str)
     }
@@ -1225,19 +1251,52 @@ def validate_markdown(
         if row is None:
             continue
 
-        production = row.get("production", {})
-        independent = row.get("independent", {})
-        paired = row.get("paired_comparison", {})
-        world_record = row.get("world_record", {})
+        production = row.get("production")
+        independent = row.get("independent")
+        paired = row.get("paired_comparison")
+        world_record = row.get("world_record")
+
+        if not all(
+            isinstance(value, dict)
+            for value in (production, independent, paired, world_record)
+        ):
+            errors.append(
+                f"Markdown source data is malformed for operation {name}."
+            )
+            continue
+
+        numeric_fields = (
+            production.get("median_ns"),
+            independent.get("median_ns"),
+            paired.get("production_reduction_percent_vs_independent"),
+            paired.get(
+                "median_difference_independent_minus_production_ns"
+            ),
+            paired.get("production_win_rate_percent"),
+        )
+
+        if not all(finite_number(value) for value in numeric_fields):
+            errors.append(
+                f"Markdown numeric source data is invalid for operation {name}."
+            )
+            continue
+
+        display = world_record.get("display")
+
+        if not isinstance(display, str):
+            errors.append(
+                f"Markdown world-record display is invalid for {name}."
+            )
+            continue
 
         summary_line = (
             f"| {name}"
-            f" | {production.get('median_ns', float('nan')):.2f}"
-            f" | {independent.get('median_ns', float('nan')):.2f}"
-            f" | {paired.get('production_reduction_percent_vs_independent', float('nan')):.3f}"
-            f" | {paired.get('median_difference_independent_minus_production_ns', float('nan')):.2f}"
-            f" | {paired.get('production_win_rate_percent', float('nan')):.2f}"
-            f" | {world_record.get('display', 'MISSING')} |"
+            f" | {production['median_ns']:.2f}"
+            f" | {independent['median_ns']:.2f}"
+            f" | {paired['production_reduction_percent_vs_independent']:.3f}"
+            f" | {paired['median_difference_independent_minus_production_ns']:.2f}"
+            f" | {paired['production_win_rate_percent']:.2f}"
+            f" | {display} |"
         )
 
         if summary_line not in content:
@@ -1245,18 +1304,38 @@ def validate_markdown(
                 f"Markdown paired comparison row is missing or inconsistent: {name}."
             )
 
-        for implementation in ("production", "independent"):
-            stats = row.get(implementation, {})
+        for implementation, stats in (
+            ("production", production),
+            ("independent", independent),
+        ):
+            required_numeric = (
+                "minimum_ns",
+                "median_ns",
+                "mean_ns",
+                "maximum_ns",
+                "standard_deviation_ns",
+                "samples",
+            )
+
+            if not all(
+                finite_number(stats.get(field))
+                for field in required_numeric
+            ):
+                errors.append(
+                    f"Markdown timing statistics are invalid: "
+                    f"{name}/{implementation}."
+                )
+                continue
 
             full_line = (
                 f"| {name}"
                 f" | {implementation}"
-                f" | {stats.get('minimum_ns')}"
-                f" | {stats.get('median_ns', float('nan')):.2f}"
-                f" | {stats.get('mean_ns', float('nan')):.2f}"
-                f" | {stats.get('maximum_ns')}"
-                f" | {stats.get('standard_deviation_ns', float('nan')):.2f}"
-                f" | {stats.get('samples')} |"
+                f" | {stats['minimum_ns']}"
+                f" | {stats['median_ns']:.2f}"
+                f" | {stats['mean_ns']:.2f}"
+                f" | {stats['maximum_ns']}"
+                f" | {stats['standard_deviation_ns']:.2f}"
+                f" | {stats['samples']} |"
             )
 
             if full_line not in content:
@@ -1265,7 +1344,7 @@ def validate_markdown(
                     f"{name}/{implementation}."
                 )
 
-    if "N/A — no verified directly comparable record" not in content:
+    if EXPECTED_WORLD_RECORD_DISPLAY not in content:
         errors.append(
             "Markdown does not explicitly distinguish unavailable world records."
         )
