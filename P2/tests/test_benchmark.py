@@ -6,12 +6,18 @@ import csv
 import importlib.util
 import json
 import statistics
+import sys
 from pathlib import Path
 
 import pytest
 
 P2_ROOT = Path(__file__).resolve().parents[1]
-VALIDATOR_PATH = P2_ROOT / "benchmarks" / "validate_benchmark.py"
+BENCHMARKS_DIR = P2_ROOT / "benchmarks"
+
+if str(BENCHMARKS_DIR) not in sys.path:
+    sys.path.insert(0, str(BENCHMARKS_DIR))
+
+VALIDATOR_PATH = BENCHMARKS_DIR / "validate_benchmark.py"
 
 SPEC = importlib.util.spec_from_file_location(
     "p2_benchmark_validator",
@@ -26,6 +32,33 @@ SPEC.loader.exec_module(VALIDATOR)
 
 OPERATIONS = VALIDATOR.EXPECTED_OPERATIONS
 CSV_FIELDS = VALIDATOR.CSV_FIELDS
+
+
+def make_test_contract(
+    tmp_path: Path,
+    artifacts: dict[str, str] | None = None,
+):
+    """Build a validated contract using the canonical P2 benchmark config."""
+    canonical_config = json.loads(
+        (BENCHMARKS_DIR / "benchmark_config.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    canonical_config["output_directory"] = tmp_path.name
+
+    if artifacts is not None:
+        canonical_config["artifacts"] = artifacts
+
+    config_path = tmp_path / "test_benchmark_config.json"
+    config_path.write_text(
+        json.dumps(canonical_config, indent=2),
+        encoding="utf-8",
+    )
+
+    return VALIDATOR.load_benchmark_contract(
+        config_path,
+        p2_root=tmp_path.parent,
+    )
 
 
 def make_stats(values: list[int]) -> dict:
@@ -635,14 +668,18 @@ def test_markdown_rejects_missing_full_timing_row(tmp_path: Path):
 def test_complete_paired_evidence_is_accepted(tmp_path: Path):
     write_evidence(tmp_path)
 
-    assert VALIDATOR.validate_results(tmp_path) == []
+    assert VALIDATOR.validate_results(
+        make_test_contract(tmp_path)
+    ) == []
 
 
 def test_complete_evidence_rejects_missing_markdown(tmp_path: Path):
     write_evidence(tmp_path)
     (tmp_path / "BENCHMARK_RESULTS.md").unlink()
 
-    errors = VALIDATOR.validate_results(tmp_path)
+    errors = VALIDATOR.validate_results(
+        make_test_contract(tmp_path)
+    )
 
     assert any(
         "Markdown report does not exist" in error
@@ -654,7 +691,9 @@ def test_complete_evidence_rejects_missing_environment(tmp_path: Path):
     write_evidence(tmp_path)
     (tmp_path / "environment.txt").unlink()
 
-    errors = VALIDATOR.validate_results(tmp_path)
+    errors = VALIDATOR.validate_results(
+        make_test_contract(tmp_path)
+    )
 
     assert any(
         "environment file does not exist" in error
@@ -677,7 +716,9 @@ def test_complete_evidence_rejects_old_json_schema(tmp_path: Path):
         encoding="utf-8",
     )
 
-    errors = VALIDATOR.validate_results(tmp_path)
+    errors = VALIDATOR.validate_results(
+        make_test_contract(tmp_path)
+    )
 
     assert any(
         "identifier" in error.lower()
@@ -775,3 +816,64 @@ def test_environment_requires_cpu_model(tmp_path: Path):
         "cpu_model" in error
         for error in errors
     )
+
+
+def test_complete_evidence_accepts_custom_artifact_names(tmp_path: Path):
+    default_names = {
+        "json": "benchmark_report.json",
+        "csv": "benchmark_results.csv",
+        "markdown": "BENCHMARK_RESULTS.md",
+        "environment": "environment.txt",
+    }
+    custom_names = {
+        "json": "custom_report.json",
+        "csv": "custom_results.csv",
+        "markdown": "custom_results.md",
+        "environment": "custom_environment.txt",
+    }
+
+    write_evidence(tmp_path)
+    contract = make_test_contract(tmp_path, custom_names)
+
+    for artifact_type, default_name in default_names.items():
+        source = tmp_path / default_name
+        destination = contract.artifact_paths[artifact_type]
+        source.replace(destination)
+
+    markdown = contract.markdown_path.read_text(encoding="utf-8")
+    for artifact_type, default_name in default_names.items():
+        markdown = markdown.replace(
+            default_name,
+            custom_names[artifact_type],
+        )
+    contract.markdown_path.write_text(markdown, encoding="utf-8")
+
+    assert VALIDATOR.validate_results(contract) == []
+
+
+def test_cli_rejects_results_directory_that_differs_from_contract(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+):
+    contract = make_test_contract(tmp_path)
+    wrong_results = tmp_path / "wrong-results"
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "validate_benchmark.py",
+            "--config",
+            str(contract.config_path),
+            "--results",
+            str(wrong_results),
+            "--keep-cache",
+        ],
+    )
+
+    exit_code = VALIDATOR.main()
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "--results directory does not match" in captured.out
+    assert "VERDICT: BENCHMARK_REJECTED" in captured.out
