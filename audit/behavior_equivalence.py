@@ -1,7 +1,27 @@
 #!/usr/bin/env python3
+"""
+P2-BENCH-CONFIG-01
+Behavioral Preservation Audit.
+
+Compară:
+- artefactele JSON;
+- structura CSV;
+- secțiunea Generated evidence din Markdown;
+- artefactul de environment;
+- verdictul validatorului original și migrat.
+
+Baseline validator:
+eb6f382fb70a1f04750b72931ef54f77eb28c470
+
+IMPORTANT:
+Nu declară echivalență numerică fără o execuție independentă
+a ambelor versiuni pe aceleași intrări.
+"""
 
 from __future__ import annotations
 
+import argparse
+import csv
 import hashlib
 import importlib.util
 import json
@@ -9,20 +29,42 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import traceback
 
+from datetime import datetime, timezone
 from pathlib import Path
-from types import ModuleType
 
 
 ROOT = Path(__file__).resolve().parents[1]
-AUDIT_DIR = ROOT / "audit"
 
-ORIGINAL_PATH = AUDIT_DIR / "validate_benchmark.original.py"
-MIGRATED_PATH = ROOT / "P2/benchmarks/validate_benchmark.py"
-CONFIG_PATH = ROOT / "P2/benchmarks/benchmark_config.json"
+BENCHMARK_DIR = ROOT / "P2" / "benchmarks"
 
-ORIGINAL_GIT_PATH = "P2/benchmarks/validate_benchmark.py"
+DEFAULT_CONFIG = (
+    BENCHMARK_DIR / "benchmark_config.json"
+)
 
+VALIDATOR_PATH = (
+    BENCHMARK_DIR / "validate_benchmark.py"
+)
+
+RUNNER_PATH = (
+    BENCHMARK_DIR / "benchmark_runner.py"
+)
+
+VALIDATOR_BASELINE_BLOB = (
+    "eb6f382fb70a1f04750b72931ef54f77eb28c470"
+)
+
+RUNNER_BASELINE_BLOB = (
+    "03a63fec41a099944017d9c95d53c3b8656359a3"
+)
+
+REPORT_PATH = (
+    ROOT / "audit" / "behavior_equivalence.json"
+)
+
+# Numele istorice sunt folosite EXCLUSIV pentru adapterul
+# validatorului original, care nu cunoaște noul contract.
 ORIGINAL_FILENAMES = {
     "json": "benchmark_report.json",
     "csv": "benchmark_results.csv",
@@ -30,344 +72,688 @@ ORIGINAL_FILENAMES = {
     "environment": "environment.txt",
 }
 
-REPORT_PATH = AUDIT_DIR / "behavior_report.json"
 
+def git_blob(blob_sha: str) -> bytes:
 
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
+    object_type = subprocess.run(
+        [
+            "git",
+            "cat-file",
+            "-t",
+            blob_sha,
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.strip()
 
-    with path.open("rb") as handle:
-        for chunk in iter(
-            lambda: handle.read(65536),
-            b"",
-        ):
-            digest.update(chunk)
+    if object_type != "blob":
 
-    return digest.hexdigest()
+        raise ValueError(
+            f"Git object {blob_sha} is not a blob"
+        )
+
+    return subprocess.run(
+        [
+            "git",
+            "cat-file",
+            "blob",
+            blob_sha,
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        check=True,
+    ).stdout
 
 
 def load_module(
     path: Path,
     module_name: str,
-) -> ModuleType:
+):
+
     spec = importlib.util.spec_from_file_location(
         module_name,
         path,
     )
 
     if spec is None or spec.loader is None:
+
         raise ImportError(
-            f"Cannot import module: {path}"
+            f"Cannot load Python module: {path}"
         )
 
-    module = importlib.util.module_from_spec(spec)
+    module = importlib.util.module_from_spec(
+        spec
+    )
 
     sys.modules[module_name] = module
 
-    try:
-        spec.loader.exec_module(module)
-    except Exception:
-        sys.modules.pop(module_name, None)
-        raise
+    spec.loader.exec_module(module)
 
     return module
 
 
-def git_blob_sha(path: str) -> str | None:
-    try:
-        return subprocess.check_output(
-            ["git", "rev-parse", f"HEAD:{path}"],
-            cwd=ROOT,
-            text=True,
-            stderr=subprocess.DEVNULL,
-        ).strip()
-    except (
-        OSError,
-        subprocess.CalledProcessError,
-    ):
-        return None
+def sha256_file(path: Path) -> str:
+
+    return hashlib.sha256(
+        path.read_bytes()
+    ).hexdigest()
 
 
-def normalize_errors(
-    errors: list[str],
-    replacements: dict[str, str],
-) -> list[str]:
-    result = []
+def normalize_validator_result(value) -> list[str]:
 
-    for error in errors:
-        value = str(error)
+    if value is None:
+        return []
 
-        for old, new in replacements.items():
-            value = value.replace(old, new)
+    if isinstance(value, (list, tuple)):
+        return [str(item) for item in value]
 
-        result.append(value)
-
-    return result
-
-
-def build_error_diff(
-    original: list[str],
-    migrated: list[str],
-) -> list[dict]:
-    differences = []
-
-    max_length = max(
-        len(original),
-        len(migrated),
+    raise TypeError(
+        "validate_results must return a list or tuple "
+        f"of errors, not {type(value).__name__}"
     )
 
-    for index in range(max_length):
-        old = (
-            original[index]
-            if index < len(original)
-            else None
+
+def compare_json_structure(
+    original_path: Path,
+    migrated_path: Path,
+) -> dict:
+
+    original = json.loads(
+        original_path.read_text(
+            encoding="utf-8"
+        )
+    )
+
+    migrated = json.loads(
+        migrated_path.read_text(
+            encoding="utf-8"
+        )
+    )
+
+    if not isinstance(original, dict):
+        raise ValueError(
+            "Original JSON root is not an object"
         )
 
-        new = (
-            migrated[index]
-            if index < len(migrated)
-            else None
+    if not isinstance(migrated, dict):
+        raise ValueError(
+            "Migrated JSON root is not an object"
         )
 
-        if old != new:
-            differences.append({
-                "index": index,
-                "original": old,
-                "migrated": new,
-            })
+    original_keys = set(original)
+    migrated_keys = set(migrated)
 
-    return differences
+    return {
+        "status": (
+            "PASS"
+            if original_keys == migrated_keys
+            else "FAIL"
+        ),
+        "original_keys": sorted(original_keys),
+        "migrated_keys": sorted(migrated_keys),
+        "missing_from_migrated": sorted(
+            original_keys - migrated_keys
+        ),
+        "added_in_migrated": sorted(
+            migrated_keys - original_keys
+        ),
+        "original_sha256": sha256_file(
+            original_path
+        ),
+        "migrated_sha256": sha256_file(
+            migrated_path
+        ),
+    }
+
+
+def compare_csv_structure(
+    original_path: Path,
+    migrated_path: Path,
+) -> dict:
+
+    def read_csv(path: Path):
+
+        with path.open(
+            "r",
+            encoding="utf-8",
+            newline="",
+        ) as handle:
+
+            reader = csv.DictReader(handle)
+
+            headers = reader.fieldnames
+
+            if not headers:
+                raise ValueError(
+                    f"CSV has no header: {path}"
+                )
+
+            rows = list(reader)
+
+            return headers, rows
+
+    original_headers, original_rows = read_csv(
+        original_path
+    )
+
+    migrated_headers, migrated_rows = read_csv(
+        migrated_path
+    )
+
+    same_headers = (
+        original_headers == migrated_headers
+    )
+
+    return {
+        "status": (
+            "PASS"
+            if same_headers
+            else "FAIL"
+        ),
+        "original_headers": original_headers,
+        "migrated_headers": migrated_headers,
+        "headers_identical": same_headers,
+        "original_row_count": len(original_rows),
+        "migrated_row_count": len(migrated_rows),
+        "row_count_identical": (
+            len(original_rows) == len(migrated_rows)
+        ),
+    }
+
+
+def check_markdown(
+    path: Path,
+    configured_names: list[str],
+) -> dict:
+
+    content = path.read_text(
+        encoding="utf-8"
+    )
+
+    has_evidence = (
+        "Generated evidence" in content
+    )
+
+    missing_names = [
+        name
+        for name in configured_names
+        if name not in content
+    ]
+
+    return {
+        "status": (
+            "PASS"
+            if has_evidence and not missing_names
+            else "FAIL"
+        ),
+        "generated_evidence_present": has_evidence,
+        "configured_artifact_names": configured_names,
+        "missing_artifact_names": missing_names,
+    }
+
+
+def check_environment(path: Path) -> dict:
+
+    content = path.read_text(
+        encoding="utf-8"
+    )
+
+    if not content.strip():
+
+        return {
+            "status": "FAIL",
+            "reason": "Environment artifact is empty",
+        }
+
+    # Fișierul poate fi JSON sau text descriptiv.
+    # Nu impunem artificial un format care nu este
+    # declarat în contract.
+    try:
+
+        json.loads(content)
+
+        detected_format = "json"
+
+    except json.JSONDecodeError:
+
+        detected_format = "text"
+
+    return {
+        "status": "PASS",
+        "format": detected_format,
+        "sha256": sha256_file(path),
+        "size_bytes": path.stat().st_size,
+    }
+
+
+def prepare_original_artifact_adapter(
+    artifact_paths: dict,
+    temporary_directory: Path,
+) -> Path:
+    """
+    Pregătește fișierele pentru validatorul original.
+
+    API-ul original primește un director și caută numele
+    istorice. Copierea se face numai în directorul temporar.
+    """
+
+    original_directory = (
+        temporary_directory / "original_results"
+    )
+
+    original_directory.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    for artifact_key, historical_name in ORIGINAL_FILENAMES.items():
+
+        source = Path(
+            artifact_paths[artifact_key]
+        )
+
+        if not source.is_file():
+
+            raise FileNotFoundError(
+                f"Configured artifact missing: {source}"
+            )
+
+        shutil.copy2(
+            source,
+            original_directory / historical_name,
+        )
+
+    return original_directory
+
+
+def compare_validator_results(
+    contract,
+    temporary_directory: Path,
+) -> dict:
+
+    baseline_bytes = git_blob(
+        VALIDATOR_BASELINE_BLOB
+    )
+
+    baseline_path = (
+        temporary_directory
+        / "validate_benchmark_original.py"
+    )
+
+    baseline_path.write_bytes(
+        baseline_bytes
+    )
+
+    original_module = load_module(
+        baseline_path,
+        "p2_behavior_original_validator",
+    )
+
+    migrated_module = load_module(
+        VALIDATOR_PATH,
+        "p2_behavior_migrated_validator",
+    )
+
+    original_directory = prepare_original_artifact_adapter(
+        contract.artifact_paths,
+        temporary_directory,
+    )
+
+    original_result = (
+        original_module.validate_results(
+            original_directory
+        )
+    )
+
+    migrated_result = (
+        migrated_module.validate_results(
+            contract
+        )
+    )
+
+    original_errors = normalize_validator_result(
+        original_result
+    )
+
+    migrated_errors = normalize_validator_result(
+        migrated_result
+    )
+
+    same_errors = (
+        original_errors == migrated_errors
+    )
+
+    return {
+        "status": (
+            "PASS"
+            if same_errors
+            else "FAIL"
+        ),
+        "original_verdict": (
+            "PASS"
+            if not original_errors
+            else "FAIL"
+        ),
+        "migrated_verdict": (
+            "PASS"
+            if not migrated_errors
+            else "FAIL"
+        ),
+        "original_error_count": len(
+            original_errors
+        ),
+        "migrated_error_count": len(
+            migrated_errors
+        ),
+        "original_errors": original_errors,
+        "migrated_errors": migrated_errors,
+        "only_original": [
+            error
+            for error in original_errors
+            if error not in migrated_errors
+        ],
+        "only_migrated": [
+            error
+            for error in migrated_errors
+            if error not in original_errors
+        ],
+    }
 
 
 def main() -> int:
-    report = {
-        "original_git_sha": git_blob_sha(
-            ORIGINAL_GIT_PATH
+
+    parser = argparse.ArgumentParser(
+        description=(
+            "P2-BENCH-CONFIG-01 behavioral preservation audit"
+        )
+    )
+
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=DEFAULT_CONFIG,
+    )
+
+    parser.add_argument(
+        "--results",
+        type=Path,
+        default=None,
+        help=(
+            "Optional results directory. If supplied, "
+            "it must match the configured output directory."
         ),
-        "original_sha256": None,
-        "migrated_sha256": None,
-        "artifact_hashes": {},
-        "original_verdict": "NOT_RUN",
-        "migrated_verdict": "NOT_RUN",
-        "original_error_count": None,
-        "migrated_error_count": None,
-        "original_errors": [],
-        "migrated_errors": [],
-        "error_diff": [],
-        "equivalent": False,
-        "passed": False,
+    )
+
+    args = parser.parse_args()
+
+    report = {
+        "audit": "behavior_equivalence",
+        "audit_id": "P2-BENCH-CONFIG-01",
+        "timestamp_utc": datetime.now(
+            timezone.utc
+        ).isoformat(),
+        "status": "NOT VERIFIED",
+        "artifact_structure": {},
+        "validator_compatibility": {
+            "status": "NOT VERIFIED",
+        },
+        "runner_baseline": {
+            "status": "NOT VERIFIED",
+        },
+        "numeric_equivalence": {
+            "status": "NOT VERIFIED",
+            "tolerance": 1e-12,
+            "reason": (
+                "A paired independent execution protocol for "
+                "baseline and migrated benchmark has not been "
+                "established by this script."
+            ),
+        },
+        "issues": [],
     }
 
     try:
-        if not ORIGINAL_PATH.is_file():
-            raise FileNotFoundError(
-                f"Original validator missing: {ORIGINAL_PATH}"
-            )
 
-        if not MIGRATED_PATH.is_file():
-            raise FileNotFoundError(
-                f"Migrated validator missing: {MIGRATED_PATH}"
-            )
-
-        if not CONFIG_PATH.is_file():
-            raise FileNotFoundError(
-                f"Configuration missing: {CONFIG_PATH}"
-            )
-
-        report["original_sha256"] = sha256_file(
-            ORIGINAL_PATH
+        sys.path.insert(
+            0,
+            str(BENCHMARK_DIR),
         )
-
-        report["migrated_sha256"] = sha256_file(
-            MIGRATED_PATH
-        )
-
-        benchmark_dir = str(
-            MIGRATED_PATH.parent
-        )
-
-        if benchmark_dir not in sys.path:
-            sys.path.insert(0, benchmark_dir)
 
         contract_module = load_module(
-            MIGRATED_PATH.parent / "benchmark_contract.py",
-            "benchmark_contract",
-        )
-
-        migrated_module = load_module(
-            MIGRATED_PATH,
-            "p2_migrated_validate_benchmark",
-        )
-
-        original_module = load_module(
-            ORIGINAL_PATH,
-            "p2_original_validate_benchmark",
+            BENCHMARK_DIR / "benchmark_contract.py",
+            "p2_behavior_contract",
         )
 
         contract = (
             contract_module.load_benchmark_contract(
-                CONFIG_PATH
+                args.config,
+                p2_root=ROOT / "P2",
             )
         )
 
-        if not isinstance(
-            contract.artifact_paths,
-            dict,
-        ):
-            raise TypeError(
-                "contract.artifact_paths must be a dictionary"
+        if args.results is not None:
+
+            expected_directory = Path(
+                contract.output_directory
+            ).resolve()
+
+            supplied_directory = (
+                args.results.resolve()
+            )
+
+            if supplied_directory != expected_directory:
+
+                raise ValueError(
+                    "--results does not match "
+                    "contract.output_directory"
+                )
+
+        artifact_paths = {
+            key: Path(value)
+            for key, value in contract.artifact_paths.items()
+        }
+
+        required_keys = {
+            "json",
+            "csv",
+            "markdown",
+            "environment",
+        }
+
+        if set(artifact_paths) != required_keys:
+
+            raise ValueError(
+                "contract.artifact_paths does not contain "
+                "exactly the four required artifact keys"
             )
 
         missing = [
-            key
-            for key in ORIGINAL_FILENAMES
-            if key not in contract.artifact_paths
+            str(path)
+            for path in artifact_paths.values()
+            if not path.is_file()
         ]
 
         if missing:
-            raise ValueError(
-                f"Missing configured artifact keys: {missing}"
+
+            raise FileNotFoundError(
+                "Missing benchmark artifacts: "
+                + ", ".join(missing)
             )
 
-        artifact_hashes = {}
-
-        for key, path in contract.artifact_paths.items():
-            artifact_path = Path(path)
-
-            if artifact_path.is_file():
-                artifact_hashes[key] = sha256_file(
-                    artifact_path
-                )
-            else:
-                artifact_hashes[key] = None
-
-        report["artifact_hashes"] = artifact_hashes
-
-        missing_artifacts = [
-            key
-            for key in ORIGINAL_FILENAMES
-            if artifact_hashes.get(key) is None
+        configured_names = [
+            Path(str(value)).name
+            for value in contract.artifacts.values()
         ]
 
-        if missing_artifacts:
-            raise FileNotFoundError(
-                "Missing configured artifacts: "
-                f"{missing_artifacts}"
+        # -------------------------------------------------
+        # JSON
+        # -------------------------------------------------
+
+        json_data = json.loads(
+            artifact_paths["json"].read_text(
+                encoding="utf-8"
             )
+        )
+
+        if not isinstance(json_data, dict):
+
+            raise ValueError(
+                "Benchmark JSON root must be an object"
+            )
+
+        report["artifact_structure"]["json"] = {
+            "status": "PASS",
+            "keys": sorted(json_data),
+            "sha256": sha256_file(
+                artifact_paths["json"]
+            ),
+        }
+
+        # -------------------------------------------------
+        # CSV
+        # -------------------------------------------------
+
+        with artifact_paths["csv"].open(
+            "r",
+            encoding="utf-8",
+            newline="",
+        ) as handle:
+
+            reader = csv.DictReader(handle)
+
+            if not reader.fieldnames:
+
+                raise ValueError(
+                    "Benchmark CSV has no columns"
+                )
+
+            rows = list(reader)
+
+        report["artifact_structure"]["csv"] = {
+            "status": "PASS",
+            "columns": reader.fieldnames,
+            "row_count": len(rows),
+            "sha256": sha256_file(
+                artifact_paths["csv"]
+            ),
+        }
+
+        # -------------------------------------------------
+        # Markdown
+        # -------------------------------------------------
+
+        report["artifact_structure"]["markdown"] = (
+            check_markdown(
+                artifact_paths["markdown"],
+                configured_names,
+            )
+        )
+
+        # -------------------------------------------------
+        # Environment
+        # -------------------------------------------------
+
+        report["artifact_structure"]["environment"] = (
+            check_environment(
+                artifact_paths["environment"]
+            )
+        )
+
+        # -------------------------------------------------
+        # Validator comparison
+        # -------------------------------------------------
 
         with tempfile.TemporaryDirectory(
-            prefix="p2_original_validator_"
-        ) as temporary:
+            prefix="p2_behavior_audit_"
+        ) as temporary_name:
 
-            original_input_dir = Path(temporary)
+            temporary_directory = Path(
+                temporary_name
+            )
 
-            for key, historical_name in (
-                ORIGINAL_FILENAMES.items()
-            ):
-                source = Path(
-                    contract.artifact_paths[key]
-                )
-
-                destination = (
-                    original_input_dir / historical_name
-                )
-
-                shutil.copy2(
-                    source,
-                    destination,
-                )
-
-            original_errors = (
-                original_module.validate_results(
-                    original_input_dir
+            report["validator_compatibility"] = (
+                compare_validator_results(
+                    contract,
+                    temporary_directory,
                 )
             )
 
-            migrated_errors = (
-                migrated_module.validate_results(
-                    contract
-                )
+        # -------------------------------------------------
+        # Runner source baseline
+        # -------------------------------------------------
+
+        original_runner = git_blob(
+            RUNNER_BASELINE_BLOB
+        )
+
+        current_runner = RUNNER_PATH.read_bytes()
+
+        same_runner = (
+            hashlib.sha256(original_runner).digest()
+            ==
+            hashlib.sha256(current_runner).digest()
+        )
+
+        report["runner_baseline"] = {
+            "status": (
+                "PASS"
+                if same_runner
+                else "FAIL"
+            ),
+            "baseline_blob": RUNNER_BASELINE_BLOB,
+            "baseline_sha256": hashlib.sha256(
+                original_runner
+            ).hexdigest(),
+            "current_sha256": hashlib.sha256(
+                current_runner
+            ).hexdigest(),
+            "unchanged": same_runner,
+        }
+
+        # -------------------------------------------------
+        # Overall status
+        # -------------------------------------------------
+
+        component_statuses = [
+            report["artifact_structure"]["json"]["status"],
+            report["artifact_structure"]["csv"]["status"],
+            report["artifact_structure"]["markdown"]["status"],
+            report["artifact_structure"]["environment"]["status"],
+            report["validator_compatibility"]["status"],
+            report["runner_baseline"]["status"],
+        ]
+
+        if "FAIL" in component_statuses:
+
+            report["status"] = "FAIL"
+
+        elif (
+            all(
+                status == "PASS"
+                for status in component_statuses
             )
+            and report["numeric_equivalence"]["status"] == "PASS"
+        ):
 
-            if not isinstance(original_errors, list):
-                raise TypeError(
-                    "Original validator must return a list"
-                )
+            report["status"] = "PASS"
 
-            if not isinstance(migrated_errors, list):
-                raise TypeError(
-                    "Migrated validator must return a list"
-                )
+        else:
 
-            replacements = {
-                str(original_input_dir):
-                    "<BENCHMARK_OUTPUT>",
-                str(contract.output_directory):
-                    "<BENCHMARK_OUTPUT>",
-            }
-
-            original_normalized = normalize_errors(
-                original_errors,
-                replacements,
-            )
-
-            migrated_normalized = normalize_errors(
-                migrated_errors,
-                replacements,
-            )
-
-            report["original_errors"] = (
-                original_normalized
-            )
-
-            report["migrated_errors"] = (
-                migrated_normalized
-            )
-
-            report["original_error_count"] = len(
-                original_errors
-            )
-
-            report["migrated_error_count"] = len(
-                migrated_errors
-            )
-
-            report["original_verdict"] = (
-                "BENCHMARK_ACCEPTED"
-                if not original_errors
-                else "BENCHMARK_REJECTED"
-            )
-
-            report["migrated_verdict"] = (
-                "BENCHMARK_ACCEPTED"
-                if not migrated_errors
-                else "BENCHMARK_REJECTED"
-            )
-
-            report["error_diff"] = build_error_diff(
-                original_normalized,
-                migrated_normalized,
-            )
-
-            equivalent = (
-                report["original_verdict"]
-                == report["migrated_verdict"]
-                and original_normalized
-                == migrated_normalized
-                and report["original_error_count"]
-                == report["migrated_error_count"]
-            )
-
-            report["equivalent"] = equivalent
-            report["passed"] = equivalent
+            report["status"] = "NOT VERIFIED"
 
     except Exception as exc:
-        report["execution_error"] = (
+
+        report["issues"].append(
             f"{type(exc).__name__}: {exc}"
         )
 
-        report["equivalent"] = False
-        report["passed"] = False
+        report["traceback"] = traceback.format_exc()
+
+        if report["status"] != "FAIL":
+
+            report["status"] = "NOT VERIFIED"
 
     REPORT_PATH.parent.mkdir(
         parents=True,
@@ -391,13 +777,13 @@ def main() -> int:
         )
     )
 
-    print(
-        "\nBEHAVIOR REVIEW:",
-        "PASS" if report["passed"] else "FAIL",
+    return (
+        1
+        if report["status"] == "FAIL"
+        else 0
     )
-
-    return 0 if report["passed"] else 1
 
 
 if __name__ == "__main__":
+
     raise SystemExit(main())
