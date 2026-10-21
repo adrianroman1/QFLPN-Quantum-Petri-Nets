@@ -1,6 +1,6 @@
 # QFLPN P2 — Benchmark Results
 
-- Generated (UTC): `2026-10-20T18:35:27.521512+00:00`
+- Generated (UTC): `2026-10-21T19:59:57.718379+00:00`
 - Status: **PASS**
 - Qubits: `4`
 - Hilbert dimension: `16`
@@ -10,11 +10,11 @@
 - Measured repetitions: `30`
 - Timer: `time.perf_counter_ns`
 - Numerical tolerance: `1.000e-12`
-- Total benchmark runtime: **0.141668 seconds**
-- Total production execution time: **0.056263572 seconds**
-- Total independent execution time: **0.016092411 seconds**
-- Total timed execution time (both implementations): **0.072355983 seconds**
-- Initial evidence-generation time: **0.002765 seconds**
+- Total benchmark runtime: **0.133693 seconds**
+- Total production execution time: **0.054691339 seconds**
+- Total independent execution time: **0.014128413 seconds**
+- Total timed execution time (both implementations): **0.068819752 seconds**
+- Initial evidence-generation time: **0.003055 seconds**
 - Runtime measurement scope: Elapsed wall-clock time from benchmark CLI start, before configuration loading, through the first complete generation of the four evidence files. Final JSON and Markdown persistence of the measured duration is excluded to avoid a self-referential timing measurement.
 
 ## Numerical parity
@@ -25,35 +25,35 @@ PennyLane / independent NumPy state difference: `0.000000e+00`
 
 | Operation | Production median (ns) | Independent median (ns) | Production reduction (%) | Paired median difference (ns) | Production wins (%) | World record |
 |---|---:|---:|---:|---:|---:|---|
-| rotation_operator | 152870.50 | 155446.00 | 1.657 | -26319.00 | 20.00 | N/A — no verified directly comparable record |
-| c3x_operator | 2845.00 | 2730.00 | -4.212 | 145.00 | 50.00 | N/A — no verified directly comparable record |
-| transition_operator | 122233.00 | 104204.50 | -17.301 | -19702.00 | 6.67 | N/A — no verified directly comparable record |
-| state_evolution | 124197.00 | 105632.00 | -17.575 | -22276.50 | 10.00 | N/A — no verified directly comparable record |
-| density_matrix | 19732.00 | 4593.50 | -329.564 | -15113.00 | 0.00 | N/A — no verified directly comparable record |
-| reduced_density_q4 | 3627.00 | 9302.50 | 61.010 | 5791.00 | 100.00 | N/A — no verified directly comparable record |
-| reduced_density_q123 | 3702.00 | 9087.00 | 59.260 | 5511.00 | 100.00 | N/A — no verified directly comparable record |
-| pennylane_execution | 1391361.50 | 138693.50 | -903.192 | -1253213.50 | 0.00 | N/A — no verified directly comparable record |
+| rotation_operator | 112410.50 | 91901.50 | -22.316 | -21851.50 | 3.33 | N/A — no verified directly comparable record |
+| c3x_operator | 2765.00 | 2720.00 | -1.654 | -85.00 | 50.00 | N/A — no verified directly comparable record |
+| transition_operator | 119854.00 | 101991.00 | -17.514 | -17798.50 | 10.00 | N/A — no verified directly comparable record |
+| state_evolution | 123130.50 | 104991.00 | -17.277 | -16606.50 | 13.33 | N/A — no verified directly comparable record |
+| density_matrix | 19526.50 | 4403.00 | -343.482 | -15218.50 | 0.00 | N/A — no verified directly comparable record |
+| reduced_density_q4 | 3477.00 | 9442.50 | 63.177 | 6021.50 | 96.67 | N/A — no verified directly comparable record |
+| reduced_density_q123 | 3577.00 | 9167.50 | 60.982 | 5546.50 | 100.00 | N/A — no verified directly comparable record |
+| pennylane_execution | 1411636.00 | 139145.00 | -914.507 | -1277019.00 | 0.00 | N/A — no verified directly comparable record |
 
 ## Full timing statistics
 
 | Operation | Implementation | Min (ns) | Median (ns) | Mean (ns) | Max (ns) | Std. dev. (ns) | Samples |
 |---|---|---:|---:|---:|---:|---:|---:|
-| rotation_operator | production | 106278 | 152870.50 | 181007.47 | 314126 | 68731.50 | 30 |
-| rotation_operator | independent | 87884 | 155446.00 | 157252.17 | 273119 | 56118.29 | 30 |
-| c3x_operator | production | 2224 | 2845.00 | 2794.13 | 4208 | 519.76 | 30 |
-| c3x_operator | independent | 2234 | 2730.00 | 3631.43 | 28453 | 4648.74 | 30 |
-| transition_operator | production | 115455 | 122233.00 | 124955.63 | 154438 | 9989.68 | 30 |
-| transition_operator | independent | 97221 | 104204.50 | 105352.57 | 132337 | 8190.79 | 30 |
-| state_evolution | production | 118401 | 124197.00 | 132745.03 | 213288 | 20481.49 | 30 |
-| state_evolution | independent | 99205 | 105632.00 | 109153.77 | 145882 | 11647.25 | 30 |
-| density_matrix | production | 18455 | 19732.00 | 20616.53 | 28584 | 2445.54 | 30 |
-| density_matrix | independent | 4157 | 4593.50 | 4676.00 | 6312 | 425.45 | 30 |
-| reduced_density_q4 | production | 3186 | 3627.00 | 3734.53 | 5600 | 540.95 | 30 |
-| reduced_density_q4 | independent | 8516 | 9302.50 | 9934.80 | 15509 | 1561.69 | 30 |
-| reduced_density_q123 | production | 3366 | 3702.00 | 3797.77 | 5380 | 425.36 | 30 |
-| reduced_density_q123 | independent | 8506 | 9087.00 | 10083.23 | 33542 | 4383.47 | 30 |
-| pennylane_execution | production | 1353796 | 1391361.50 | 1405801.30 | 1719559 | 65903.77 | 30 |
-| pennylane_execution | independent | 119644 | 138693.50 | 136329.73 | 164177 | 12324.33 | 30 |
+| rotation_operator | production | 103925 | 112410.50 | 120681.17 | 181189 | 18553.46 | 30 |
+| rotation_operator | independent | 87364 | 91901.50 | 94651.07 | 138769 | 10660.93 | 30 |
+| c3x_operator | production | 2225 | 2765.00 | 2829.83 | 5580 | 676.57 | 30 |
+| c3x_operator | independent | 2174 | 2720.00 | 2751.87 | 5180 | 598.13 | 30 |
+| transition_operator | production | 114955 | 119854.00 | 124974.50 | 167885 | 14065.23 | 30 |
+| transition_operator | independent | 96721 | 101991.00 | 104143.50 | 134562 | 8762.09 | 30 |
+| state_evolution | production | 118271 | 123130.50 | 128598.67 | 219170 | 18468.11 | 30 |
+| state_evolution | independent | 99516 | 104991.00 | 108521.57 | 140583 | 10485.60 | 30 |
+| density_matrix | production | 18435 | 19526.50 | 20485.73 | 27651 | 2392.81 | 30 |
+| density_matrix | independent | 3948 | 4403.00 | 4573.03 | 8075 | 768.59 | 30 |
+| reduced_density_q4 | production | 3106 | 3477.00 | 4491.47 | 30558 | 4859.76 | 30 |
+| reduced_density_q4 | independent | 8496 | 9442.50 | 9891.83 | 14808 | 1413.25 | 30 |
+| reduced_density_q123 | production | 3276 | 3577.00 | 3932.07 | 8636 | 1028.44 | 30 |
+| reduced_density_q123 | independent | 8786 | 9167.50 | 10100.23 | 29655 | 3728.32 | 30 |
+| pennylane_execution | production | 1367098 | 1411636.00 | 1417051.20 | 1571831 | 38659.89 | 30 |
+| pennylane_execution | independent | 121187 | 139145.00 | 136314.00 | 169847 | 13825.73 | 30 |
 
 ## Paired comparison interpretation
 
