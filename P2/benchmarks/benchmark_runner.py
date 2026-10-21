@@ -153,28 +153,39 @@ def command_output(command: list[str]) -> str:
 
 
 def detect_cpu_model() -> str:
-    """Return a CPU model string where the host exposes one."""
+    """Return a CPU model string, never a numeric processor index."""
 
     cpuinfo = Path("/proc/cpuinfo")
 
     if cpuinfo.is_file():
         try:
-            for line in cpuinfo.read_text(
+            lines = cpuinfo.read_text(
                 encoding="utf-8",
                 errors="replace",
-            ).splitlines():
-                if line.lower().startswith(
-                    ("model name", "hardware", "processor")
-                ):
-                    _, separator, value = line.partition(":")
-                    if separator and value.strip():
-                        return value.strip()
+            ).splitlines()
+
+            preferred_keys = ("model name", "hardware", "processor")
+
+            for key in preferred_keys:
+                for line in lines:
+                    field, separator, value = line.partition(":")
+
+                    if (
+                        separator
+                        and field.strip().lower() == key
+                        and value.strip()
+                    ):
+                        candidate = value.strip()
+
+                        if not candidate.isdigit():
+                            return candidate
+
         except OSError:
             pass
 
     processor = platform.processor().strip()
 
-    if processor:
+    if processor and not processor.isdigit():
         return processor
 
     return "UNAVAILABLE"
@@ -926,6 +937,7 @@ def markdown_report(report: dict) -> str:
         "- Production reduction is measured relative to the independent median.",
         "- Execution order alternates between paired samples.",
         "- Numerical validation is performed after each timed call.",
+        "- Both implementations must pass the configured absolute norm tolerance.",
         "",
         "## World-record and literature comparison",
         "",
