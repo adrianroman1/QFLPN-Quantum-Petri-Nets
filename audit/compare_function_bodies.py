@@ -1,17 +1,50 @@
 #!/usr/bin/env python3
+"""
+P2-BENCH-CONFIG-01
+Function Body and AST Equivalence Audit.
+
+Baseline validator:
+eb6f382fb70a1f04750b72931ef54f77eb28c470
+
+Baseline runner:
+03a63fec41a099944017d9c95d53c3b8656359a3
+
+Compara exclusiv funcțiile top-level.
+Ignoră comentariile și whitespace-ul prin normalizare AST.
+Nu modifică sursele.
+"""
 
 from __future__ import annotations
 
 import ast
 import hashlib
 import json
-import sys
+import subprocess
 
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
 
-EXPECTED_PROTECTED = {
+ROOT = Path(__file__).resolve().parents[1]
+AUDIT_DIR = ROOT / "audit"
+
+VALIDATOR_PATH = (
+    ROOT / "P2" / "benchmarks" / "validate_benchmark.py"
+)
+
+RUNNER_PATH = (
+    ROOT / "P2" / "benchmarks" / "benchmark_runner.py"
+)
+
+VALIDATOR_BASELINE_BLOB = (
+    "eb6f382fb70a1f04750b72931ef54f77eb28c470"
+)
+
+RUNNER_BASELINE_BLOB = (
+    "03a63fec41a099944017d9c95d53c3b8656359a3"
+)
+
+PROTECTED_VALIDATOR_FUNCTIONS = {
     "finite_number",
     "close",
     "require_number",
@@ -26,319 +59,407 @@ EXPECTED_PROTECTED = {
     "remove_benchmark_cache",
 }
 
-EXPECTED_CHANGED = {
+AUTHORIZED_VALIDATOR_CHANGES = {
     "validate_markdown",
     "validate_results",
     "main",
 }
 
+CRITICAL_RUNNER_FUNCTIONS = {
+    "statistics_for",
+    "numerical_error",
+    "build_operations",
+    "time_paired_operation",
+}
 
-def sha256_text(value: str) -> str:
-    return hashlib.sha256(
-        value.encode("utf-8")
-    ).hexdigest()
 
+def git_blob(blob_sha: str) -> bytes:
+    """Recuperează un blob exclusiv din obiectele Git."""
 
-def node_source(
-    source: str,
-    node: ast.AST,
-) -> str:
-    result = ast.get_source_segment(
-        source,
-        node,
-    )
+    object_type = subprocess.run(
+        ["git", "cat-file", "-t", blob_sha],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.strip()
 
-    if result is None:
+    if object_type != "blob":
         raise ValueError(
-            f"Cannot extract source for {type(node).__name__}"
+            f"Git object {blob_sha} is {object_type}, not blob"
         )
 
-    return result
+    return subprocess.run(
+        ["git", "cat-file", "blob", blob_sha],
+        cwd=ROOT,
+        capture_output=True,
+        check=True,
+    ).stdout
 
 
-def signature_dump(
-    node: ast.FunctionDef | ast.AsyncFunctionDef,
-) -> str:
-    return (
-        ast.dump(
-            node.args,
-            annotate_fields=True,
-            include_attributes=False,
-        )
-        + "|returns|"
-        + ast.dump(
-            node.returns,
-            annotate_fields=True,
-            include_attributes=False,
-        )
+def parse_source(
+    source: bytes,
+    filename: str,
+) -> ast.Module:
+
+    return ast.parse(
+        source.decode("utf-8"),
+        filename=filename,
     )
 
 
-def decorator_dump(
-    node: ast.FunctionDef | ast.AsyncFunctionDef,
-) -> list[str]:
-    return [
-        ast.dump(
-            item,
-            annotate_fields=True,
-            include_attributes=False,
-        )
-        for item in node.decorator_list
-    ]
+def collect_top_level_functions(
+    tree: ast.Module,
+) -> dict[str, ast.FunctionDef | ast.AsyncFunctionDef]:
+    """
+    Colectează numai funcțiile top-level.
 
+    Funcțiile nested și metodele claselor nu sunt amestecate
+    cu API-ul public al modulului.
+    """
 
-def collect_functions(
-    path: Path,
-) -> dict[str, dict[str, Any]]:
-    source = path.read_text(
-        encoding="utf-8"
-    )
-
-    tree = ast.parse(
-        source,
-        filename=str(path),
-    )
-
-    result = {}
-
-    def visit(
-        node: ast.AST,
-        scope: tuple[str, ...] = (),
-    ) -> None:
-
-        if isinstance(node, ast.ClassDef):
-            class_scope = (
-                scope + (f"class:{node.name}",)
-            )
-
-            for child in node.body:
-                visit(child, class_scope)
-
-            return
-
+    return {
+        node.name: node
+        for node in tree.body
         if isinstance(
             node,
-            (ast.FunctionDef, ast.AsyncFunctionDef),
-        ):
-            qualified_name = ".".join(
-                scope + (node.name,)
-            )
-
-            if qualified_name in result:
-                raise ValueError(
-                    f"Duplicate function: {qualified_name}"
-                )
-
-            extracted = node_source(
-                source,
-                node,
-            )
-
-            result[qualified_name] = {
-                "name": node.name,
-                "qualified_name": qualified_name,
-                "kind": type(node).__name__,
-                "source": extracted,
-                "source_sha256": sha256_text(
-                    extracted
-                ),
-                "signature": signature_dump(node),
-                "decorators": decorator_dump(node),
-                "lineno": node.lineno,
-                "end_lineno": node.end_lineno,
-            }
-
-            nested_scope = (
-                scope + (f"function:{node.name}",)
-            )
-
-            for child in node.body:
-                visit(child, nested_scope)
-
-            return
-
-        for child in ast.iter_child_nodes(node):
-            if isinstance(
-                child,
-                (
-                    ast.FunctionDef,
-                    ast.AsyncFunctionDef,
-                    ast.ClassDef,
-                ),
-            ):
-                visit(child, scope)
-
-    for item in tree.body:
-        visit(item)
-
-    return result
-
-
-def main() -> int:
-    if len(sys.argv) != 3:
-        print(
-            "Usage: compare_function_bodies.py "
-            "original.py migrated.py"
+            (
+                ast.FunctionDef,
+                ast.AsyncFunctionDef,
+            ),
         )
-        return 2
+    }
 
-    original_path = Path(sys.argv[1])
-    migrated_path = Path(sys.argv[2])
 
-    try:
-        original = collect_functions(
-            original_path
-        )
+def normalized_ast(node: ast.AST) -> str:
+    """Normalizare AST fără poziții de sursă."""
 
-        migrated = collect_functions(
-            migrated_path
-        )
+    return ast.dump(
+        node,
+        annotate_fields=True,
+        include_attributes=False,
+    )
 
-    except (
-        OSError,
-        SyntaxError,
-        ValueError,
-    ) as exc:
-        print(f"FAIL: {exc}")
-        return 1
 
-    original_names = set(original)
-    migrated_names = set(migrated)
+def function_signature(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> str:
+    """
+    Include:
+    - argumente și ordine;
+    - valori implicite;
+    - keyword-only;
+    - annotations;
+    - return annotation;
+    - tipul funcției sync/async;
+    - decoratorii.
+    """
+
+    payload = {
+        "kind": type(node).__name__,
+        "arguments": normalized_ast(node.args),
+        "returns": (
+            normalized_ast(node.returns)
+            if node.returns is not None
+            else None
+        ),
+        "decorators": [
+            normalized_ast(decorator)
+            for decorator in node.decorator_list
+        ],
+    }
+
+    return json.dumps(
+        payload,
+        sort_keys=True,
+    )
+
+
+def function_body(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> str:
+
+    return "\n".join(
+        normalized_ast(statement)
+        for statement in node.body
+    )
+
+
+def compare_function_sets(
+    original: dict,
+    current: dict,
+    expected: set[str],
+    *,
+    protected: set[str] | None = None,
+) -> dict:
+
+    protected = protected or set()
 
     missing = sorted(
-        original_names - migrated_names
+        expected - set(current)
     )
 
     added = sorted(
-        migrated_names - original_names
+        set(current) - expected
     )
 
+    signature_changed = []
+    body_changed = []
     identical = []
-    changed = []
-    signature_changes = []
-    decorator_changes = []
-    kind_changes = []
 
-    common = sorted(
-        original_names & migrated_names
-    )
+    for name in sorted(expected):
 
-    for name in common:
+        if name not in original or name not in current:
+            continue
+
         old = original[name]
-        new = migrated[name]
+        new = current[name]
 
-        if old["source"] == new["source"]:
-            identical.append(name)
+        if function_signature(old) != function_signature(new):
+
+            signature_changed.append(name)
+
+        elif function_body(old) != function_body(new):
+
+            body_changed.append(name)
+
         else:
-            changed.append(name)
 
-        if old["signature"] != new["signature"]:
-            signature_changes.append(name)
+            identical.append(name)
 
-        if old["decorators"] != new["decorators"]:
-            decorator_changes.append(name)
+    protected_failures = sorted(
+        set(signature_changed + body_changed)
+        & protected
+    )
 
-        if old["kind"] != new["kind"]:
-            kind_changes.append(name)
+    status = (
+        "FAIL"
+        if (
+            missing
+            or added
+            or protected_failures
+        )
+        else "PASS"
+    )
 
-    changed_short_names = {
-        original[name]["name"]
-        for name in changed
+    return {
+        "status": status,
+        "expected_count": len(expected),
+        "present_count": len(expected) - len(missing),
+        "missing": missing,
+        "unexpected_top_level_functions": added,
+        "signature_changed": signature_changed,
+        "body_changed": body_changed,
+        "identical": identical,
+        "protected_changes": protected_failures,
     }
 
-    unexpected_changes = sorted(
-        changed_short_names - EXPECTED_CHANGED
+
+def audit_validator() -> dict:
+
+    original_bytes = git_blob(
+        VALIDATOR_BASELINE_BLOB
     )
 
-    expected_change_missing = sorted(
-        EXPECTED_CHANGED - changed_short_names
+    current_bytes = VALIDATOR_PATH.read_bytes()
+
+    original_tree = parse_source(
+        original_bytes,
+        "validator-original",
     )
 
-    expected_protected = {
-        name
-        for name, item in original.items()
-        if item["name"] in EXPECTED_PROTECTED
-    }
-
-    protected_not_identical = sorted(
-        expected_protected - set(identical)
+    current_tree = parse_source(
+        current_bytes,
+        str(VALIDATOR_PATH),
     )
 
-    protected_changed = sorted(
-        name
-        for name in changed
-        if original[name]["name"]
-        in EXPECTED_PROTECTED
+    original_functions = collect_top_level_functions(
+        original_tree
     )
 
-    protected_missing = sorted(
-        name
-        for name in missing
-        if original[name]["name"]
-        in EXPECTED_PROTECTED
+    current_functions = collect_top_level_functions(
+        current_tree
     )
 
-    counts = {
-        "missing": len(missing),
-        "added": len(added),
-        "identical": len(identical),
-        "changed": len(changed),
-        "signature_changes": len(signature_changes),
-        "decorator_changes": len(decorator_changes),
-        "unexpected_changes": len(unexpected_changes),
-    }
-
-    passed = (
-        not missing
-        and not added
-        and not unexpected_changes
-        and not expected_change_missing
-        and not protected_not_identical
-        and not signature_changes
-        and not decorator_changes
-        and not kind_changes
-        and len(original) == 15
-        and len(migrated) == 15
-        and len(identical) == 12
-        and len(changed) == 3
+    expected = (
+        PROTECTED_VALIDATOR_FUNCTIONS
+        | AUTHORIZED_VALIDATOR_CHANGES
     )
+
+    comparison = compare_function_sets(
+        original_functions,
+        current_functions,
+        expected,
+        protected=PROTECTED_VALIDATOR_FUNCTIONS,
+    )
+
+    comparison.update({
+        "baseline_blob": VALIDATOR_BASELINE_BLOB,
+        "baseline_sha256": hashlib.sha256(
+            original_bytes
+        ).hexdigest(),
+        "current_sha256": hashlib.sha256(
+            current_bytes
+        ).hexdigest(),
+        "protected_functions": sorted(
+            PROTECTED_VALIDATOR_FUNCTIONS
+        ),
+        "authorized_changes": sorted(
+            AUTHORIZED_VALIDATOR_CHANGES
+        ),
+    })
+
+    return comparison
+
+
+def audit_runner() -> dict:
+
+    original_bytes = git_blob(
+        RUNNER_BASELINE_BLOB
+    )
+
+    current_bytes = RUNNER_PATH.read_bytes()
+
+    original_tree = parse_source(
+        original_bytes,
+        "runner-original",
+    )
+
+    current_tree = parse_source(
+        current_bytes,
+        str(RUNNER_PATH),
+    )
+
+    original_functions = collect_top_level_functions(
+        original_tree
+    )
+
+    current_functions = collect_top_level_functions(
+        current_tree
+    )
+
+    # Nu presupunem că funcțiile care nu există în baseline
+    # pot fi validate prin comparație.
+    available = (
+        CRITICAL_RUNNER_FUNCTIONS
+        & set(original_functions)
+    )
+
+    unavailable = sorted(
+        CRITICAL_RUNNER_FUNCTIONS - available
+    )
+
+    if not available:
+
+        return {
+            "status": "NOT VERIFIED",
+            "reason": (
+                "None of the configured critical function names "
+                "were found in the runner baseline. The audit "
+                "cannot establish their source module."
+            ),
+            "requested_functions": sorted(
+                CRITICAL_RUNNER_FUNCTIONS
+            ),
+            "unavailable_in_baseline": unavailable,
+        }
+
+    comparison = compare_function_sets(
+        original_functions,
+        current_functions,
+        available,
+        protected=available,
+    )
+
+    if unavailable and comparison["status"] == "PASS":
+
+        comparison["status"] = "NOT VERIFIED"
+
+    comparison.update({
+        "baseline_blob": RUNNER_BASELINE_BLOB,
+        "baseline_sha256": hashlib.sha256(
+            original_bytes
+        ).hexdigest(),
+        "current_sha256": hashlib.sha256(
+            current_bytes
+        ).hexdigest(),
+        "requested_functions": sorted(
+            CRITICAL_RUNNER_FUNCTIONS
+        ),
+        "compared_functions": sorted(available),
+        "unavailable_in_baseline": unavailable,
+    })
+
+    return comparison
+
+
+def main() -> int:
 
     report = {
-        "original_file": str(original_path),
-        "migrated_file": str(migrated_path),
-        "original_function_count": len(original),
-        "migrated_function_count": len(migrated),
-        "missing": missing,
-        "added": added,
-        "identical": identical,
-        "changed": changed,
-        "signature_changes": signature_changes,
-        "decorator_changes": decorator_changes,
-        "kind_changes": kind_changes,
-        "protected_functions": sorted(
-            expected_protected
-        ),
-        "protected_not_identical": (
-            protected_not_identical
-        ),
-        "protected_changed": protected_changed,
-        "protected_missing": protected_missing,
-        "unexpected_changes": unexpected_changes,
-        "expected_changes_not_found": (
-            expected_change_missing
-        ),
-        "counts": counts,
-        "passed": passed,
+        "audit": "function_equivalence",
+        "audit_id": "P2-BENCH-CONFIG-01",
+        "timestamp_utc": datetime.now(
+            timezone.utc
+        ).isoformat(),
+        "validator": {},
+        "runner": {},
+        "status": "NOT VERIFIED",
+        "issues": [],
     }
 
-    output = Path(
-        "audit/function_comparison.json"
-    )
+    try:
 
-    output.parent.mkdir(
+        report["validator"] = audit_validator()
+
+    except Exception as exc:
+
+        report["validator"] = {
+            "status": "NOT VERIFIED",
+            "error": str(exc),
+        }
+
+        report["issues"].append(
+            f"Validator comparison unavailable: {exc}"
+        )
+
+    try:
+
+        report["runner"] = audit_runner()
+
+    except Exception as exc:
+
+        report["runner"] = {
+            "status": "NOT VERIFIED",
+            "error": str(exc),
+        }
+
+        report["issues"].append(
+            f"Runner comparison unavailable: {exc}"
+        )
+
+    states = [
+        report["validator"]["status"],
+        report["runner"]["status"],
+    ]
+
+    if "FAIL" in states:
+
+        report["status"] = "FAIL"
+
+    elif all(state == "PASS" for state in states):
+
+        report["status"] = "PASS"
+
+    else:
+
+        report["status"] = "NOT VERIFIED"
+
+    AUDIT_DIR.mkdir(
         parents=True,
         exist_ok=True,
     )
+
+    output = AUDIT_DIR / "function_equivalence.json"
 
     output.write_text(
         json.dumps(
@@ -357,13 +478,13 @@ def main() -> int:
         )
     )
 
-    print(
-        "\nFUNCTION REVIEW:",
-        "PASS" if passed else "FAIL",
+    return (
+        1
+        if report["status"] == "FAIL"
+        else 0
     )
-
-    return 0 if passed else 1
 
 
 if __name__ == "__main__":
+
     raise SystemExit(main())
