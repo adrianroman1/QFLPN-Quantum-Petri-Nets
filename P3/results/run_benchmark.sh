@@ -3,8 +3,9 @@
 set -Eeuo pipefail
 
 # QFLPN P3 reproducible benchmark and evidence generation.
-# Current CSV schema is owned by results/validate_benchmark.py.
-# Each run writes immutable, uniquely identified raw evidence.
+# The authoritative CSV schema is owned by results/validate_benchmark.py.
+# Historical rows are preserved and validated independently from the
+# configuration-specific validation of the newly generated record.
 
 N="${N:-1000000}"
 WARMUP="${WARMUP:-5}"
@@ -44,9 +45,6 @@ nonnegative_integer() {
     local value="$2"
 
     [[ "$value" =~ ^[0-9]+$ ]] ||
-        fail "$name must be an integer"
-
-    (( value >= 0 )) ||
         fail "$name must not be negative"
 }
 
@@ -86,6 +84,7 @@ RAW_DIR="$RAW_ROOT/$RUN_ID"
 LOG_FILE="$RAW_DIR/benchmark.log"
 ENV_FILE="$RAW_DIR/environment.txt"
 REPORT_FILE="$RAW_DIR/validation-report.json"
+LATEST_CSV="$RAW_DIR/latest_benchmark_result.csv"
 CHECKSUM_FILE="$RAW_DIR/SHA256SUMS.txt"
 
 mkdir -p "$RAW_ROOT" "$BENCHMARK_DIR"
@@ -197,9 +196,7 @@ python3 -m pytest "$PYTHON_TEST" -v
 echo "[PASS] Python validator tests"
 
 # ------------------------------------------------------------
-# Validate existing CSV structure and all historical records.
-# The expected schema is imported from the authoritative
-# Python validator; no duplicate 22/23-column list is kept here.
+# Validate existing CSV structure and historical records.
 # ------------------------------------------------------------
 
 echo
@@ -243,14 +240,14 @@ with csv_path.open("r", encoding="utf-8", newline="") as handle:
     if reader.fieldnames != expected_header:
         raise SystemExit(
             "Existing CSV header does not match the "
-            "authoritative 23-column schema"
+            "authoritative schema"
         )
 
     rows = list(reader)
 
     if not rows:
         raise SystemExit(
-            "Existing CSV contains a header but no data records"
+            "Existing benchmark CSV contains no data records"
         )
 
     for index, row in enumerate(rows, start=1):
@@ -298,7 +295,7 @@ java \
 echo "[PASS] Java benchmark process"
 
 # ------------------------------------------------------------
-# Require exactly one new row and validate the complete CSV.
+# Require exactly one new CSV row.
 # ------------------------------------------------------------
 
 echo
@@ -333,10 +330,13 @@ with csv_path.open("r", encoding="utf-8", newline="") as handle:
     if reader.fieldnames != module.EXPECTED_HEADER:
         raise SystemExit(
             "Generated CSV header does not match "
-            "the authoritative 23-column schema"
+            "the authoritative schema"
         )
 
     rows = list(reader)
+
+    if not rows:
+        raise SystemExit("Generated CSV contains no records")
 
     for index, row in enumerate(rows, start=1):
         if None in row:
@@ -361,23 +361,97 @@ EXPECTED_COUNT=$((BEFORE_COUNT + 1))
 echo "[PASS] Exactly one new CSV record"
 
 # ------------------------------------------------------------
-# Independent validation of all rows and run configuration.
+# Validate every CSV record without imposing the new run's
+# configuration on historical records.
 # ------------------------------------------------------------
 
 echo
-echo "=== INDEPENDENT VALIDATION ==="
+echo "=== COMPLETE CSV VALIDATION ==="
+
+python3 "$VALIDATOR" --csv "$CSV_FILE"
+
+echo "[PASS] All historical and current CSV records are valid"
+
+# ------------------------------------------------------------
+# Extract the newly appended record into an immutable,
+# run-specific one-row CSV file.
+# ------------------------------------------------------------
+
+echo
+echo "=== LATEST RECORD EXTRACTION ==="
+
+python3 - "$CSV_FILE" "$LATEST_CSV" "$VALIDATOR" <<'PY'
+import csv
+import importlib.util
+import sys
+from pathlib import Path
+
+source_path = Path(sys.argv[1])
+output_path = Path(sys.argv[2])
+validator_path = Path(sys.argv[3])
+
+spec = importlib.util.spec_from_file_location(
+    "p3_benchmark_validator",
+    validator_path,
+)
+if spec is None or spec.loader is None:
+    raise SystemExit("Cannot load benchmark validator")
+
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+with source_path.open("r", encoding="utf-8", newline="") as source:
+    reader = csv.DictReader(source)
+
+    if reader.fieldnames != module.EXPECTED_HEADER:
+        raise SystemExit("Source CSV header mismatch")
+
+    rows = list(reader)
+
+if not rows:
+    raise SystemExit("Source CSV contains no benchmark records")
+
+latest = rows[-1]
+
+if None in latest or any(value is None for value in latest.values()):
+    raise SystemExit("Latest CSV record is structurally invalid")
+
+with output_path.open("w", encoding="utf-8", newline="") as output:
+    writer = csv.DictWriter(
+        output,
+        fieldnames=module.EXPECTED_HEADER,
+        lineterminator="\n",
+    )
+    writer.writeheader()
+    writer.writerow(latest)
+
+print(f"Extracted latest record to: {output_path}")
+PY
+
+[[ -s "$LATEST_CSV" ]] ||
+    fail "Latest benchmark record CSV is missing or empty"
+
+echo "[PASS] Latest record extracted"
+
+# ------------------------------------------------------------
+# Validate the target configuration ONLY against the newly
+# generated record. Historical 1/2 records remain preserved.
+# ------------------------------------------------------------
+
+echo
+echo "=== TARGET CONFIGURATION VALIDATION ==="
 
 python3 "$VALIDATOR" \
-    --csv "$CSV_FILE" \
+    --csv "$LATEST_CSV" \
     --expected-n "$N" \
     --warmup "$WARMUP" \
     --iterations "$ITERATIONS" \
     --threshold "$THRESHOLD" \
     --parallelism "$PARALLELISM" \
-    --expected-row-count "$EXPECTED_COUNT" \
+    --expected-row-count 1 \
     --report-json "$REPORT_FILE"
 
-echo "[PASS] Independent validation"
+echo "[PASS] Latest record matches requested configuration"
 
 # ------------------------------------------------------------
 # Evidence presence and non-empty files.
@@ -388,6 +462,7 @@ echo "=== EVIDENCE CHECK ==="
 
 for artifact in \
     "$CSV_FILE" \
+    "$LATEST_CSV" \
     "$LOG_FILE" \
     "$ENV_FILE" \
     "$REPORT_FILE"; do
@@ -396,7 +471,8 @@ for artifact in \
         fail "Missing or empty evidence file: $artifact"
 done
 
-echo "[PASS] CSV exists"
+echo "[PASS] Complete CSV exists"
+echo "[PASS] Latest-record CSV exists"
 echo "[PASS] Execution log exists"
 echo "[PASS] Environment report exists"
 echo "[PASS] Validation JSON exists"
@@ -408,6 +484,7 @@ cd "$P3_DIR"
 
 sha256sum \
     "benchmarks/benchmark_results.csv" \
+    "results/raw/$RUN_ID/latest_benchmark_result.csv" \
     "results/raw/$RUN_ID/benchmark.log" \
     "results/raw/$RUN_ID/environment.txt" \
     "results/raw/$RUN_ID/validation-report.json" \
