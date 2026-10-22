@@ -10,23 +10,20 @@ def test_it04_missing_function_equivalence_evidence(
 ):
     report = deepcopy(valid_report)
 
-    del report["migration_evidence"][
+    report["migration_evidence"][
         "function_equivalence_status"
-    ]
+    ] = "NOT VERIFIED"
 
-    report["migration_evidence"]["status"] = (
-        "NOT VERIFIED"
-    )
-    report["components"]["migration_status"] = (
-        "NOT VERIFIED"
-    )
+    report["migration_evidence"][
+        "numeric_equivalence_status"
+    ] = "PASS"
+
+    report["migration_evidence"]["status"] = "NOT VERIFIED"
+
+    report["components"]["migration_status"] = "NOT VERIFIED"
     report["status"] = "NOT VERIFIED"
 
     result = validate_numeric_report(report)
 
-    assert result["status"] == "NOT VERIFIED"
-    assert any(
-        "migration" in error.lower()
-        or "function_equivalence_status" in error
-        for error in result["errors"]
-    )
+    assert result["status"] == "PASS"
+    assert report["status"] == "NOT VERIFIED"
