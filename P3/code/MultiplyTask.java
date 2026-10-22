@@ -14,9 +14,13 @@ import java.util.concurrent.RecursiveAction;
  * independente. Fiecare subtask calculează rezultatul pentru propriile
  * rânduri, fără modificarea rezultatelor celorlalte task-uri.
  *
- * Implementarea este orientată către execuție deterministică și
- * thread-safe la nivelul partiționării pe rânduri: fiecare task scrie
- * exclusiv în pozițiile de output aferente intervalului său.
+ * Fiecare task scrie exclusiv în pozițiile de output aferente
+ * intervalului său.
+ *
+ * Dimensiunea vectorului de intrare reprezintă numărul de coloane.
+ * Dimensiunea vectorului de ieșire reprezintă numărul de rânduri.
+ * Aceste dimensiuni nu trebuie confundate: matricile dreptunghiulare
+ * sunt acceptate.
  */
 public final class MultiplyTask extends RecursiveAction {
 
@@ -104,11 +108,18 @@ public final class MultiplyTask extends RecursiveAction {
                     "threshold must be greater than zero");
         }
 
-        if (startRow > input.length) {
-            throw new IllegalArgumentException(
-                    "startRow exceeds input vector length");
-        }
-
+        /*
+         * Rândurile matricei sunt indexate în raport cu vectorul
+         * de ieșire, nu cu vectorul de intrare.
+         *
+         * endRow este exclusiv. Deoarece startRow <= endRow,
+         * verificarea endRow <= output.length garantează și
+         * validitatea lui startRow.
+         *
+         * Nu verificăm startRow față de input.length:
+         * numărul de rânduri poate fi mai mare decât numărul
+         * de coloane într-o matrice dreptunghiulară.
+         */
         if (endRow > output.length) {
             throw new IllegalArgumentException(
                     "endRow exceeds output vector length");
