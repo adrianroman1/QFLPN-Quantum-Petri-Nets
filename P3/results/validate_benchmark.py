@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-
-"""Independent, fail-closed validator for P3 benchmark evidence."""
+"""Fail-closed validator for P3 benchmark CSV evidence."""
 
 from __future__ import annotations
 
@@ -61,20 +60,17 @@ def require(condition: bool, message: str) -> None:
 
 def parse_int(row: dict, key: str) -> int:
     value = row.get(key, "")
-
     try:
         parsed = int(value)
     except (TypeError, ValueError) as exc:
         raise ValidationError(
             f"{key} must be an integer"
         ) from exc
-
     return parsed
 
 
 def parse_float(row: dict, key: str) -> float:
     value = row.get(key, "")
-
     try:
         parsed = float(value)
     except (TypeError, ValueError) as exc:
@@ -82,11 +78,7 @@ def parse_float(row: dict, key: str) -> float:
             f"{key} must be numeric"
         ) from exc
 
-    require(
-        math.isfinite(parsed),
-        f"{key} must be finite",
-    )
-
+    require(math.isfinite(parsed), f"{key} must be finite")
     return parsed
 
 
@@ -103,25 +95,18 @@ def close_enough(
             abs_tol=ABS_TOL,
         ),
         (
-            f"{field} mismatch: "
-            f"CSV={actual:.16g}, "
+            f"{field} mismatch: CSV={actual:.16g}, "
             f"recomputed={expected:.16g}"
         ),
     )
 
 
 def expected_benchmark_id(dimension: int) -> str:
-    """
-    Reproduce the benchmark identifier convention
-    implemented by BenchmarkRunner.java.
-    """
-
     special_ids = {
         12: "QFLPN-12",
         1_000_000: "QFLPN-1M",
         30_000_000: "QFLPN-30M",
     }
-
     return special_ids.get(
         dimension,
         f"QFLPN-{dimension}",
@@ -135,7 +120,6 @@ def validate_timestamp(value: str) -> None:
     )
 
     normalized = value.strip()
-
     if normalized.endswith("Z"):
         normalized = normalized[:-1] + "+00:00"
 
@@ -153,10 +137,7 @@ def validate_timestamp(value: str) -> None:
 
 
 def load_rows(path: Path) -> list[dict]:
-    require(
-        path.is_file(),
-        f"CSV file does not exist: {path}",
-    )
+    require(path.is_file(), f"CSV file does not exist: {path}")
 
     try:
         with path.open(
@@ -164,7 +145,6 @@ def load_rows(path: Path) -> list[dict]:
             encoding="utf-8",
             newline="",
         ) as handle:
-
             reader = csv.DictReader(handle)
 
             require(
@@ -179,23 +159,195 @@ def load_rows(path: Path) -> list[dict]:
             f"Unable to read benchmark CSV: {exc}"
         ) from exc
 
-    require(
-        len(rows) > 0,
-        "CSV contains no benchmark data rows",
-    )
+    require(len(rows) > 0, "CSV contains no benchmark data rows")
 
     for index, row in enumerate(rows, start=1):
         require(
             None not in row,
             f"CSV row {index} contains unexpected extra columns",
         )
-
         require(
             all(value is not None for value in row.values()),
             f"CSV row {index} contains missing fields",
         )
 
     return rows
+
+
+def validate_row(
+    row: dict,
+    args: argparse.Namespace,
+    row_number: int,
+) -> dict:
+    prefix = f"row {row_number}: "
+
+    try:
+        validate_timestamp(row["timestamp"])
+
+        dimension = parse_int(row, "dimension")
+        nnz = parse_int(row, "non_zero_count")
+        parallelism = parse_int(row, "parallelism")
+        threshold = parse_int(row, "threshold")
+        warmup = parse_int(row, "warmup_iterations")
+        iterations = parse_int(row, "measured_iterations")
+
+        sequential_ms = parse_float(row, "sequential_ms")
+        parallel_ms = parse_float(row, "parallel_ms")
+        speedup = parse_float(row, "speedup")
+
+        sequential_throughput = parse_float(
+            row, "sequential_throughput_states_per_s"
+        )
+        parallel_throughput = parse_float(
+            row, "parallel_throughput_states_per_s"
+        )
+
+        sequential_error = parse_float(
+            row, "sequential_expected_error"
+        )
+        parallel_error = parse_float(
+            row, "parallel_expected_error"
+        )
+        maximum_difference = parse_float(
+            row, "max_absolute_error"
+        )
+        setup_time_ms = parse_float(row, "setup_time_ms")
+        available_memory = parse_int(
+            row, "available_memory_bytes"
+        )
+
+        require(dimension > 0, "dimension must be positive")
+        require(nnz >= 0, "non_zero_count must not be negative")
+        require(parallelism > 0, "parallelism must be positive")
+        require(threshold > 0, "threshold must be positive")
+        require(warmup >= 0, "warmup_iterations must not be negative")
+        require(iterations > 0, "measured_iterations must be positive")
+
+        require(
+            nnz == 2 * dimension,
+            f"NNZ mismatch: expected {2 * dimension}, got {nnz}",
+        )
+
+        require(
+            row["benchmark_id"] == expected_benchmark_id(dimension),
+            (
+                "benchmark_id mismatch: expected "
+                f"{expected_benchmark_id(dimension)}, "
+                f"got {row['benchmark_id']!r}"
+            ),
+        )
+
+        if args.expected_n is not None:
+            require(
+                dimension == args.expected_n,
+                (
+                    f"dimension mismatch: expected {args.expected_n}, "
+                    f"got {dimension}"
+                ),
+            )
+
+        if args.parallelism is not None:
+            require(
+                parallelism == args.parallelism,
+                "parallelism does not match requested configuration",
+            )
+
+        if args.threshold is not None:
+            require(
+                threshold == args.threshold,
+                "threshold does not match requested configuration",
+            )
+
+        if args.warmup is not None:
+            require(
+                warmup == args.warmup,
+                "warmup iteration count does not match configuration",
+            )
+
+        if args.iterations is not None:
+            require(
+                iterations == args.iterations,
+                "measured iteration count does not match configuration",
+            )
+
+        require(sequential_ms > 0.0, "sequential_ms must be positive")
+        require(parallel_ms > 0.0, "parallel_ms must be positive")
+        require(speedup > 0.0, "speedup must be positive")
+        require(setup_time_ms >= 0.0, "setup_time_ms must not be negative")
+        require(
+            available_memory > 0,
+            "available_memory_bytes must be positive",
+        )
+
+        require(
+            sequential_error >= 0.0,
+            "sequential_expected_error must not be negative",
+        )
+        require(
+            parallel_error >= 0.0,
+            "parallel_expected_error must not be negative",
+        )
+        require(
+            maximum_difference >= 0.0,
+            "max_absolute_error must not be negative",
+        )
+
+        require(
+            sequential_error <= EPSILON,
+            "sequential expected error exceeds tolerance",
+        )
+        require(
+            parallel_error <= EPSILON,
+            "parallel expected error exceeds tolerance",
+        )
+        require(
+            maximum_difference <= EPSILON,
+            "sequential/parallel difference exceeds tolerance",
+        )
+
+        for field in (
+            "cpu",
+            "java_version",
+            "operating_system",
+            "notes",
+        ):
+            require(
+                bool(row[field].strip()),
+                f"{field} must not be empty",
+            )
+
+        recomputed_speedup = sequential_ms / parallel_ms
+        close_enough(speedup, recomputed_speedup, "speedup")
+
+        expected_sequential_throughput = (
+            dimension / (sequential_ms / 1000.0)
+        )
+        expected_parallel_throughput = (
+            dimension / (parallel_ms / 1000.0)
+        )
+
+        close_enough(
+            sequential_throughput,
+            expected_sequential_throughput,
+            "sequential throughput",
+        )
+        close_enough(
+            parallel_throughput,
+            expected_parallel_throughput,
+            "parallel throughput",
+        )
+
+        return {
+            "row": row_number,
+            "dimension": dimension,
+            "nnz": nnz,
+            "speedup": recomputed_speedup,
+            "sequential_ms": sequential_ms,
+            "parallel_ms": parallel_ms,
+        }
+
+    except ValidationError as exc:
+        raise ValidationError(prefix + str(exc)) from exc
 
 
 def validate(args: argparse.Namespace) -> dict:
@@ -205,231 +357,25 @@ def validate(args: argparse.Namespace) -> dict:
         require(
             len(rows) == args.expected_row_count,
             (
-                "CSV record count mismatch: "
-                f"expected {args.expected_row_count}, "
-                f"found {len(rows)}"
+                "CSV record count mismatch: expected "
+                f"{args.expected_row_count}, found {len(rows)}"
             ),
         )
 
-    row = rows[-1]
+    validated = [
+        validate_row(row, args, index)
+        for index, row in enumerate(rows, start=1)
+    ]
 
-    validate_timestamp(row["timestamp"])
-
-    dimension = parse_int(row, "dimension")
-    nnz = parse_int(row, "non_zero_count")
-    parallelism = parse_int(row, "parallelism")
-    threshold = parse_int(row, "threshold")
-    warmup = parse_int(row, "warmup_iterations")
-    iterations = parse_int(row, "measured_iterations")
-
-    sequential_ms = parse_float(row, "sequential_ms")
-    parallel_ms = parse_float(row, "parallel_ms")
-    stored_speedup = parse_float(row, "speedup")
-
-    sequential_throughput = parse_float(
-        row,
-        "sequential_throughput_states_per_s",
-    )
-
-    parallel_throughput = parse_float(
-        row,
-        "parallel_throughput_states_per_s",
-    )
-
-    sequential_error = parse_float(
-        row,
-        "sequential_expected_error",
-    )
-
-    parallel_error = parse_float(
-        row,
-        "parallel_expected_error",
-    )
-
-    maximum_difference = parse_float(
-        row,
-        "max_absolute_error",
-    )
-
-    setup_time_ms = parse_float(
-        row,
-        "setup_time_ms",
-    )
-
-    available_memory = parse_int(
-        row,
-        "available_memory_bytes",
-    )
-
-    require(
-        dimension > 0,
-        "dimension must be positive",
-    )
-
-    # D03: benchmark_id must correspond exactly to dimension.
-    expected_id = expected_benchmark_id(dimension)
-
-    require(
-        row["benchmark_id"] == expected_id,
-        (
-            "benchmark_id mismatch: "
-            f"expected {expected_id}, "
-            f"got {row['benchmark_id']!r}"
-        ),
-    )
-
-    require(
-        nnz == 2 * dimension,
-        f"NNZ mismatch: expected {2 * dimension}, got {nnz}",
-    )
-
-    require(
-        dimension == args.expected_n,
-        (
-            f"dimension mismatch: expected {args.expected_n}, "
-            f"got {dimension}"
-        ),
-    )
-
-    require(
-        parallelism == args.parallelism,
-        "parallelism does not match requested configuration",
-    )
-
-    require(
-        threshold == args.threshold,
-        "threshold does not match requested configuration",
-    )
-
-    require(
-        warmup == args.warmup,
-        "warmup iteration count does not match configuration",
-    )
-
-    require(
-        iterations == args.iterations,
-        "measured iteration count does not match configuration",
-    )
-
-    require(
-        sequential_ms > 0.0,
-        "sequential_ms must be positive",
-    )
-
-    require(
-        parallel_ms > 0.0,
-        "parallel_ms must be positive",
-    )
-
-    require(
-        stored_speedup > 0.0,
-        "speedup must be positive",
-    )
-
-    require(
-        setup_time_ms >= 0.0,
-        "setup_time_ms must not be negative",
-    )
-
-    require(
-        available_memory > 0,
-        "available_memory_bytes must be positive",
-    )
-
-    require(
-        sequential_error >= 0.0,
-        "sequential_expected_error must not be negative",
-    )
-
-    require(
-        parallel_error >= 0.0,
-        "parallel_expected_error must not be negative",
-    )
-
-    require(
-        maximum_difference >= 0.0,
-        "max_absolute_error must not be negative",
-    )
-
-    require(
-        sequential_error <= EPSILON,
-        "sequential expected error exceeds tolerance",
-    )
-
-    require(
-        parallel_error <= EPSILON,
-        "parallel expected error exceeds tolerance",
-    )
-
-    require(
-        maximum_difference <= EPSILON,
-        "sequential/parallel difference exceeds tolerance",
-    )
-
-    for field in (
-        "cpu",
-        "java_version",
-        "operating_system",
-        "notes",
-    ):
-        require(
-            bool(row[field].strip()),
-            f"{field} must not be empty",
-        )
-
-    recomputed_speedup = sequential_ms / parallel_ms
-
-    close_enough(
-        stored_speedup,
-        recomputed_speedup,
-        "speedup",
-    )
-
-    expected_sequential_throughput = (
-        dimension / (sequential_ms / 1000.0)
-    )
-
-    expected_parallel_throughput = (
-        dimension / (parallel_ms / 1000.0)
-    )
-
-    close_enough(
-        sequential_throughput,
-        expected_sequential_throughput,
-        "sequential throughput",
-    )
-
-    close_enough(
-        parallel_throughput,
-        expected_parallel_throughput,
-        "parallel throughput",
-    )
-
-    reduction = 1.0 - (
-        parallel_ms / sequential_ms
-    )
+    latest = validated[-1]
 
     return {
         "validation": "PASS",
-        "timestamp": row["timestamp"],
-        "benchmark_id": row["benchmark_id"],
-        "dimension": dimension,
-        "nnz": nnz,
-        "csv_total_records": len(rows),
-        "warmup_iterations": warmup,
-        "measured_iterations": iterations,
-        "parallelism": parallelism,
-        "threshold": threshold,
-        "sequential_ms": sequential_ms,
-        "parallel_ms": parallel_ms,
-        "speedup_csv": stored_speedup,
-        "speedup_recomputed": recomputed_speedup,
-        "time_reduction": reduction,
-        "time_reduction_percent": reduction * 100.0,
-        "sequential_expected_error": sequential_error,
-        "parallel_expected_error": parallel_error,
-        "max_absolute_error": maximum_difference,
         "csv": str(args.csv),
+        "csv_total_records": len(validated),
+        "validated_records": len(validated),
+        "latest_record": latest,
+        "all_records_valid": True,
     }
 
 
@@ -438,53 +384,14 @@ def build_parser() -> argparse.ArgumentParser:
         description="Validate P3 benchmark CSV results."
     )
 
-    parser.add_argument(
-        "--csv",
-        type=Path,
-        default=DEFAULT_CSV,
-    )
-
-    parser.add_argument(
-        "--expected-n",
-        type=int,
-        default=1_000_000,
-    )
-
-    parser.add_argument(
-        "--warmup",
-        type=int,
-        default=1,
-    )
-
-    parser.add_argument(
-        "--iterations",
-        type=int,
-        default=2,
-    )
-
-    parser.add_argument(
-        "--threshold",
-        type=int,
-        default=4096,
-    )
-
-    parser.add_argument(
-        "--parallelism",
-        type=int,
-        default=2,
-    )
-
-    parser.add_argument(
-        "--expected-row-count",
-        type=int,
-        default=None,
-    )
-
-    parser.add_argument(
-        "--report-json",
-        type=Path,
-        default=None,
-    )
+    parser.add_argument("--csv", type=Path, default=DEFAULT_CSV)
+    parser.add_argument("--expected-n", type=int, default=None)
+    parser.add_argument("--warmup", type=int, default=None)
+    parser.add_argument("--iterations", type=int, default=None)
+    parser.add_argument("--threshold", type=int, default=None)
+    parser.add_argument("--parallelism", type=int, default=None)
+    parser.add_argument("--expected-row-count", type=int, default=None)
+    parser.add_argument("--report-json", type=Path, default=None)
 
     return parser
 
@@ -494,7 +401,6 @@ def main() -> int:
 
     try:
         result = validate(args)
-
         output = json.dumps(
             result,
             indent=2,
@@ -506,7 +412,6 @@ def main() -> int:
                 parents=True,
                 exist_ok=True,
             )
-
             args.report_json.write_text(
                 output + "\n",
                 encoding="utf-8",
