@@ -32,14 +32,16 @@ EXPECTED_HEADER = [
     "max_absolute_error",
     "setup_time_ms",
     "cpu",
-    "available_memory_bytes",
+    "max_jvm_memory_bytes",
+    "free_jvm_heap_bytes",
     "java_version",
     "operating_system",
     "notes",
 ]
 
+# P3/results/validate_benchmark.py -> repository root / benchmarks
 DEFAULT_CSV = (
-    Path(__file__).resolve().parents[1]
+    Path(__file__).resolve().parents[2]
     / "benchmarks"
     / "benchmark_results.csv"
 )
@@ -60,17 +62,18 @@ def require(condition: bool, message: str) -> None:
 
 def parse_int(row: dict, key: str) -> int:
     value = row.get(key, "")
+
     try:
-        parsed = int(value)
+        return int(value)
     except (TypeError, ValueError) as exc:
         raise ValidationError(
             f"{key} must be an integer"
         ) from exc
-    return parsed
 
 
 def parse_float(row: dict, key: str) -> float:
     value = row.get(key, "")
+
     try:
         parsed = float(value)
     except (TypeError, ValueError) as exc:
@@ -107,6 +110,7 @@ def expected_benchmark_id(dimension: int) -> str:
         1_000_000: "QFLPN-1M",
         30_000_000: "QFLPN-30M",
     }
+
     return special_ids.get(
         dimension,
         f"QFLPN-{dimension}",
@@ -120,6 +124,7 @@ def validate_timestamp(value: str) -> None:
     )
 
     normalized = value.strip()
+
     if normalized.endswith("Z"):
         normalized = normalized[:-1] + "+00:00"
 
@@ -137,7 +142,10 @@ def validate_timestamp(value: str) -> None:
 
 
 def load_rows(path: Path) -> list[dict]:
-    require(path.is_file(), f"CSV file does not exist: {path}")
+    require(
+        path.is_file(),
+        f"CSV file does not exist: {path}",
+    )
 
     try:
         with path.open(
@@ -149,7 +157,7 @@ def load_rows(path: Path) -> list[dict]:
 
             require(
                 reader.fieldnames == EXPECTED_HEADER,
-                "CSV header does not match the expected schema",
+                "CSV header does not match the expected 23-column schema",
             )
 
             rows = list(reader)
@@ -159,7 +167,10 @@ def load_rows(path: Path) -> list[dict]:
             f"Unable to read benchmark CSV: {exc}"
         ) from exc
 
-    require(len(rows) > 0, "CSV contains no benchmark data rows")
+    require(
+        len(rows) > 0,
+        "CSV contains no benchmark data rows",
+    )
 
     for index, row in enumerate(rows, start=1):
         require(
@@ -196,24 +207,38 @@ def validate_row(
         speedup = parse_float(row, "speedup")
 
         sequential_throughput = parse_float(
-            row, "sequential_throughput_states_per_s"
+            row,
+            "sequential_throughput_states_per_s",
         )
         parallel_throughput = parse_float(
-            row, "parallel_throughput_states_per_s"
+            row,
+            "parallel_throughput_states_per_s",
         )
 
         sequential_error = parse_float(
-            row, "sequential_expected_error"
+            row,
+            "sequential_expected_error",
         )
         parallel_error = parse_float(
-            row, "parallel_expected_error"
+            row,
+            "parallel_expected_error",
         )
         maximum_difference = parse_float(
-            row, "max_absolute_error"
+            row,
+            "max_absolute_error",
         )
-        setup_time_ms = parse_float(row, "setup_time_ms")
-        available_memory = parse_int(
-            row, "available_memory_bytes"
+        setup_time_ms = parse_float(
+            row,
+            "setup_time_ms",
+        )
+
+        max_jvm_memory = parse_int(
+            row,
+            "max_jvm_memory_bytes",
+        )
+        free_jvm_heap = parse_int(
+            row,
+            "free_jvm_heap_bytes",
         )
 
         require(dimension > 0, "dimension must be positive")
@@ -223,17 +248,18 @@ def validate_row(
         require(warmup >= 0, "warmup_iterations must not be negative")
         require(iterations > 0, "measured_iterations must be positive")
 
+        # Current benchmark matrix creates exactly two entries per row.
         require(
             nnz == 2 * dimension,
             f"NNZ mismatch: expected {2 * dimension}, got {nnz}",
         )
 
+        expected_id = expected_benchmark_id(dimension)
         require(
-            row["benchmark_id"] == expected_benchmark_id(dimension),
+            row["benchmark_id"] == expected_id,
             (
                 "benchmark_id mismatch: expected "
-                f"{expected_benchmark_id(dimension)}, "
-                f"got {row['benchmark_id']!r}"
+                f"{expected_id}, got {row['benchmark_id']!r}"
             ),
         )
 
@@ -274,9 +300,18 @@ def validate_row(
         require(parallel_ms > 0.0, "parallel_ms must be positive")
         require(speedup > 0.0, "speedup must be positive")
         require(setup_time_ms >= 0.0, "setup_time_ms must not be negative")
+
         require(
-            available_memory > 0,
-            "available_memory_bytes must be positive",
+            max_jvm_memory > 0,
+            "max_jvm_memory_bytes must be positive",
+        )
+        require(
+            free_jvm_heap >= 0,
+            "free_jvm_heap_bytes must not be negative",
+        )
+        require(
+            free_jvm_heap <= max_jvm_memory,
+            "free_jvm_heap_bytes cannot exceed max_jvm_memory_bytes",
         )
 
         require(
@@ -317,7 +352,11 @@ def validate_row(
             )
 
         recomputed_speedup = sequential_ms / parallel_ms
-        close_enough(speedup, recomputed_speedup, "speedup")
+        close_enough(
+            speedup,
+            recomputed_speedup,
+            "speedup",
+        )
 
         expected_sequential_throughput = (
             dimension / (sequential_ms / 1000.0)
@@ -344,6 +383,8 @@ def validate_row(
             "speedup": recomputed_speedup,
             "sequential_ms": sequential_ms,
             "parallel_ms": parallel_ms,
+            "max_jvm_memory_bytes": max_jvm_memory,
+            "free_jvm_heap_bytes": free_jvm_heap,
         }
 
     except ValidationError as exc:
@@ -367,14 +408,12 @@ def validate(args: argparse.Namespace) -> dict:
         for index, row in enumerate(rows, start=1)
     ]
 
-    latest = validated[-1]
-
     return {
         "validation": "PASS",
         "csv": str(args.csv),
         "csv_total_records": len(validated),
         "validated_records": len(validated),
-        "latest_record": latest,
+        "latest_record": validated[-1],
         "all_records_valid": True,
     }
 
