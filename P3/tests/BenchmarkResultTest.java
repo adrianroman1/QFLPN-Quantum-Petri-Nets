@@ -7,349 +7,254 @@ import org.junit.jupiter.api.Test;
 
 class BenchmarkResultTest {
 
-    @Test
-    void shouldCreateValidBenchmarkResult() {
-
-        BenchmarkResult result =
-                validResult();
-
-        assertEquals(
-                "QFLPN-1M",
-                result.benchmarkId());
-
-        assertEquals(
-                1_000_000,
-                result.dimension());
-
-        assertEquals(
-                2_000_000L,
-                result.nonZeroCount());
-    }
-
-    @Test
-    void shouldRejectBlankTimestamp() {
-
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new BenchmarkResult(
-                        "",
-                        "QFLPN-1M",
-                        1_000_000,
-                        2_000_000L,
-                        8,
-                        4096,
-                        2,
-                        3,
-                        10.0,
-                        5.0,
-                        2.0,
-                        100_000.0,
-                        200_000.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        1.0,
-                        "x86_64",
-                        4_000_000_000L,
-                        "21",
-                        "Linux",
-                        "test"));
-    }
-
-    @Test
-    void shouldRejectNonPositiveDimension() {
-
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new BenchmarkResult(
-                        "2026-09-06T00:00:00Z",
-                        "QFLPN-test",
-                        0,
-                        0L,
-                        1,
-                        1,
-                        0,
-                        1,
-                        1.0,
-                        1.0,
-                        1.0,
-                        1.0,
-                        1.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        1.0,
-                        "test-cpu",
-                        1L,
-                        "21",
-                        "Linux",
-                        "test"));
-    }
-
-    @Test
-    void shouldRejectNegativeSequentialTime() {
-
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new BenchmarkResult(
-                        "2026-09-06T00:00:00Z",
-                        "QFLPN-test",
-                        12,
-                        24L,
-                        1,
-                        4096,
-                        0,
-                        1,
-                        -1.0,
-                        1.0,
-                        1.0,
-                        1.0,
-                        1.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        1.0,
-                        "test-cpu",
-                        1L,
-                        "21",
-                        "Linux",
-                        "test"));
-    }
-
-    @Test
-    void shouldRejectZeroSequentialTime() {
-
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new BenchmarkResult(
-                        "2026-09-06T00:00:00Z",
-                        "QFLPN-test",
-                        12,
-                        24L,
-                        1,
-                        4096,
-                        0,
-                        1,
-                        0.0,
-                        1.0,
-                        1.0,
-                        1.0,
-                        1.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        1.0,
-                        "test-cpu",
-                        1L,
-                        "21",
-                        "Linux",
-                        "test"));
-    }
-
-    @Test
-    void shouldRejectZeroParallelTime() {
-
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new BenchmarkResult(
-                        "2026-09-06T00:00:00Z",
-                        "QFLPN-test",
-                        12,
-                        24L,
-                        1,
-                        4096,
-                        0,
-                        1,
-                        1.0,
-                        0.0,
-                        1.0,
-                        1.0,
-                        1.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        1.0,
-                        "test-cpu",
-                        1L,
-                        "21",
-                        "Linux",
-                        "test"));
-    }
-
-    @Test
-    void shouldRejectInfiniteParallelTime() {
-
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new BenchmarkResult(
-                        "2026-09-06T00:00:00Z",
-                        "QFLPN-test",
-                        12,
-                        24L,
-                        1,
-                        4096,
-                        0,
-                        1,
-                        1.0,
-                        Double.POSITIVE_INFINITY,
-                        1.0,
-                        1.0,
-                        1.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        1.0,
-                        "test-cpu",
-                        1L,
-                        "21",
-                        "Linux",
-                        "test"));
-    }
-
-    @Test
-    void shouldRejectNaNSpeedup() {
-
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new BenchmarkResult(
-                        "2026-09-06T00:00:00Z",
-                        "QFLPN-test",
-                        12,
-                        24L,
-                        1,
-                        4096,
-                        0,
-                        1,
-                        1.0,
-                        1.0,
-                        Double.NaN,
-                        1.0,
-                        1.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        1.0,
-                        "test-cpu",
-                        1L,
-                        "21",
-                        "Linux",
-                        "test"));
-    }
-
-    @Test
-    void shouldRejectZeroSpeedup() {
-
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new BenchmarkResult(
-                        "2026-09-06T00:00:00Z",
-                        "QFLPN-test",
-                        12,
-                        24L,
-                        1,
-                        4096,
-                        0,
-                        1,
-                        1.0,
-                        1.0,
-                        0.0,
-                        1.0,
-                        1.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        1.0,
-                        "test-cpu",
-                        1L,
-                        "21",
-                        "Linux",
-                        "test"));
-    }
-
-    @Test
-    void shouldRejectNegativeAvailableMemory() {
-
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new BenchmarkResult(
-                        "2026-09-06T00:00:00Z",
-                        "QFLPN-test",
-                        12,
-                        24L,
-                        1,
-                        4096,
-                        0,
-                        1,
-                        1.0,
-                        1.0,
-                        1.0,
-                        1.0,
-                        1.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        1.0,
-                        "test-cpu",
-                        -1L,
-                        "21",
-                        "Linux",
-                        "test"));
-    }
-
-    @Test
-    void shouldRejectBlankCpu() {
-
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new BenchmarkResult(
-                        "2026-09-06T00:00:00Z",
-                        "QFLPN-test",
-                        12,
-                        24L,
-                        1,
-                        4096,
-                        0,
-                        1,
-                        1.0,
-                        1.0,
-                        1.0,
-                        1.0,
-                        1.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        1.0,
-                        "",
-                        1L,
-                        "21",
-                        "Linux",
-                        "test"));
-    }
-
     private static BenchmarkResult validResult() {
-
         return new BenchmarkResult(
-                "2026-09-06T00:00:00Z",
-                "QFLPN-1M",
-                1_000_000,
-                2_000_000L,
-                8,
-                4096,
+                "2026-10-20T10:00:00Z",
+                "QFLPN-100",
+                100,
+                200L,
                 2,
-                3,
-                12.5,
-                6.25,
+                4096,
+                1,
+                2,
+                20.0,
+                10.0,
                 2.0,
-                80_000.0,
-                160_000.0,
+                5000.0,
+                10000.0,
                 0.0,
                 0.0,
                 0.0,
-                3.0,
-                "x86_64; processors=8",
+                1.5,
+                "test-cpu",
                 4_000_000_000L,
+                500_000_000L,
                 "21",
                 "Linux",
-                "JUnit validation");
+                "JUnit test");
+    }
+
+    @Test
+    void createsValidResultWithBothMemoryFields() {
+        BenchmarkResult result = validResult();
+
+        assertEquals("QFLPN-100", result.benchmarkId());
+        assertEquals(100, result.dimension());
+        assertEquals(200L, result.nonZeroCount());
+        assertEquals(4_000_000_000L, result.maxJvmMemoryBytes());
+        assertEquals(500_000_000L, result.freeJvmHeapBytes());
+    }
+
+    @Test
+    void rejectsBlankTimestamp() {
+        assertThrows(IllegalArgumentException.class, () ->
+                new BenchmarkResult(
+                        "", "QFLPN-100", 100, 200L,
+                        2, 4096, 1, 2,
+                        20.0, 10.0, 2.0,
+                        5000.0, 10000.0,
+                        0.0, 0.0, 0.0, 1.5,
+                        "test-cpu",
+                        4_000_000_000L, 500_000_000L,
+                        "21", "Linux", "test"));
+    }
+
+    @Test
+    void rejectsBlankBenchmarkId() {
+        assertThrows(IllegalArgumentException.class, () ->
+                new BenchmarkResult(
+                        "2026-10-20T10:00:00Z", " ", 100, 200L,
+                        2, 4096, 1, 2,
+                        20.0, 10.0, 2.0,
+                        5000.0, 10000.0,
+                        0.0, 0.0, 0.0, 1.5,
+                        "test-cpu",
+                        4_000_000_000L, 500_000_000L,
+                        "21", "Linux", "test"));
+    }
+
+    @Test
+    void rejectsNonPositiveDimension() {
+        assertThrows(IllegalArgumentException.class, () ->
+                new BenchmarkResult(
+                        "2026-10-20T10:00:00Z", "QFLPN-test", 0, 0L,
+                        1, 1, 0, 1,
+                        1.0, 1.0, 1.0, 1.0, 1.0,
+                        0.0, 0.0, 0.0, 0.0,
+                        "cpu", 1L, 0L, "21", "Linux", ""));
+    }
+
+    @Test
+    void rejectsNegativeNonZeroCount() {
+        assertThrows(IllegalArgumentException.class, () ->
+                new BenchmarkResult(
+                        "2026-10-20T10:00:00Z", "QFLPN-test", 10, -1L,
+                        1, 1, 0, 1,
+                        1.0, 1.0, 1.0, 1.0, 1.0,
+                        0.0, 0.0, 0.0, 0.0,
+                        "cpu", 1L, 0L, "21", "Linux", ""));
+    }
+
+    @Test
+    void rejectsNonPositiveParallelism() {
+        assertThrows(IllegalArgumentException.class, () ->
+                new BenchmarkResult(
+                        "2026-10-20T10:00:00Z", "QFLPN-test", 10, 20L,
+                        0, 1, 0, 1,
+                        1.0, 1.0, 1.0, 1.0, 1.0,
+                        0.0, 0.0, 0.0, 0.0,
+                        "cpu", 1L, 0L, "21", "Linux", ""));
+    }
+
+    @Test
+    void rejectsNonPositiveThreshold() {
+        assertThrows(IllegalArgumentException.class, () ->
+                new BenchmarkResult(
+                        "2026-10-20T10:00:00Z", "QFLPN-test", 10, 20L,
+                        1, 0, 0, 1,
+                        1.0, 1.0, 1.0, 1.0, 1.0,
+                        0.0, 0.0, 0.0, 0.0,
+                        "cpu", 1L, 0L, "21", "Linux", ""));
+    }
+
+    @Test
+    void rejectsNegativeWarmupIterations() {
+        assertThrows(IllegalArgumentException.class, () ->
+                new BenchmarkResult(
+                        "2026-10-20T10:00:00Z", "QFLPN-test", 10, 20L,
+                        1, 1, -1, 1,
+                        1.0, 1.0, 1.0, 1.0, 1.0,
+                        0.0, 0.0, 0.0, 0.0,
+                        "cpu", 1L, 0L, "21", "Linux", ""));
+    }
+
+    @Test
+    void rejectsNonPositiveMeasuredIterations() {
+        assertThrows(IllegalArgumentException.class, () ->
+                new BenchmarkResult(
+                        "2026-10-20T10:00:00Z", "QFLPN-test", 10, 20L,
+                        1, 1, 0, 0,
+                        1.0, 1.0, 1.0, 1.0, 1.0,
+                        0.0, 0.0, 0.0, 0.0,
+                        "cpu", 1L, 0L, "21", "Linux", ""));
+    }
+
+    @Test
+    void rejectsNonPositiveOrNonFiniteTimes() {
+        assertInvalidTiming(0.0, 1.0);
+        assertInvalidTiming(-1.0, 1.0);
+        assertInvalidTiming(Double.NaN, 1.0);
+        assertInvalidTiming(1.0, Double.POSITIVE_INFINITY);
+    }
+
+    private static void assertInvalidTiming(
+            double sequentialMs,
+            double parallelMs) {
+        assertThrows(IllegalArgumentException.class, () ->
+                new BenchmarkResult(
+                        "2026-10-20T10:00:00Z", "QFLPN-test", 10, 20L,
+                        1, 1, 0, 1,
+                        sequentialMs, parallelMs, 1.0,
+                        1.0, 1.0, 0.0, 0.0, 0.0, 0.0,
+                        "cpu", 1L, 0L, "21", "Linux", ""));
+    }
+
+    @Test
+    void rejectsInvalidSpeedup() {
+        assertThrows(IllegalArgumentException.class, () ->
+                new BenchmarkResult(
+                        "2026-10-20T10:00:00Z", "QFLPN-test", 10, 20L,
+                        1, 1, 0, 1,
+                        1.0, 1.0, Double.NaN,
+                        1.0, 1.0, 0.0, 0.0, 0.0, 0.0,
+                        "cpu", 1L, 0L, "21", "Linux", ""));
+    }
+
+    @Test
+    void rejectsNegativeOrNonFiniteThroughput() {
+        assertThrows(IllegalArgumentException.class, () ->
+                new BenchmarkResult(
+                        "2026-10-20T10:00:00Z", "QFLPN-test", 10, 20L,
+                        1, 1, 0, 1,
+                        1.0, 1.0, 1.0,
+                        -1.0, 1.0, 0.0, 0.0, 0.0, 0.0,
+                        "cpu", 1L, 0L, "21", "Linux", ""));
+
+        assertThrows(IllegalArgumentException.class, () ->
+                new BenchmarkResult(
+                        "2026-10-20T10:00:00Z", "QFLPN-test", 10, 20L,
+                        1, 1, 0, 1,
+                        1.0, 1.0, 1.0,
+                        1.0, Double.POSITIVE_INFINITY,
+                        0.0, 0.0, 0.0, 0.0,
+                        "cpu", 1L, 0L, "21", "Linux", ""));
+    }
+
+    @Test
+    void rejectsNegativeErrorMetrics() {
+        assertThrows(IllegalArgumentException.class, () ->
+                new BenchmarkResult(
+                        "2026-10-20T10:00:00Z", "QFLPN-test", 10, 20L,
+                        1, 1, 0, 1,
+                        1.0, 1.0, 1.0, 1.0, 1.0,
+                        -1.0, 0.0, 0.0, 0.0,
+                        "cpu", 1L, 0L, "21", "Linux", ""));
+    }
+
+    @Test
+    void rejectsNegativeSetupTime() {
+        assertThrows(IllegalArgumentException.class, () ->
+                new BenchmarkResult(
+                        "2026-10-20T10:00:00Z", "QFLPN-test", 10, 20L,
+                        1, 1, 0, 1,
+                        1.0, 1.0, 1.0, 1.0, 1.0,
+                        0.0, 0.0, 0.0, -1.0,
+                        "cpu", 1L, 0L, "21", "Linux", ""));
+    }
+
+    @Test
+    void rejectsInvalidJvmMemoryValues() {
+        assertThrows(IllegalArgumentException.class, () ->
+                new BenchmarkResult(
+                        "2026-10-20T10:00:00Z", "QFLPN-test", 10, 20L,
+                        1, 1, 0, 1,
+                        1.0, 1.0, 1.0, 1.0, 1.0,
+                        0.0, 0.0, 0.0, 0.0,
+                        "cpu", 0L, 0L, "21", "Linux", ""));
+
+        assertThrows(IllegalArgumentException.class, () ->
+                new BenchmarkResult(
+                        "2026-10-20T10:00:00Z", "QFLPN-test", 10, 20L,
+                        1, 1, 0, 1,
+                        1.0, 1.0, 1.0, 1.0, 1.0,
+                        0.0, 0.0, 0.0, 0.0,
+                        "cpu", 100L, 101L, "21", "Linux", ""));
+    }
+
+    @Test
+    void rejectsBlankEnvironmentFieldsAndNullNotes() {
+        assertThrows(IllegalArgumentException.class, () ->
+                new BenchmarkResult(
+                        "2026-10-20T10:00:00Z", "QFLPN-test", 10, 20L,
+                        1, 1, 0, 1,
+                        1.0, 1.0, 1.0, 1.0, 1.0,
+                        0.0, 0.0, 0.0, 0.0,
+                        " ", 1L, 0L, "21", "Linux", ""));
+
+        assertThrows(IllegalArgumentException.class, () ->
+                new BenchmarkResult(
+                        "2026-10-20T10:00:00Z", "QFLPN-test", 10, 20L,
+                        1, 1, 0, 1,
+                        1.0, 1.0, 1.0, 1.0, 1.0,
+                        0.0, 0.0, 0.0, 0.0,
+                        "cpu", 1L, 0L, "", "Linux", ""));
+
+        assertThrows(IllegalArgumentException.class, () ->
+                new BenchmarkResult(
+                        "2026-10-20T10:00:00Z", "QFLPN-test", 10, 20L,
+                        1, 1, 0, 1,
+                        1.0, 1.0, 1.0, 1.0, 1.0,
+                        0.0, 0.0, 0.0, 0.0,
+                        "cpu", 1L, 0L, "21", "Linux", null));
     }
 }
