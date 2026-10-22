@@ -1,14 +1,11 @@
 package hpc.csr;
 
 /**
- * Immutable result record for a QFLPN CSR benchmark execution.
+ * Immutable and validated result of a QFLPN CSR benchmark.
  *
- * Memory fields:
- * - maxJvmMemoryBytes: maximum heap size configured for the JVM.
- * - freeJvmHeapBytes: currently free heap memory at capture time.
- *
- * These values are JVM measurements and must not be interpreted
- * as total physical memory or operating-system available memory.
+ * maxJvmMemoryBytes is the maximum heap size configured for the JVM.
+ * freeJvmHeapBytes is the free heap reported by Runtime.freeMemory()
+ * at capture time. Neither field represents operating-system RAM.
  */
 public record BenchmarkResult(
         String timestamp,
@@ -40,30 +37,21 @@ public record BenchmarkResult(
         requireText(benchmarkId, "benchmarkId");
 
         if (dimension <= 0) {
-            throw new IllegalArgumentException(
-                    "dimension must be > 0");
+            throw new IllegalArgumentException("dimension must be > 0");
         }
-
         if (nonZeroCount < 0) {
-            throw new IllegalArgumentException(
-                    "nonZeroCount must be >= 0");
+            throw new IllegalArgumentException("nonZeroCount must be >= 0");
         }
-
         if (parallelism <= 0) {
-            throw new IllegalArgumentException(
-                    "parallelism must be > 0");
+            throw new IllegalArgumentException("parallelism must be > 0");
         }
-
         if (threshold <= 0) {
-            throw new IllegalArgumentException(
-                    "threshold must be > 0");
+            throw new IllegalArgumentException("threshold must be > 0");
         }
-
         if (warmupIterations < 0) {
             throw new IllegalArgumentException(
                     "warmupIterations must be >= 0");
         }
-
         if (measuredIterations <= 0) {
             throw new IllegalArgumentException(
                     "measuredIterations must be > 0");
@@ -74,28 +62,16 @@ public record BenchmarkResult(
         requireFinitePositive(speedup, "speedup");
 
         requireFiniteNonNegative(
-                sequentialThroughput,
-                "sequentialThroughput");
-
+                sequentialThroughput, "sequentialThroughput");
         requireFiniteNonNegative(
-                parallelThroughput,
-                "parallelThroughput");
-
+                parallelThroughput, "parallelThroughput");
         requireFiniteNonNegative(
-                sequentialExpectedError,
-                "sequentialExpectedError");
-
+                sequentialExpectedError, "sequentialExpectedError");
         requireFiniteNonNegative(
-                parallelExpectedError,
-                "parallelExpectedError");
-
+                parallelExpectedError, "parallelExpectedError");
         requireFiniteNonNegative(
-                maxAbsoluteError,
-                "maxAbsoluteError");
-
-        requireFiniteNonNegative(
-                setupTimeMs,
-                "setupTimeMs");
+                maxAbsoluteError, "maxAbsoluteError");
+        requireFiniteNonNegative(setupTimeMs, "setupTimeMs");
 
         requireText(cpu, "cpu");
 
@@ -103,12 +79,10 @@ public record BenchmarkResult(
             throw new IllegalArgumentException(
                     "maxJvmMemoryBytes must be > 0");
         }
-
         if (freeJvmHeapBytes < 0L) {
             throw new IllegalArgumentException(
                     "freeJvmHeapBytes must be >= 0");
         }
-
         if (freeJvmHeapBytes > maxJvmMemoryBytes) {
             throw new IllegalArgumentException(
                     "freeJvmHeapBytes cannot exceed maxJvmMemoryBytes");
@@ -118,15 +92,11 @@ public record BenchmarkResult(
         requireText(operatingSystem, "operatingSystem");
 
         if (notes == null) {
-            throw new IllegalArgumentException(
-                    "notes must not be null");
+            throw new IllegalArgumentException("notes must not be null");
         }
     }
 
-    private static void requireText(
-            String value,
-            String fieldName) {
-
+    private static void requireText(String value, String fieldName) {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException(
                     fieldName + " must not be blank");
@@ -134,9 +104,7 @@ public record BenchmarkResult(
     }
 
     private static void requireFinitePositive(
-            double value,
-            String fieldName) {
-
+            double value, String fieldName) {
         if (!Double.isFinite(value) || value <= 0.0) {
             throw new IllegalArgumentException(
                     fieldName + " must be finite and > 0");
@@ -144,9 +112,7 @@ public record BenchmarkResult(
     }
 
     private static void requireFiniteNonNegative(
-            double value,
-            String fieldName) {
-
+            double value, String fieldName) {
         if (!Double.isFinite(value) || value < 0.0) {
             throw new IllegalArgumentException(
                     fieldName + " must be finite and >= 0");
