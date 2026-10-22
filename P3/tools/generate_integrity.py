@@ -1,11 +1,7 @@
 #!/usr/bin/env python3
-"""Create deterministic P3/MANIFEST.txt and P3/SHA256SUMS.txt files.
-
-Run from repository root:
-  python P3/tools/generate_integrity.py --write
-The independent verifier is P3/tools/verify_integrity.py.
-"""
+"""Generate deterministic P3 manifest and SHA-256 inventory files."""
 from __future__ import annotations
+
 import argparse
 import hashlib
 import os
@@ -13,36 +9,63 @@ import tempfile
 from pathlib import Path
 
 DEFAULT_ROOT = Path(__file__).resolve().parents[1]
-EXCLUDED_DIRS = {".git", "target", "__pycache__", ".pytest_cache", ".mypy_cache"}
-GENERATED = {"MANIFEST.txt", "SHA256SUMS.txt"}
+EXCLUDED_DIRS = {
+    ".git", "target", "__pycache__", ".pytest_cache", ".mypy_cache",
+}
+GENERATED_FILES = {"MANIFEST.txt", "SHA256SUMS.txt"}
 
 
-def sha256(path: Path) -> str:
-    h = hashlib.sha256()
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
     with path.open("rb") as stream:
         for block in iter(lambda: stream.read(1024 * 1024), b""):
-            h.update(block)
-    return h.hexdigest()
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def inventory(root: Path) -> list[str]:
-    result: list[str] = []
-    for current, dirs, files in os.walk(root, followlinks=False):
+    """Return sorted repository-relative paths; never follow symlinks."""
+    root = root.resolve()
+    if not root.is_dir():
+        raise ValueError(f"P3 root is not a directory: {root}")
+
+    paths: list[str] = []
+
+    for current, directories, filenames in os.walk(
+        root, topdown=True, followlinks=False
+    ):
         base = Path(current)
-        dirs[:] = sorted(d for d in dirs if d not in EXCLUDED_DIRS and not (base / d).is_symlink())
-        for name in files:
-            path = base / name
-            rel = path.relative_to(root).as_posix()
-            if rel in GENERATED or path.is_symlink() or not path.is_file():
+
+        directories[:] = sorted(
+            name
+            for name in directories
+            if name not in EXCLUDED_DIRS
+            and not (base / name).is_symlink()
+        )
+
+        for filename in filenames:
+            path = base / filename
+            relative = path.relative_to(root).as_posix()
+
+            if relative in GENERATED_FILES:
                 continue
-            result.append(rel)
-    result.sort()
-    if len(result) != len(set(result)):
-        raise ValueError("duplicate path in inventory")
-    return result
+            if path.is_symlink() or not path.is_file():
+                continue
+
+            paths.append(relative)
+
+    paths.sort()
+
+    if len(paths) != len(set(paths)):
+        raise ValueError("duplicate path in filesystem inventory")
+
+    return paths
 
 
 def manifest_bytes(paths: list[str]) -> bytes:
+    if paths != sorted(paths) or len(paths) != len(set(paths)):
+        raise ValueError("manifest paths must be unique and sorted")
+
     lines = [
         "# QFLPN P3 generated manifest",
         "# Format: one repository-relative POSIX path per line",
@@ -53,65 +76,105 @@ def manifest_bytes(paths: list[str]) -> bytes:
 
 
 def checksum_bytes(root: Path, paths: list[str], manifest: bytes) -> bytes:
-    rows = [(p, sha256(root / p)) for p in paths]
-    rows.append(("MANIFEST.txt", hashlib.sha256(manifest).hexdigest()))
-    rows.sort(key=lambda x: x[0])
-    return "".join(f"{digest}  {path}\n" for path, digest in rows).encode("ascii")
+    entries = [
+        (relative, sha256_file(root / relative))
+        for relative in paths
+    ]
+    entries.append(("MANIFEST.txt", hashlib.sha256(manifest).hexdigest()))
+    entries.sort(key=lambda item: item[0])
+
+    return "".join(
+        f"{digest}  {relative}\n"
+        for relative, digest in entries
+    ).encode("ascii")
 
 
 def atomic_write(path: Path, data: bytes) -> None:
-    fd, tmp = tempfile.mkstemp(prefix=path.name + ".", dir=path.parent)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=path.name + ".",
+        suffix=".tmp",
+        dir=path.parent,
+    )
+    temporary = Path(temporary_name)
+
     try:
-        with os.fdopen(fd, "wb") as stream:
+        with os.fdopen(descriptor, "wb") as stream:
             stream.write(data)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(tmp, path)
+        os.replace(temporary, path)
     except BaseException:
         try:
-            os.unlink(tmp)
+            temporary.unlink()
         except FileNotFoundError:
             pass
         raise
 
 
-def generate(root: Path) -> None:
-    root = root.resolve()
+def generate(root: Path, write: bool = True) -> bool:
+    """
+    Generate files when write=True.
+    When write=False, compare expected bytes without modifying the tree.
+    Returns False when check mode detects missing or stale files.
+    """
+    root = Path(root).resolve()
     if not root.is_dir():
         raise ValueError(f"P3 root is not a directory: {root}")
+
     paths = inventory(root)
     manifest = manifest_bytes(paths)
     checksums = checksum_bytes(root, paths, manifest)
-    atomic_write(root / "MANIFEST.txt", manifest)
-    atomic_write(root / "SHA256SUMS.txt", checksums)
-    print(f"[PASS] Generated manifest and checksums for {len(paths)} files")
+
+    expected = {
+        root / "MANIFEST.txt": manifest,
+        root / "SHA256SUMS.txt": checksums,
+    }
+
+    if write:
+        for destination, content in expected.items():
+            atomic_write(destination, content)
+        print(
+            f"[PASS] Generated deterministic manifest and SHA-256 "
+            f"inventory for {len(paths)} files"
+        )
+        return True
+
+    stale = [
+        destination.name
+        for destination, content in expected.items()
+        if not destination.is_file()
+        or destination.read_bytes() != content
+    ]
+
+    if stale:
+        print("[FAIL] Missing or stale integrity files: " + ", ".join(stale))
+        return False
+
+    print(
+        f"[PASS] Integrity files are reproducible "
+        f"({len(paths)} inventoried files)"
+    )
+    return True
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser()
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("--write", action="store_true")
-    group.add_argument("--check", action="store_true", help="compare generated bytes without writing")
+    parser = argparse.ArgumentParser(
+        description="Generate or check deterministic P3 integrity files."
+    )
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--write", action="store_true")
+    mode.add_argument("--check", action="store_true")
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
     args = parser.parse_args()
+
     try:
-        root = args.root.resolve()
-        paths = inventory(root)
-        manifest = manifest_bytes(paths)
-        checksums = checksum_bytes(root, paths, manifest)
-        expected = {root / "MANIFEST.txt": manifest, root / "SHA256SUMS.txt": checksums}
-        if args.write:
-            for path, data in expected.items(): atomic_write(path, data)
-            print(f"[PASS] Generated integrity files ({len(paths)} files)")
-            return 0
-        stale = [p.name for p, data in expected.items() if not p.is_file() or p.read_bytes() != data]
-        if stale:
-            raise ValueError("missing/stale: " + ", ".join(stale))
-        print(f"[PASS] Integrity generation is reproducible ({len(paths)} files)")
-        return 0
+        success = generate(args.root, write=args.write)
+        return 0 if success else 1
     except (OSError, ValueError) as exc:
         print(f"[FAIL] {exc}")
         return 1
+
 
 if __name__ == "__main__":
     raise SystemExit(main())
