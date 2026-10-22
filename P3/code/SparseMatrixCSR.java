@@ -5,14 +5,24 @@ import java.util.Objects;
 import java.util.concurrent.ForkJoinPool;
 
 /**
- * Reprezentare imutabilă structural a unei matrice rare CSR.
+ * Reprezentare structural imutabilă a unei matrice rare CSR.
  *
  * CSR:
- * values       - valorile elementelor stocate;
+ * values        - valorile elementelor nenule;
  * columnIndices - indicii coloanelor;
- * rowPointers  - delimitările rândurilor.
+ * rowPointers   - delimitările rândurilor.
  *
- * Matricea permite multiplicare secvențială și Fork/Join.
+ * Contract:
+ * - arrays de intrare sunt validate și copiate defensiv;
+ * - getter-ele returnează copii defensive;
+ * - structura CSR este validată înainte de construire;
+ * - valorile numerice trebuie să fie finite;
+ * - multiplicarea secvențială și paralelă acceptă matrice
+ *   dreptunghiulare, inclusiv matrice cu dimensiuni zero.
+ *
+ * Nu se impune ordonarea indicilor de coloană și nu se interzic
+ * duplicatele: acestea nu sunt necesare pentru corectitudinea
+ * multiplicării implementate aici.
  */
 public final class SparseMatrixCSR {
 
@@ -20,6 +30,7 @@ public final class SparseMatrixCSR {
 
     private final int rows;
     private final int columns;
+
     private final double[] values;
     private final int[] columnIndices;
     private final int[] rowPointers;
@@ -34,28 +45,57 @@ public final class SparseMatrixCSR {
         validateDimensions(rows, columns);
 
         Objects.requireNonNull(values, "values cannot be null");
-        Objects.requireNonNull(columnIndices, "columnIndices cannot be null");
-        Objects.requireNonNull(rowPointers, "rowPointers cannot be null");
+        Objects.requireNonNull(
+                columnIndices,
+                "columnIndices cannot be null");
+        Objects.requireNonNull(
+                rowPointers,
+                "rowPointers cannot be null");
 
         validateCSRStructure(
-                values, columnIndices, rowPointers, rows, columns);
+                values,
+                columnIndices,
+                rowPointers,
+                rows,
+                columns);
 
         this.values = Arrays.copyOf(values, values.length);
-        this.columnIndices = Arrays.copyOf(columnIndices, columnIndices.length);
-        this.rowPointers = Arrays.copyOf(rowPointers, rowPointers.length);
+        this.columnIndices =
+                Arrays.copyOf(columnIndices, columnIndices.length);
+        this.rowPointers =
+                Arrays.copyOf(rowPointers, rowPointers.length);
+
         this.rows = rows;
         this.columns = columns;
     }
 
-    private static void validateDimensions(int rows, int columns) {
+    private static void validateDimensions(
+            int rows,
+            int columns) {
+
         if (rows < 0) {
-            throw new IllegalArgumentException("Number of rows cannot be negative.");
+            throw new IllegalArgumentException(
+                    "Number of rows cannot be negative.");
         }
+
         if (columns < 0) {
-            throw new IllegalArgumentException("Number of columns cannot be negative.");
+            throw new IllegalArgumentException(
+                    "Number of columns cannot be negative.");
         }
     }
 
+    /**
+     * Validează invarianta CSR:
+     *
+     * 1. values.length == columnIndices.length;
+     * 2. rowPointers.length == rows + 1;
+     * 3. rowPointers[0] == 0;
+     * 4. pointerii sunt nenegativi și monoton crescători;
+     * 5. niciun pointer nu depășește NNZ;
+     * 6. ultimul pointer este egal cu NNZ;
+     * 7. indicii de coloană sunt în intervalul [0, columns);
+     * 8. toate valorile numerice sunt finite.
+     */
     private static void validateCSRStructure(
             double[] values,
             int[] columnIndices,
@@ -68,16 +108,24 @@ public final class SparseMatrixCSR {
                     "values and columnIndices must have the same length.");
         }
 
-        if (rows == Integer.MAX_VALUE || rowPointers.length != rows + 1) {
+        if (rows == Integer.MAX_VALUE
+                || rowPointers.length != rows + 1) {
             throw new IllegalArgumentException(
                     "rowPointers length must be rows + 1.");
         }
 
+        if (rowPointers.length == 0) {
+            throw new IllegalArgumentException(
+                    "rowPointers cannot be empty.");
+        }
+
         if (rowPointers[0] != 0) {
-            throw new IllegalArgumentException("rowPointers[0] must be 0.");
+            throw new IllegalArgumentException(
+                    "rowPointers[0] must be 0.");
         }
 
         int previous = 0;
+
         for (int i = 0; i < rowPointers.length; i++) {
             int current = rowPointers[i];
 
@@ -85,14 +133,18 @@ public final class SparseMatrixCSR {
                 throw new IllegalArgumentException(
                         "rowPointers cannot contain negative values.");
             }
+
             if (current < previous) {
                 throw new IllegalArgumentException(
                         "rowPointers must be monotonically non-decreasing.");
             }
+
             if (current > values.length) {
                 throw new IllegalArgumentException(
-                        "rowPointers value exceeds NNZ at index " + i + ".");
+                        "rowPointers value exceeds NNZ at index "
+                                + i + ".");
             }
+
             previous = current;
         }
 
@@ -103,53 +155,83 @@ public final class SparseMatrixCSR {
 
         for (int i = 0; i < columnIndices.length; i++) {
             int column = columnIndices[i];
+
             if (column < 0 || column >= columns) {
                 throw new IllegalArgumentException(
                         "Column index out of bounds at position "
                                 + i + ": " + column);
             }
         }
+
+        for (int i = 0; i < values.length; i++) {
+            if (!Double.isFinite(values[i])) {
+                throw new IllegalArgumentException(
+                        "CSR values must be finite. Invalid value at "
+                                + "position " + i + ": " + values[i]);
+            }
+        }
     }
 
+    /**
+     * Calculează y = A*x și returnează un vector nou.
+     */
     public double[] multiply(double[] x) {
         validateInputVector(x);
+
         double[] y = new double[rows];
         multiplyInto(x, y);
+
         return y;
     }
 
     /**
-     * Calculează y = A*x.
+     * Calculează y = A*x într-un buffer furnizat de apelant.
      *
-     * Dacă x și y sunt același obiect, se folosește o copie
-     * a intrării pentru a preveni suprascrierea valorilor
-     * necesare calculării rândurilor următoare.
+     * Dacă x și y sunt același obiect, intrarea este copiată
+     * înainte de calcul pentru a evita suprascrierea valorilor
+     * necesare rândurilor următoare.
      */
-    public void multiplyInto(double[] x, double[] y) {
+    public void multiplyInto(
+            double[] x,
+            double[] y) {
+
         validateInputVector(x);
         validateOutputVector(y);
 
-        double[] input = (x == y) ? Arrays.copyOf(x, x.length) : x;
+        double[] input =
+                (x == y)
+                        ? Arrays.copyOf(x, x.length)
+                        : x;
 
         for (int row = 0; row < rows; row++) {
             double sum = 0.0;
+
             int start = rowPointers[row];
             int end = rowPointers[row + 1];
 
             for (int index = start; index < end; index++) {
                 sum += values[index] * input[columnIndices[index]];
             }
+
             y[row] = sum;
         }
     }
 
+    /**
+     * Multiplicare paralelă cu prag și paralelism implicite.
+     */
     public double[] multiplyParallel(double[] x) {
         return multiplyParallel(
                 x,
                 DEFAULT_PARALLEL_THRESHOLD,
-                Math.max(1, Runtime.getRuntime().availableProcessors()));
+                Math.max(
+                        1,
+                        Runtime.getRuntime().availableProcessors()));
     }
 
+    /**
+     * Multiplicare paralelă cu configurație explicită.
+     */
     public double[] multiplyParallel(
             double[] x,
             int threshold,
@@ -159,7 +241,13 @@ public final class SparseMatrixCSR {
         validateParallelConfiguration(threshold, parallelism);
 
         double[] y = new double[rows];
-        multiplyParallelInto(x, y, threshold, parallelism);
+
+        multiplyParallelInto(
+                x,
+                y,
+                threshold,
+                parallelism);
+
         return y;
     }
 
@@ -176,9 +264,15 @@ public final class SparseMatrixCSR {
         validateOutputVector(y);
         validateParallelConfiguration(threshold, parallelism);
 
-        ForkJoinPool pool = new ForkJoinPool(parallelism);
+        ForkJoinPool pool =
+                new ForkJoinPool(parallelism);
+
         try {
-            multiplyParallelInto(x, y, threshold, pool);
+            multiplyParallelInto(
+                    x,
+                    y,
+                    threshold,
+                    pool);
         } finally {
             pool.shutdown();
         }
@@ -186,7 +280,10 @@ public final class SparseMatrixCSR {
 
     /**
      * Utilizează un pool administrat de apelant.
-     * Pool-ul nu este închis de această metodă.
+     *
+     * Această metodă nu închide pool-ul primit.
+     * Tablourile CSR interne sunt transmise direct către task,
+     * fără copii defensive suplimentare.
      */
     public void multiplyParallelInto(
             double[] x,
@@ -196,32 +293,41 @@ public final class SparseMatrixCSR {
 
         validateInputVector(x);
         validateOutputVector(y);
-        Objects.requireNonNull(pool, "ForkJoinPool cannot be null.");
+
+        Objects.requireNonNull(
+                pool,
+                "ForkJoinPool cannot be null.");
 
         if (threshold <= 0) {
             throw new IllegalArgumentException(
                     "Parallel threshold must be greater than zero.");
         }
+
         if (pool.isShutdown()) {
-            throw new IllegalStateException("ForkJoinPool is already shut down.");
+            throw new IllegalStateException(
+                    "ForkJoinPool is already shut down.");
         }
 
         /*
-         * Copia este necesară și pentru pool-ul extern:
-         * subtasks pot scrie simultan în y, iar x==y ar crea
-         * o cursă între citirea intrării și scrierea ieșirii.
+         * x == y este periculos în execuția paralelă:
+         * un subtask ar putea suprascrie o valoare înainte
+         * ca alt subtask să o citească.
          */
-        double[] input = (x == y) ? Arrays.copyOf(x, x.length) : x;
+        double[] input =
+                (x == y)
+                        ? Arrays.copyOf(x, x.length)
+                        : x;
 
-        pool.invoke(new MultiplyTask(
-                values,
-                columnIndices,
-                rowPointers,
-                input,
-                y,
-                0,
-                rows,
-                threshold));
+        pool.invoke(
+                new MultiplyTask(
+                        values,
+                        columnIndices,
+                        rowPointers,
+                        input,
+                        y,
+                        0,
+                        rows,
+                        threshold));
     }
 
     private static void validateParallelConfiguration(
@@ -232,6 +338,7 @@ public final class SparseMatrixCSR {
             throw new IllegalArgumentException(
                     "Parallel threshold must be greater than zero.");
         }
+
         if (parallelism <= 0) {
             throw new IllegalArgumentException(
                     "Parallelism must be greater than zero.");
@@ -239,7 +346,10 @@ public final class SparseMatrixCSR {
     }
 
     private void validateInputVector(double[] x) {
-        Objects.requireNonNull(x, "Input vector cannot be null.");
+        Objects.requireNonNull(
+                x,
+                "Input vector cannot be null.");
+
         if (x.length != columns) {
             throw new IllegalArgumentException(
                     "Input vector length (" + x.length
@@ -249,7 +359,10 @@ public final class SparseMatrixCSR {
     }
 
     private void validateOutputVector(double[] y) {
-        Objects.requireNonNull(y, "Output vector cannot be null.");
+        Objects.requireNonNull(
+                y,
+                "Output vector cannot be null.");
+
         if (y.length != rows) {
             throw new IllegalArgumentException(
                     "Output vector length (" + y.length
@@ -274,31 +387,57 @@ public final class SparseMatrixCSR {
         return values.length;
     }
 
+    /**
+     * Returnează o copie defensivă.
+     */
     public double[] getValues() {
         return Arrays.copyOf(values, values.length);
     }
 
+    /**
+     * Returnează o copie defensivă.
+     */
     public int[] getColumnIndices() {
-        return Arrays.copyOf(columnIndices, columnIndices.length);
+        return Arrays.copyOf(
+                columnIndices,
+                columnIndices.length);
     }
 
+    /**
+     * Returnează o copie defensivă.
+     */
     public int[] getRowPointers() {
-        return Arrays.copyOf(rowPointers, rowPointers.length);
+        return Arrays.copyOf(
+                rowPointers,
+                rowPointers.length);
     }
 
+    /**
+     * Densitatea este NNZ / (rows * columns).
+     * Calculul produsului se face în long pentru a evita
+     * overflow-ul aritmetic pe int.
+     */
     public double getDensity() {
-        long totalElements = (long) rows * columns;
+        long totalElements = (long) rows * (long) columns;
+
         if (totalElements == 0L) {
             return 0.0;
         }
+
         return (double) values.length / (double) totalElements;
     }
 
+    /**
+     * Acces la un element al matricei.
+     *
+     * Căutarea este liniară în rândul CSR respectiv.
+     */
     public double get(int row, int column) {
         if (row < 0 || row >= rows) {
             throw new IndexOutOfBoundsException(
                     "Row index out of bounds: " + row);
         }
+
         if (column < 0 || column >= columns) {
             throw new IndexOutOfBoundsException(
                     "Column index out of bounds: " + column);
@@ -312,13 +451,22 @@ public final class SparseMatrixCSR {
                 return values[index];
             }
         }
+
         return 0.0;
     }
 
+    /**
+     * Verifică invarianta internă a structurii.
+     */
     public boolean isValid() {
         try {
             validateCSRStructure(
-                    values, columnIndices, rowPointers, rows, columns);
+                    values,
+                    columnIndices,
+                    rowPointers,
+                    rows,
+                    columns);
+
             return true;
         } catch (IllegalArgumentException exception) {
             return false;
