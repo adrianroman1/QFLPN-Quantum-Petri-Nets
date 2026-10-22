@@ -6,6 +6,8 @@ on:
       - main
     paths:
       - "P3/**"
+      - "src/**"
+      - "pom.xml"
       - ".github/workflows/p3-validation.yml"
 
   pull_request:
@@ -13,6 +15,8 @@ on:
       - main
     paths:
       - "P3/**"
+      - "src/**"
+      - "pom.xml"
       - ".github/workflows/p3-validation.yml"
 
   workflow_dispatch:
@@ -26,9 +30,9 @@ concurrency:
 
 jobs:
   p3-validation:
-    name: P3 Java and Python Validation
+    name: P3 and Main Maven Validation
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
 
     steps:
       - name: Checkout repository
@@ -60,11 +64,19 @@ jobs:
           python --version
           python -m pytest --version
 
-      - name: Validate Maven project
+      - name: Validate main Maven project
+        run: |
+          mvn -B -f pom.xml validate
+
+      - name: Run main Maven test suite
+        run: |
+          mvn -B -f pom.xml clean test
+
+      - name: Validate P3 Maven project
         run: |
           mvn -B -f P3/pom.xml validate
 
-      - name: Run complete Java test suite
+      - name: Run complete P3 Java test suite
         run: |
           mvn -B -f P3/pom.xml clean test
 
@@ -97,7 +109,16 @@ jobs:
           if-no-files-found: warn
           retention-days: 90
 
-      - name: Upload JUnit reports
+      - name: Upload main Maven JUnit reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: main-maven-junit-evidence
+          path: target/surefire-reports/
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Upload P3 JUnit reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -142,5 +163,4 @@ jobs:
           fi
 
           git commit -m "[skip ci] P3 benchmark evidence $RUN_ID"
-
           git push origin "HEAD:refs/heads/${TARGET_BRANCH}"
