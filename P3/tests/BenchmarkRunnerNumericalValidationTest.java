@@ -10,7 +10,6 @@ class BenchmarkRunnerNumericalValidationTest {
 
     @Test
     void shouldRejectNaNOutput() {
-
         double[] output = {
                 Double.NaN
         };
@@ -24,7 +23,6 @@ class BenchmarkRunnerNumericalValidationTest {
 
     @Test
     void shouldRejectPositiveInfinityOutput() {
-
         double[] output = {
                 Double.POSITIVE_INFINITY
         };
@@ -38,7 +36,6 @@ class BenchmarkRunnerNumericalValidationTest {
 
     @Test
     void shouldRejectNegativeInfinityOutput() {
-
         double[] output = {
                 Double.NEGATIVE_INFINITY
         };
@@ -52,7 +49,6 @@ class BenchmarkRunnerNumericalValidationTest {
 
     @Test
     void shouldRejectNaNComputedError() {
-
         double[] reference = {
                 1.0
         };
@@ -70,7 +66,6 @@ class BenchmarkRunnerNumericalValidationTest {
 
     @Test
     void shouldRejectInfiniteComputedAbsoluteError() {
-
         double[] first = {
                 Double.MAX_VALUE
         };
@@ -88,7 +83,6 @@ class BenchmarkRunnerNumericalValidationTest {
 
     @Test
     void shouldRejectInfiniteComputedExpectedError() {
-
         double[] output = {
                 Double.MAX_VALUE
         };
@@ -102,7 +96,6 @@ class BenchmarkRunnerNumericalValidationTest {
 
     @Test
     void shouldRejectNonFiniteExpectedValue() {
-
         double[] output = {
                 1.0
         };
@@ -115,8 +108,16 @@ class BenchmarkRunnerNumericalValidationTest {
     }
 
     @Test
-    void shouldCalculateFiniteAbsoluteError() {
+    void shouldRejectNullOutputVector() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> BenchmarkRunner.maxExpectedError(
+                        null,
+                        1.0));
+    }
 
+    @Test
+    void shouldCalculateFiniteAbsoluteError() {
         double[] first = {
                 1.0,
                 2.0,
@@ -143,7 +144,6 @@ class BenchmarkRunnerNumericalValidationTest {
 
     @Test
     void shouldCalculateFiniteExpectedError() {
-
         double[] output = {
                 1.5,
                 1.5,
