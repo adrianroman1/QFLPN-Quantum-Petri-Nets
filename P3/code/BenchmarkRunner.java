@@ -2,71 +2,635 @@ package hpc.csr;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
-import java.util.*;
+import java.util.Arrays;
+import java.util.Locale;
+import java.util.UUID;
 import java.util.concurrent.ForkJoinPool;
 
-/** Reproducible CSR SpMV benchmark with an independent analytical oracle and V2 evidence. */
+/**
+ * Reproducible CSR sparse matrix-vector benchmark.
+ *
+ * Includes warm-up, alternating measurement order, descriptive statistics,
+ * an independent analytical oracle and versioned result persistence.
+ */
 public final class BenchmarkRunner {
-    private static final int DEFAULT_N=1_000_000, DEFAULT_WARMUP=5, DEFAULT_ITERATIONS=10, DEFAULT_THRESHOLD=4096;
-    private static final double EPSILON=1.0e-12;
-    private BenchmarkRunner() {}
+
+    private static final int DEFAULT_N = 1_000_000;
+    private static final int DEFAULT_WARMUP = 5;
+    private static final int DEFAULT_ITERATIONS = 10;
+    private static final int DEFAULT_THRESHOLD = 4096;
+
+    private static final double EPSILON = 1.0e-12;
+
+    private BenchmarkRunner() {
+    }
 
     public static void main(String[] args) {
-        Config c=Config.parse(args); String runId=System.getenv("RUN_ID");
-        if(runId==null || runId.isBlank()) runId=DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'").withZone(java.time.ZoneOffset.UTC).format(Instant.now())+"-"+UUID.randomUUID();
-        if(!runId.matches("[A-Za-z0-9._-]+")) throw new IllegalArgumentException("Invalid RUN_ID");
-        long setupStart=System.nanoTime(); SparseMatrixCSR matrix=createMatrix(c.n);
-        double[] x=new double[c.n], seq=new double[c.n], par=new double[c.n], oracle=new double[c.n];
-        Arrays.fill(x,1.0); Arrays.fill(oracle,1.5);
-        double setupMs=ms(System.nanoTime()-setupStart); ForkJoinPool pool=new ForkJoinPool(c.parallelism);
+        Config config = Config.parse(args);
+        String runId = createRunId();
+
+        long setupStart = System.nanoTime();
+
+        SparseMatrixCSR matrix = createMatrix(config.n());
+
+        double[] input = new double[config.n()];
+        double[] sequentialOutput = new double[config.n()];
+        double[] parallelOutput = new double[config.n()];
+        double[] oracle = new double[config.n()];
+
+        Arrays.fill(input, 1.0);
+        Arrays.fill(oracle, 1.5);
+
+        double setupMs = milliseconds(
+                System.nanoTime() - setupStart);
+
+        ForkJoinPool pool =
+                new ForkJoinPool(config.parallelism());
+
         try {
-            for(int i=0;i<c.warmup;i++){ matrix.multiplyInto(x,seq); matrix.multiplyParallelInto(x,par,c.threshold,pool); }
-            double[] seqTimes=new double[c.iterations], parTimes=new double[c.iterations];
-            for(int i=0;i<c.iterations;i++) {
-                long t;
-                if((i&1)==0){ t=System.nanoTime(); matrix.multiplyInto(x,seq); seqTimes[i]=ms(System.nanoTime()-t); t=System.nanoTime(); matrix.multiplyParallelInto(x,par,c.threshold,pool); parTimes[i]=ms(System.nanoTime()-t); }
-                else { t=System.nanoTime(); matrix.multiplyParallelInto(x,par,c.threshold,pool); parTimes[i]=ms(System.nanoTime()-t); t=System.nanoTime(); matrix.multiplyInto(x,seq); seqTimes[i]=ms(System.nanoTime()-t); }
-                if(seqTimes[i]<=0 || parTimes[i]<=0) throw new IllegalStateException("Non-positive measurement");
-            }
-            double seqMean=mean(seqTimes), parMean=mean(parTimes), seqMedian=median(seqTimes), parMedian=median(parTimes);
-            double seqSd=populationStdDev(seqTimes), parSd=populationStdDev(parTimes);
-            double seqErr=maxAbsoluteError(seq,oracle), parErr=maxAbsoluteError(par,oracle), diff=maxAbsoluteError(seq,par);
-            if(seqErr>EPSILON || parErr>EPSILON || diff>EPSILON) throw new IllegalStateException("Independent numerical oracle failed: seq="+seqErr+", parallel="+parErr+", diff="+diff);
-            Runtime rt=Runtime.getRuntime(); double speedup=seqMean/parMean;
-            BenchmarkResult r=new BenchmarkResult(Instant.now().toString(),runId,benchmarkId(c.n),c.n,matrix.getNnz(),c.parallelism,c.threshold,c.warmup,c.iterations,
-                seqMean,seqMedian,seqSd,parMean,parMedian,parSd,speedup,c.n/(seqMean/1000),c.n/(parMean/1000),seqErr,parErr,diff,setupMs,
-                System.getProperty("os.arch","unknown")+"; processors="+rt.availableProcessors(),rt.maxMemory(),rt.freeMemory(),
-                System.getProperty("java.version","unknown"),System.getProperty("os.name","unknown")+" "+System.getProperty("os.version","unknown"),
-                "V2; population standard deviation; independent analytical oracle y[i]=1.5; alternating measurement order");
-            BenchmarkResultWriter.append(r);
-            writeReports(r, Path.of("results","raw",runId));
-            print(r);
-        } catch(IOException e){ throw new IllegalStateException("Unable to persist benchmark evidence",e); }
-        finally { pool.shutdown(); }
+            executeBenchmark(
+                    matrix,
+                    input,
+                    sequentialOutput,
+                    parallelOutput,
+                    oracle,
+                    config,
+                    pool,
+                    runId,
+                    setupMs);
+        } finally {
+            pool.shutdown();
+        }
     }
 
-    static double mean(double[] a){ requireSamples(a); double s=0; for(double v:a){finitePositive(v);s+=v;} return s/a.length; }
-    static double median(double[] a){ requireSamples(a); double[] b=a.clone(); for(double v:b)finitePositive(v); Arrays.sort(b); int m=b.length/2; return (b.length%2==0)?(b[m-1]+b[m])/2:b[m]; }
-    static double populationStdDev(double[] a){ double m=mean(a),s=0; for(double v:a){double d=v-m;s+=d*d;} return Math.sqrt(s/a.length); }
-    static double maxAbsoluteError(double[] a,double[] b){ if(a==null||b==null||a.length!=b.length)throw new IllegalArgumentException("Vectors must have equal non-null lengths"); double max=0; for(int i=0;i<a.length;i++){if(!Double.isFinite(a[i])||!Double.isFinite(b[i]))throw new IllegalStateException("Non-finite vector value at "+i);max=Math.max(max,Math.abs(a[i]-b[i]));}return max; }
-    private static void requireSamples(double[] a){if(a==null||a.length==0)throw new IllegalArgumentException("At least one sample is required");}
-    private static void finitePositive(double v){if(!Double.isFinite(v)||v<=0)throw new IllegalArgumentException("Samples must be finite and positive");}
-    private static double ms(long ns){return ns/1_000_000.0;}
-    private static String benchmarkId(int n){return n==12?"QFLPN-12":n==1_000_000?"QFLPN-1M":n==30_000_000?"QFLPN-30M":"QFLPN-"+n;}
-    private static SparseMatrixCSR createMatrix(int n){if(n<=0)throw new IllegalArgumentException("N must be positive"); long count=2L*n;if(count>Integer.MAX_VALUE)throw new IllegalArgumentException("NNZ exceeds Java array limit"); double[] v=new double[(int)count];int[] col=new int[(int)count],rp=new int[n+1]; for(int i=0;i<n;i++){int k=2*i;v[k]=1;v[k+1]=0.5;col[k]=i;col[k+1]=(i+1<n)?i+1:0;rp[i+1]=k+2;}return new SparseMatrixCSR(v,col,rp,n,n);}
-    private static void writeReports(BenchmarkResult r,Path dir)throws IOException{
-        Files.createDirectories(dir);
-        String json="{\n  \"schema\": \"qflpn-benchmark-v2\",\n  \"validation\": \"PASS\",\n  \"run_id\": \""+esc(r.runId())+"\",\n  \"timestamp\": \""+esc(r.timestamp())+"\",\n  \"dimension\": "+r.dimension()+",\n  \"nnz\": "+r.nonZeroCount()+",\n  \"warmup\": "+r.warmupIterations()+",\n  \"iterations\": "+r.measuredIterations()+",\n  \"sequential_mean_ms\": "+r.sequentialMs()+",\n  \"sequential_median_ms\": "+r.sequentialMedianMs()+",\n  \"sequential_stddev_ms\": "+r.sequentialStdDevMs()+",\n  \"parallel_mean_ms\": "+r.parallelMs()+",\n  \"parallel_median_ms\": "+r.parallelMedianMs()+",\n  \"parallel_stddev_ms\": "+r.parallelStdDevMs()+",\n  \"speedup\": "+r.speedup()+",\n  \"sequential_throughput_states_per_s\": "+r.sequentialThroughput()+",\n  \"parallel_throughput_states_per_s\": "+r.parallelThroughput()+",\n  \"sequential_oracle_error\": "+r.sequentialExpectedError()+",\n  \"parallel_oracle_error\": "+r.parallelExpectedError()+",\n  \"max_absolute_error\": "+r.maxAbsoluteError()+"\n}\n";
-        String md="# QFLPN P3 Benchmark V2\n\n- Run ID: `"+r.runId()+"`\n- Validation: **PASS**\n- Dimension / NNZ: "+r.dimension()+" / "+r.nonZeroCount()+"\n- Warm-up / measured: "+r.warmupIterations()+" / "+r.measuredIterations()+"\n\n| Metric | Sequential | Parallel |\n|---|---:|---:|\n| Mean (ms) | "+r.sequentialMs()+" | "+r.parallelMs()+" |\n| Median (ms) | "+r.sequentialMedianMs()+" | "+r.parallelMedianMs()+" |\n| Std. dev. (ms) | "+r.sequentialStdDevMs()+" | "+r.parallelStdDevMs()+" |\n| Throughput (states/s) | "+r.sequentialThroughput()+" | "+r.parallelThroughput()+" |\n\n- Speedup: **"+r.speedup()+"×**\n- Independent oracle max error: "+Math.max(r.sequentialExpectedError(),r.parallelExpectedError())+"\n- Sequential/parallel max difference: "+r.maxAbsoluteError()+"\n";
-        String txt="QFLPN P3 BENCHMARK V2\nRUN_ID="+r.runId()+"\nVALIDATION=PASS\nDIMENSION="+r.dimension()+"\nNNZ="+r.nonZeroCount()+"\nWARMUP="+r.warmupIterations()+"\nITERATIONS="+r.measuredIterations()+"\nSEQUENTIAL_MEAN_MS="+r.sequentialMs()+"\nSEQUENTIAL_MEDIAN_MS="+r.sequentialMedianMs()+"\nSEQUENTIAL_STDDEV_MS="+r.sequentialStdDevMs()+"\nPARALLEL_MEAN_MS="+r.parallelMs()+"\nPARALLEL_MEDIAN_MS="+r.parallelMedianMs()+"\nPARALLEL_STDDEV_MS="+r.parallelStdDevMs()+"\nSPEEDUP="+r.speedup()+"\nSEQUENTIAL_ORACLE_ERROR="+r.sequentialExpectedError()+"\nPARALLEL_ORACLE_ERROR="+r.parallelExpectedError()+"\nMAX_ABSOLUTE_ERROR="+r.maxAbsoluteError()+"\n";
-        Files.writeString(dir.resolve("benchmark-report.json"),json,StandardCharsets.UTF_8);
-        Files.writeString(dir.resolve("benchmark-report.md"),md,StandardCharsets.UTF_8);
-        Files.writeString(dir.resolve("benchmark-report.txt"),txt,StandardCharsets.UTF_8);
+    private static void executeBenchmark(
+            SparseMatrixCSR matrix,
+            double[] input,
+            double[] sequentialOutput,
+            double[] parallelOutput,
+            double[] oracle,
+            Config config,
+            ForkJoinPool pool,
+            String runId,
+            double setupMs) {
+
+        // Warm-up is deliberately excluded from measured samples.
+        for (int i = 0; i < config.warmup(); i++) {
+            matrix.multiplyInto(input, sequentialOutput);
+            matrix.multiplyParallelInto(
+                    input,
+                    parallelOutput,
+                    config.threshold(),
+                    pool);
+        }
+
+        double[] sequentialTimes =
+                new double[config.iterations()];
+        double[] parallelTimes =
+                new double[config.iterations()];
+
+        // Alternate order to reduce systematic order bias.
+        for (int i = 0; i < config.iterations(); i++) {
+            long start;
+
+            if ((i & 1) == 0) {
+                start = System.nanoTime();
+                matrix.multiplyInto(input, sequentialOutput);
+                sequentialTimes[i] =
+                        milliseconds(System.nanoTime() - start);
+
+                start = System.nanoTime();
+                matrix.multiplyParallelInto(
+                        input,
+                        parallelOutput,
+                        config.threshold(),
+                        pool);
+                parallelTimes[i] =
+                        milliseconds(System.nanoTime() - start);
+            } else {
+                start = System.nanoTime();
+                matrix.multiplyParallelInto(
+                        input,
+                        parallelOutput,
+                        config.threshold(),
+                        pool);
+                parallelTimes[i] =
+                        milliseconds(System.nanoTime() - start);
+
+                start = System.nanoTime();
+                matrix.multiplyInto(input, sequentialOutput);
+                sequentialTimes[i] =
+                        milliseconds(System.nanoTime() - start);
+            }
+        }
+
+        double sequentialMean = mean(sequentialTimes);
+        double parallelMean = mean(parallelTimes);
+
+        double sequentialMedian = median(sequentialTimes);
+        double parallelMedian = median(parallelTimes);
+
+        double sequentialStdDev =
+                populationStdDev(sequentialTimes);
+        double parallelStdDev =
+                populationStdDev(parallelTimes);
+
+        // Compare each implementation with the independent analytical oracle.
+        double sequentialError =
+                maxAbsoluteError(sequentialOutput, oracle);
+        double parallelError =
+                maxAbsoluteError(parallelOutput, oracle);
+        double difference =
+                maxAbsoluteError(sequentialOutput, parallelOutput);
+
+        if (sequentialError > EPSILON
+                || parallelError > EPSILON
+                || difference > EPSILON) {
+            throw new IllegalStateException(
+                    "Independent numerical validation failed: "
+                            + "sequential=" + sequentialError
+                            + ", parallel=" + parallelError
+                            + ", difference=" + difference);
+        }
+
+        Runtime runtime = Runtime.getRuntime();
+
+        double speedup = sequentialMean / parallelMean;
+
+        double sequentialThroughput =
+                config.n() / (sequentialMean / 1000.0);
+
+        double parallelThroughput =
+                config.n() / (parallelMean / 1000.0);
+
+        BenchmarkResult result = new BenchmarkResult(
+                Instant.now().toString(),
+                runId,
+                benchmarkId(config.n()),
+                config.n(),
+                matrix.getNnz(),
+                config.parallelism(),
+                config.threshold(),
+                config.warmup(),
+                config.iterations(),
+                sequentialMean,
+                sequentialMedian,
+                sequentialStdDev,
+                parallelMean,
+                parallelMedian,
+                parallelStdDev,
+                speedup,
+                sequentialThroughput,
+                parallelThroughput,
+                sequentialError,
+                parallelError,
+                difference,
+                setupMs,
+                System.getProperty("os.arch", "unknown")
+                        + "; processors="
+                        + runtime.availableProcessors(),
+                runtime.maxMemory(),
+                runtime.freeMemory(),
+                System.getProperty("java.version", "unknown"),
+                System.getProperty("os.name", "unknown")
+                        + " "
+                        + System.getProperty("os.version", "unknown"),
+                "V2; population standard deviation; "
+                        + "independent analytical oracle y[i]=1.5; "
+                        + "alternating measurement order");
+
+        try {
+            BenchmarkResultWriter.append(result);
+            writeReports(
+                    result,
+                    Path.of("results", "raw", runId));
+        } catch (IOException exception) {
+            throw new IllegalStateException(
+                    "Unable to persist benchmark evidence",
+                    exception);
+        }
+
+        print(result);
     }
-    private static String esc(String s){return s.replace("\\","\\\\").replace("\"","\\\"");}
-    private static void print(BenchmarkResult r){System.out.printf(Locale.ROOT,"RUN_ID=%s%nVALIDATION=PASS%nSequential mean/median/stddev: %.6f / %.6f / %.6f ms%nParallel mean/median/stddev: %.6f / %.6f / %.6f ms%nSpeedup: %.6f%nOracle max error: %.3e%nCSV: %s%n",r.runId(),r.sequentialMs(),r.sequentialMedianMs(),r.sequentialStdDevMs(),r.parallelMs(),r.parallelMedianMs(),r.parallelStdDevMs(),r.speedup(),Math.max(r.sequentialExpectedError(),r.parallelExpectedError()),BenchmarkResultWriter.defaultOutputPath());}
-    private record Config(int n,int warmup,int iterations,int threshold,int parallelism){static Config parse(String[] args){int n=DEFAULT_N,w=DEFAULT_WARMUP,it=DEFAULT_ITERATIONS,t=DEFAULT_THRESHOLD,p=Math.max(1,Runtime.getRuntime().availableProcessors());for(String a:args){if(a.startsWith("--n="))n=val(a, true);else if(a.startsWith("--warmup="))w=val(a,false);else if(a.startsWith("--iterations="))it=val(a,true);else if(a.startsWith("--threshold="))t=val(a,true);else if(a.startsWith("--parallelism="))p=val(a,true);else throw new IllegalArgumentException("Unknown argument: "+a);}return new Config(n,w,it,t,p);}static int val(String a,boolean positive){int x=Integer.parseInt(a.substring(a.indexOf('=')+1));if(positive?x<=0:x<0)throw new IllegalArgumentException("Invalid value: "+a);return x;}}
+
+    static double mean(double[] samples) {
+        validateSamples(samples);
+
+        double sum = 0.0;
+
+        for (double sample : samples) {
+            requirePositiveFinite(sample);
+            sum += sample;
+        }
+
+        double result = sum / samples.length;
+
+        if (!Double.isFinite(result) || result <= 0.0) {
+            throw new IllegalArgumentException(
+                    "Invalid arithmetic mean");
+        }
+
+        return result;
+    }
+
+    static double median(double[] samples) {
+        validateSamples(samples);
+
+        double[] sorted = samples.clone();
+
+        for (double sample : sorted) {
+            requirePositiveFinite(sample);
+        }
+
+        Arrays.sort(sorted);
+
+        int middle = sorted.length / 2;
+
+        if ((sorted.length & 1) == 0) {
+            return (sorted[middle - 1] + sorted[middle]) / 2.0;
+        }
+
+        return sorted[middle];
+    }
+
+    static double populationStdDev(double[] samples) {
+        double average = mean(samples);
+        double sumSquares = 0.0;
+
+        for (double sample : samples) {
+            double difference = sample - average;
+            sumSquares += difference * difference;
+        }
+
+        double result = Math.sqrt(sumSquares / samples.length);
+
+        if (!Double.isFinite(result)) {
+            throw new IllegalArgumentException(
+                    "Standard deviation is not finite");
+        }
+
+        return result;
+    }
+
+    static double maxAbsoluteError(
+            double[] first,
+            double[] second) {
+
+        if (first == null || second == null) {
+            throw new IllegalArgumentException(
+                    "Vectors must not be null");
+        }
+
+        if (first.length != second.length) {
+            throw new IllegalArgumentException(
+                    "Vectors must have equal lengths");
+        }
+
+        double maximum = 0.0;
+
+        for (int i = 0; i < first.length; i++) {
+            if (!Double.isFinite(first[i])
+                    || !Double.isFinite(second[i])) {
+                throw new IllegalStateException(
+                        "Non-finite vector value at index " + i);
+            }
+
+            double error = Math.abs(first[i] - second[i]);
+
+            if (!Double.isFinite(error)) {
+                throw new IllegalStateException(
+                        "Non-finite absolute error at index " + i);
+            }
+
+            maximum = Math.max(maximum, error);
+        }
+
+        return maximum;
+    }
+
+    private static void validateSamples(double[] samples) {
+        if (samples == null || samples.length == 0) {
+            throw new IllegalArgumentException(
+                    "At least one measurement is required");
+        }
+    }
+
+    private static void requirePositiveFinite(double value) {
+        if (!Double.isFinite(value) || value <= 0.0) {
+            throw new IllegalArgumentException(
+                    "Measurements must be finite and positive");
+        }
+    }
+
+    private static double milliseconds(long nanoseconds) {
+        return nanoseconds / 1_000_000.0;
+    }
+
+    private static String createRunId() {
+        String supplied = System.getenv("RUN_ID");
+        String runId = supplied;
+
+        if (runId == null || runId.isBlank()) {
+            runId = DateTimeFormatter
+                    .ofPattern("yyyyMMdd'T'HHmmss'Z'")
+                    .withZone(ZoneOffset.UTC)
+                    .format(Instant.now())
+                    + "-" + UUID.randomUUID();
+        }
+
+        if (!runId.matches("[A-Za-z0-9._-]+")) {
+            throw new IllegalArgumentException(
+                    "RUN_ID contains unsupported characters");
+        }
+
+        return runId;
+    }
+
+    private static String benchmarkId(int n) {
+        if (n == 12) {
+            return "QFLPN-12";
+        }
+        if (n == 1_000_000) {
+            return "QFLPN-1M";
+        }
+        if (n == 30_000_000) {
+            return "QFLPN-30M";
+        }
+        return "QFLPN-" + n;
+    }
+
+    private static SparseMatrixCSR createMatrix(int n) {
+        if (n <= 0) {
+            throw new IllegalArgumentException(
+                    "Matrix dimension must be positive");
+        }
+
+        long nonzeroCount = 2L * n;
+
+        if (nonzeroCount > Integer.MAX_VALUE
+                || n == Integer.MAX_VALUE) {
+            throw new IllegalArgumentException(
+                    "Matrix exceeds Java array index limits");
+        }
+
+        double[] values = new double[(int) nonzeroCount];
+        int[] columns = new int[(int) nonzeroCount];
+        int[] rowPointers = new int[n + 1];
+
+        for (int row = 0; row < n; row++) {
+            int index = 2 * row;
+
+            values[index] = 1.0;
+            values[index + 1] = 0.5;
+
+            columns[index] = row;
+            columns[index + 1] =
+                    row + 1 < n ? row + 1 : 0;
+
+            rowPointers[row + 1] = index + 2;
+        }
+
+        return new SparseMatrixCSR(
+                values,
+                columns,
+                rowPointers,
+                n,
+                n);
+    }
+
+    private static void writeReports(
+            BenchmarkResult r,
+            Path directory) throws IOException {
+
+        Files.createDirectories(directory);
+
+        String json = """
+                {
+                  "schema": "qflpn-benchmark-v2",
+                  "validation": "PASS",
+                  "run_id": "%s",
+                  "timestamp": "%s",
+                  "dimension": %d,
+                  "nnz": %d,
+                  "warmup": %d,
+                  "iterations": %d,
+                  "sequential_mean_ms": %.12e,
+                  "sequential_median_ms": %.12e,
+                  "sequential_stddev_ms": %.12e,
+                  "parallel_mean_ms": %.12e,
+                  "parallel_median_ms": %.12e,
+                  "parallel_stddev_ms": %.12e,
+                  "speedup": %.12e,
+                  "sequential_throughput_states_per_s": %.12e,
+                  "parallel_throughput_states_per_s": %.12e,
+                  "sequential_oracle_error": %.12e,
+                  "parallel_oracle_error": %.12e,
+                  "max_absolute_error": %.12e
+                }
+                """.formatted(
+                jsonEscape(r.runId()),
+                jsonEscape(r.timestamp()),
+                r.dimension(),
+                r.nonZeroCount(),
+                r.warmupIterations(),
+                r.measuredIterations(),
+                r.sequentialMs(),
+                r.sequentialMedianMs(),
+                r.sequentialStdDevMs(),
+                r.parallelMs(),
+                r.parallelMedianMs(),
+                r.parallelStdDevMs(),
+                r.speedup(),
+                r.sequentialThroughput(),
+                r.parallelThroughput(),
+                r.sequentialExpectedError(),
+                r.parallelExpectedError(),
+                r.maxAbsoluteError());
+
+        String markdown = """
+                # QFLPN P3 Benchmark V2
+
+                - Run ID: `%s`
+                - Validation: **PASS**
+                - Dimension / NNZ: %d / %d
+                - Warm-up / measured: %d / %d
+
+                | Metric | Sequential | Parallel |
+                |---|---:|---:|
+                | Mean (ms) | %.6f | %.6f |
+                | Median (ms) | %.6f | %.6f |
+                | Std. dev. (ms) | %.6f | %.6f |
+                | Throughput (states/s) | %.6f | %.6f |
+
+                - Speedup: **%.6f×**
+                - Sequential oracle error: %.3e
+                - Parallel oracle error: %.3e
+                - Sequential/parallel maximum difference: %.3e
+                """.formatted(
+                r.runId(),
+                r.dimension(),
+                r.nonZeroCount(),
+                r.warmupIterations(),
+                r.measuredIterations(),
+                r.sequentialMs(),
+                r.parallelMs(),
+                r.sequentialMedianMs(),
+                r.parallelMedianMs(),
+                r.sequentialStdDevMs(),
+                r.parallelStdDevMs(),
+                r.sequentialThroughput(),
+                r.parallelThroughput(),
+                r.speedup(),
+                r.sequentialExpectedError(),
+                r.parallelExpectedError(),
+                r.maxAbsoluteError());
+
+        String text = """
+                QFLPN P3 BENCHMARK V2
+                RUN_ID=%s
+                VALIDATION=PASS
+                DIMENSION=%d
+                NNZ=%d
+                WARMUP=%d
+                ITERATIONS=%d
+                SEQUENTIAL_MEAN_MS=%.12e
+                SEQUENTIAL_MEDIAN_MS=%.12e
+                SEQUENTIAL_STDDEV_MS=%.12e
+                PARALLEL_MEAN_MS=%.12e
+                PARALLEL_MEDIAN_MS=%.12e
+                PARALLEL_STDDEV_MS=%.12e
+                SPEEDUP=%.12e
+                SEQUENTIAL_ORACLE_ERROR=%.12e
+                PARALLEL_ORACLE_ERROR=%.12e
+                MAX_ABSOLUTE_ERROR=%.12e
+                """.formatted(
+                r.runId(),
+                r.dimension(),
+                r.nonZeroCount(),
+                r.warmupIterations(),
+                r.measuredIterations(),
+                r.sequentialMs(),
+                r.sequentialMedianMs(),
+                r.sequentialStdDevMs(),
+                r.parallelMs(),
+                r.parallelMedianMs(),
+                r.parallelStdDevMs(),
+                r.speedup(),
+                r.sequentialExpectedError(),
+                r.parallelExpectedError(),
+                r.maxAbsoluteError());
+
+        Files.writeString(
+                directory.resolve("benchmark-report.json"),
+                json,
+                StandardCharsets.UTF_8);
+
+        Files.writeString(
+                directory.resolve("benchmark-report.md"),
+                markdown,
+                StandardCharsets.UTF_8);
+
+        Files.writeString(
+                directory.resolve("benchmark-report.txt"),
+                text,
+                StandardCharsets.UTF_8);
+    }
+
+    private static String jsonEscape(String value) {
+        return value
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t");
+    }
+
+    private static void print(BenchmarkResult r) {
+        System.out.printf(
+                Locale.ROOT,
+                """
+                RUN_ID=%s
+                VALIDATION=PASS
+                Sequential mean/median/stddev: %.6f / %.6f / %.6f ms
+                Parallel mean/median/stddev: %.6f / %.6f / %.6f ms
+                Speedup: %.6f
+                Sequential oracle error: %.3e
+                Parallel oracle error: %.3e
+                CSV: %s
+                """,
+                r.runId(),
+                r.sequentialMs(),
+                r.sequentialMedianMs(),
+                r.sequentialStdDevMs(),
+                r.parallelMs(),
+                r.parallelMedianMs(),
+                r.parallelStdDevMs(),
+                r.speedup(),
+                r.sequentialExpectedError(),
+                r.parallelExpectedError(),
+                BenchmarkResultWriter.defaultOutputPath());
+    }
+
+    private record Config(
+            int n,
+            int warmup,
+            int iterations,
+            int threshold,
+            int parallelism) {
+
+        private static Config parse(String[] args) {
+            int n = DEFAULT_N;
+            int warmup = DEFAULT_WARMUP;
+            int iterations = DEFAULT_ITERATIONS;
+            int threshold = DEFAULT_THRESHOLD;
+            int parallelism = Math.max(
+                    1,
+                    Runtime.getRuntime().availableProcessors());
+
+            for (String argument : args) {
+                if (argument.startsWith("--n=")) {
+                    n = parseValue(argument, true);
+                } else if (argument.startsWith("--warmup=")) {
+                    warmup = parseValue(argument, false);
+                } else if (argument.startsWith("--iterations=")) {
+                    iterations = parseValue(argument, true);
+                } else if (argument.startsWith("--threshold=")) {
+                    threshold = parseValue(argument, true);
+                } else if (argument.startsWith("--parallelism=")) {
+                    parallelism = parseValue(argument, true);
+                } else {
+                    throw new IllegalArgumentException(
+                            "Unknown argument: " + argument);
+                }
+            }
+
+            return new Config(
+                    n,
+                    warmup,
+                    iterations,
+                    threshold,
+                    parallelism);
+        }
+
+        private static int parseValue(
+                String argument,
+                boolean strictlyPositive) {
+
+            int separator = argument.indexOf('=');
+            int value = Integer.parseInt(
+                    argument.substring(separator + 1));
+
+            if (strictlyPositive ? value <= 0 : value < 0) {
+                throw new IllegalArgumentException(
+                        "Invalid argument value: " + argument);
+            }
+
+            return value;
+        }
+    }
 }
