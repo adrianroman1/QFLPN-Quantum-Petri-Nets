@@ -18,7 +18,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
  * 3. consistența rezultatelor;
  * 4. validarea constructorului;
  * 5. comportamentul cu intervale parțiale;
- * 6. accesul la metadatele task-ului.
+ * 6. matrici dreptunghiulare;
+ * 7. accesul la metadatele task-ului.
  */
 class MultiplyTaskTest {
 
@@ -485,20 +486,84 @@ class MultiplyTaskTest {
                         1));
     }
 
+    /**
+     * Regresie pentru matrici dreptunghiulare.
+     *
+     * Matricea are 100 de rânduri și 2 coloane.
+     * Vectorul de intrare are lungimea 2, iar vectorul de
+     * ieșire are lungimea 100.
+     *
+     * Divizarea Fork/Join creează subtasks ale căror startRow
+     * depășește lungimea vectorului de intrare. Acest lucru
+     * este valid: startRow este un indice de rând, nu de coloană.
+     */
     @Test
-    void shouldRejectStartRowBeyondInputVector() {
+    void shouldComputeRectangularMatrixWithMoreRowsThanColumns() {
 
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new MultiplyTask(
-                        values(),
-                        columns(),
-                        rowPointers(),
-                        new double[2],
-                        new double[4],
-                        3,
-                        4,
-                        1));
+        int rows = 100;
+        int columnCount = 2;
+
+        double[] rectangularValues =
+                new double[rows * columnCount];
+
+        int[] rectangularColumns =
+                new int[rows * columnCount];
+
+        int[] rectangularRowPointers =
+                new int[rows + 1];
+
+        double[] rectangularInput = {
+                2.0,
+                3.0
+        };
+
+        double[] rectangularOutput =
+                new double[rows];
+
+        double[] expectedOutput =
+                new double[rows];
+
+        for (int row = 0; row < rows; row++) {
+
+            int offset = row * columnCount;
+
+            rectangularValues[offset] = 1.0;
+            rectangularValues[offset + 1] = 1.0;
+
+            rectangularColumns[offset] = 0;
+            rectangularColumns[offset + 1] = 1;
+
+            rectangularRowPointers[row] = offset;
+
+            expectedOutput[row] =
+                    rectangularInput[0]
+                            + rectangularInput[1];
+        }
+
+        rectangularRowPointers[rows] =
+                rows * columnCount;
+
+        MultiplyTask task =
+                new MultiplyTask(
+                        rectangularValues,
+                        rectangularColumns,
+                        rectangularRowPointers,
+                        rectangularInput,
+                        rectangularOutput,
+                        0,
+                        rows,
+                        1);
+
+        try (ForkJoinPool pool =
+                     new ForkJoinPool(4)) {
+
+            pool.invoke(task);
+        }
+
+        assertArrayEquals(
+                expectedOutput,
+                rectangularOutput,
+                TOLERANCE);
     }
 
     @Test
@@ -510,7 +575,7 @@ class MultiplyTaskTest {
                         values(),
                         columns(),
                         rowPointers(),
-                        new double[4],
+                        input(),
                         new double[2],
                         0,
                         4,
