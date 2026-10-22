@@ -12,10 +12,11 @@ import java.nio.file.StandardOpenOption;
 import java.util.Locale;
 
 /**
- * Persists QFLPN CSR benchmark results in CSV format.
+ * Persists validated QFLPN CSR benchmark records as CSV.
  *
- * Default output:
- * benchmarks/benchmark_results.csv
+ * The CSV schema distinguishes maximum JVM heap from free JVM heap.
+ * Existing files with a different schema are rejected, never silently
+ * mixed with records from the new schema.
  */
 public final class BenchmarkResultWriter {
 
@@ -38,7 +39,8 @@ public final class BenchmarkResultWriter {
                     + "max_absolute_error,"
                     + "setup_time_ms,"
                     + "cpu,"
-                    + "available_memory_bytes,"
+                    + "max_jvm_memory_bytes,"
+                    + "free_jvm_heap_bytes,"
                     + "java_version,"
                     + "operating_system,"
                     + "notes";
@@ -47,29 +49,28 @@ public final class BenchmarkResultWriter {
             Path.of("benchmarks", "benchmark_results.csv");
 
     private BenchmarkResultWriter() {
-        // Utility class.
     }
 
     public static Path defaultOutputPath() {
         return DEFAULT_OUTPUT;
     }
 
-    public static void append(BenchmarkResult result)
-            throws IOException {
+    public static String csvHeader() {
+        return CSV_HEADER;
+    }
 
+    public static void append(BenchmarkResult result) throws IOException {
         append(DEFAULT_OUTPUT, result);
     }
 
     public static void append(
             Path outputPath,
-            BenchmarkResult result)
-            throws IOException {
+            BenchmarkResult result) throws IOException {
 
         if (outputPath == null) {
             throw new IllegalArgumentException(
                     "outputPath must not be null");
         }
-
         if (result == null) {
             throw new IllegalArgumentException(
                     "result must not be null");
@@ -90,13 +91,12 @@ public final class BenchmarkResultWriter {
             validateExistingCsv(absolutePath);
         }
 
-        try (BufferedWriter writer =
-                     Files.newBufferedWriter(
-                             absolutePath,
-                             StandardCharsets.UTF_8,
-                             StandardOpenOption.CREATE,
-                             StandardOpenOption.WRITE,
-                             StandardOpenOption.APPEND)) {
+        try (BufferedWriter writer = Files.newBufferedWriter(
+                absolutePath,
+                StandardCharsets.UTF_8,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.WRITE,
+                StandardOpenOption.APPEND)) {
 
             if (writeHeader) {
                 writer.write(CSV_HEADER);
@@ -108,63 +108,49 @@ public final class BenchmarkResultWriter {
         }
     }
 
-    /**
-     * Validates the existing CSV before appending.
-     *
-     * The file must contain the exact expected header and
-     * its final record must be terminated by CR or LF.
-     */
-    private static void validateExistingCsv(Path path)
-            throws IOException {
-
-        try (BufferedReader reader =
-                     Files.newBufferedReader(
-                             path,
-                             StandardCharsets.UTF_8)) {
+    private static void validateExistingCsv(Path path) throws IOException {
+        try (BufferedReader reader = Files.newBufferedReader(
+                path, StandardCharsets.UTF_8)) {
 
             String header = reader.readLine();
-
             if (!CSV_HEADER.equals(header)) {
                 throw new IOException(
-                        "Cannot append: invalid benchmark CSV header.");
+                        "Cannot append: benchmark CSV header does not "
+                                + "match the current 23-column schema.");
+            }
+
+            if (reader.readLine() == null) {
+                throw new IOException(
+                        "Cannot append: CSV contains a header but no data rows.");
             }
         }
 
         long size = Files.size(path);
-
         if (size == 0L) {
-            throw new IOException(
-                    "Cannot append: benchmark CSV is empty.");
+            throw new IOException("Cannot append: benchmark CSV is empty.");
         }
 
-        try (SeekableByteChannel channel =
-                     Files.newByteChannel(
-                             path,
-                             StandardOpenOption.READ)) {
+        try (SeekableByteChannel channel = Files.newByteChannel(
+                path, StandardOpenOption.READ)) {
 
             channel.position(size - 1L);
-
             ByteBuffer buffer = ByteBuffer.allocate(1);
 
-            int bytesRead = channel.read(buffer);
-
-            if (bytesRead != 1) {
+            if (channel.read(buffer) != 1) {
                 throw new IOException(
-                        "Cannot inspect the final CSV byte.");
+                        "Cannot inspect final CSV byte.");
             }
 
             byte lastByte = buffer.array()[0];
-
             if (lastByte != '\n' && lastByte != '\r') {
                 throw new IOException(
-                        "Cannot append: existing CSV does not end "
-                                + "with a record terminator.");
+                        "Cannot append: CSV does not end with a "
+                                + "record terminator.");
             }
         }
     }
 
     public static String toCsvRow(BenchmarkResult result) {
-
         if (result == null) {
             throw new IllegalArgumentException(
                     "result must not be null");
@@ -190,39 +176,29 @@ public final class BenchmarkResultWriter {
                 format(result.maxAbsoluteError()),
                 format(result.setupTimeMs()),
                 csv(result.cpu()),
-                Long.toString(result.availableMemoryBytes()),
+                Long.toString(result.maxJvmMemoryBytes()),
+                Long.toString(result.freeJvmHeapBytes()),
                 csv(result.javaVersion()),
                 csv(result.operatingSystem()),
                 csv(result.notes()));
     }
 
-    public static String csvHeader() {
-        return CSV_HEADER;
-    }
-
     private static String format(double value) {
-        return String.format(
-                Locale.ROOT,
-                "%.12e",
-                value);
+        return String.format(Locale.ROOT, "%.12e", value);
     }
 
-    /**
-     * Escapes a value according to CSV rules.
-     */
     private static String csv(String value) {
-
         if (value == null) {
             return "";
         }
 
-        boolean requiresQuotes =
+        boolean quote =
                 value.indexOf(',') >= 0
                         || value.indexOf('"') >= 0
                         || value.indexOf('\n') >= 0
                         || value.indexOf('\r') >= 0;
 
-        if (!requiresQuotes) {
+        if (!quote) {
             return value;
         }
 
