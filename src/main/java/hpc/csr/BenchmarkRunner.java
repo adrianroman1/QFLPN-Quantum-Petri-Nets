@@ -272,9 +272,14 @@ public final class BenchmarkRunner {
     }
 
     static double maxExpectedError(double[] values, double expected) {
-        if (values == null || !Double.isFinite(expected)) {
+        if (values == null) {
             throw new IllegalArgumentException(
-                    "Values must be non-null and expected must be finite.");
+                    "Values must not be null.");
+        }
+
+        if (!Double.isFinite(expected)) {
+            throw new IllegalStateException(
+                    "Expected value must be finite.");
         }
 
         double maximum = 0.0;
