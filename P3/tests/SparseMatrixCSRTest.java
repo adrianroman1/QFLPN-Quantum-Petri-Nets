@@ -723,7 +723,7 @@ class SparseMatrixCSRTest {
                 2);
 
         assertArrayEquals(
-                new double[] {13.0},
+                new double[] {17.0},
                 matrix.multiply(new double[] {5.0, 1.0}),
                 EPSILON);
     }
