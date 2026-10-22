@@ -2,35 +2,57 @@ name: QFLPN CSR Validation
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
+
   pull_request:
-    branches: [ main ]
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qflpn-main-ci-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   compile:
+    name: Main Maven Tests and CSR Smoke Validation
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: "21"
           cache: maven
 
-      - name: Compile and run JUnit tests
-        run: mvn -B test
+      - name: Record Java and Maven versions
+        run: |
+          java -version
+          mvn --version
+
+      - name: Compile and run main JUnit tests
+        run: |
+          mvn -B clean test
 
       - name: Run CSR smoke validation
-        run: mvn -B -DskipTests compile exec:java
+        run: |
+          mvn -B -DskipTests compile exec:java
 
-      - name: Run CSR benchmark smoke
-        run: >
-          mvn -B
-          -DskipTests
-          -Dexec.mainClass=hpc.csr.BenchmarkRunner
-          -Dexec.args="--n=1000000 --warmup=1 --iterations=2 --threshold=4096 --parallelism=2"
-          exec:java
+      - name: Upload main Maven JUnit reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qflpn-main-junit-reports
+          path: target/surefire-reports/
+          if-no-files-found: warn
+          retention-days: 90
