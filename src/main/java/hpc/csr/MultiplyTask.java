@@ -4,15 +4,13 @@ import java.util.Objects;
 import java.util.concurrent.RecursiveAction;
 
 /**
- * Fork/Join task pentru multiplicarea unei matrice CSR cu un vector:
- * y = A * x.
+ * Fork/Join implementation of CSR sparse matrix-vector multiplication.
  *
- * Partiționarea se face pe rânduri. Fiecare subtask scrie exclusiv
- * în intervalul propriu din vectorul de ieșire.
+ * Computes y = A*x by partitioning the matrix into disjoint row ranges.
+ * Every task writes only to its own output interval.
  *
- * Matricile dreptunghiulare sunt acceptate: startRow/endRow se
- * raportează la rândurile matricei și la vectorul de ieșire, nu
- * la dimensiunea vectorului de intrare.
+ * Public construction validates and defensively copies the input data.
+ * Recursive child tasks share the already validated immutable snapshots.
  */
 public final class MultiplyTask extends RecursiveAction {
 
@@ -23,19 +21,22 @@ public final class MultiplyTask extends RecursiveAction {
     private final int[] rowPointers;
     private final double[] input;
     private final double[] output;
+
     private final int startRow;
     private final int endRow;
     private final int threshold;
 
     /**
-     * @param values valorile nenule CSR
-     * @param columns indicii coloanelor
-     * @param rowPointers pointerii CSR ai rândurilor
-     * @param input vectorul de intrare
-     * @param output vectorul rezultat
-     * @param startRow primul rând inclus
-     * @param endRow ultimul rând exclus
-     * @param threshold numărul maxim de rânduri calculate direct
+     * Creates a validated multiplication task.
+     *
+     * @param values CSR nonzero values
+     * @param columns CSR column indices
+     * @param rowPointers CSR row pointers
+     * @param input input vector
+     * @param output output vector
+     * @param startRow first row, inclusive
+     * @param endRow last row, exclusive
+     * @param threshold maximum number of rows computed by one leaf task
      */
     public MultiplyTask(
             double[] values,
@@ -47,61 +48,151 @@ public final class MultiplyTask extends RecursiveAction {
             int endRow,
             int threshold) {
 
-        this.values = Objects.requireNonNull(values, "values cannot be null");
-        this.columns = Objects.requireNonNull(columns, "columns cannot be null");
-        this.rowPointers = Objects.requireNonNull(
-                rowPointers, "rowPointers cannot be null");
-        this.input = Objects.requireNonNull(input, "input cannot be null");
-        this.output = Objects.requireNonNull(output, "output cannot be null");
+        Objects.requireNonNull(values, "values must not be null");
+        Objects.requireNonNull(columns, "columns must not be null");
+        Objects.requireNonNull(rowPointers, "rowPointers must not be null");
+        Objects.requireNonNull(input, "input must not be null");
+        Objects.requireNonNull(output, "output must not be null");
 
-        if (values.length != columns.length) {
+        validateCsr(values, columns, rowPointers, input.length);
+
+        int rows = rowPointers.length - 1;
+
+        if (output.length != rows) {
             throw new IllegalArgumentException(
-                    "values and columns must have the same length");
+                    "output length must equal the matrix row count");
         }
 
-        if (rowPointers.length == 0) {
-            throw new IllegalArgumentException(
-                    "rowPointers cannot be empty");
-        }
-
-        if (startRow < 0) {
-            throw new IllegalArgumentException(
-                    "startRow cannot be negative");
-        }
-
-        if (endRow < startRow) {
-            throw new IllegalArgumentException(
-                    "endRow cannot be smaller than startRow");
-        }
-
-        if (endRow >= rowPointers.length) {
-            throw new IllegalArgumentException(
-                    "endRow exceeds the CSR row range");
-        }
+        validateRange(startRow, endRow, rows);
 
         if (threshold <= 0) {
             throw new IllegalArgumentException(
                     "threshold must be greater than zero");
         }
 
-        /*
-         * endRow este exclusiv și reprezintă un indice de rând.
-         * Numărul de rânduri poate depăși numărul de coloane.
-         * Prin urmare, nu comparăm startRow cu input.length.
-         */
-        if (endRow > output.length) {
-            throw new IllegalArgumentException(
-                    "endRow exceeds output vector length");
-        }
+        this.values = values.clone();
+        this.columns = columns.clone();
+        this.rowPointers = rowPointers.clone();
+        this.input = input.clone();
+        this.output = output;
 
         this.startRow = startRow;
         this.endRow = endRow;
         this.threshold = threshold;
     }
 
+    /**
+     * Private constructor used by recursive children.
+     * Arrays are already validated snapshots and are safe to share
+     * between child tasks. The output array is intentionally shared.
+     */
+    private MultiplyTask(
+            double[] values,
+            int[] columns,
+            int[] rowPointers,
+            double[] input,
+            double[] output,
+            int startRow,
+            int endRow,
+            int threshold,
+            boolean trusted) {
+
+        this.values = values;
+        this.columns = columns;
+        this.rowPointers = rowPointers;
+        this.input = input;
+        this.output = output;
+        this.startRow = startRow;
+        this.endRow = endRow;
+        this.threshold = threshold;
+    }
+
+    private static void validateCsr(
+            double[] values,
+            int[] columns,
+            int[] rowPointers,
+            int inputLength) {
+
+        if (values.length != columns.length) {
+            throw new IllegalArgumentException(
+                    "values and columns must have equal lengths");
+        }
+
+        if (rowPointers.length == 0) {
+            throw new IllegalArgumentException(
+                    "rowPointers must contain at least one element");
+        }
+
+        if (rowPointers[0] != 0) {
+            throw new IllegalArgumentException(
+                    "the first row pointer must be zero");
+        }
+
+        int nnz = values.length;
+        int previous = 0;
+
+        for (int row = 1; row < rowPointers.length; row++) {
+            int current = rowPointers[row];
+
+            if (current < previous) {
+                throw new IllegalArgumentException(
+                        "row pointers must be monotonically non-decreasing");
+            }
+
+            if (current < 0 || current > nnz) {
+                throw new IllegalArgumentException(
+                        "row pointer outside the nonzero array");
+            }
+
+            previous = current;
+        }
+
+        if (rowPointers[rowPointers.length - 1] != nnz) {
+            throw new IllegalArgumentException(
+                    "the final row pointer must equal nnz");
+        }
+
+        for (int i = 0; i < nnz; i++) {
+            if (!Double.isFinite(values[i])) {
+                throw new IllegalArgumentException(
+                        "CSR values must be finite");
+            }
+
+            if (columns[i] < 0 || columns[i] >= inputLength) {
+                throw new IllegalArgumentException(
+                        "column index outside input vector bounds");
+            }
+        }
+    }
+
+    private static void validateRange(
+            int startRow,
+            int endRow,
+            int rows) {
+
+        if (startRow < 0) {
+            throw new IllegalArgumentException(
+                    "startRow must not be negative");
+        }
+
+        if (endRow < startRow) {
+            throw new IllegalArgumentException(
+                    "endRow must not be smaller than startRow");
+        }
+
+        if (endRow > rows) {
+            throw new IllegalArgumentException(
+                    "endRow exceeds the matrix row count");
+        }
+    }
+
     @Override
     protected void compute() {
         int rowCount = endRow - startRow;
+
+        if (rowCount == 0) {
+            return;
+        }
 
         if (rowCount <= threshold) {
             computeSequentially();
@@ -110,34 +201,44 @@ public final class MultiplyTask extends RecursiveAction {
 
         int middle = startRow + rowCount / 2;
 
-        MultiplyTask leftTask = new MultiplyTask(
-                values, columns, rowPointers, input, output,
-                startRow, middle, threshold);
+        MultiplyTask left = new MultiplyTask(
+                values,
+                columns,
+                rowPointers,
+                input,
+                output,
+                startRow,
+                middle,
+                threshold,
+                true);
 
-        MultiplyTask rightTask = new MultiplyTask(
-                values, columns, rowPointers, input, output,
-                middle, endRow, threshold);
+        MultiplyTask right = new MultiplyTask(
+                values,
+                columns,
+                rowPointers,
+                input,
+                output,
+                middle,
+                endRow,
+                threshold,
+                true);
 
-        invokeAll(leftTask, rightTask);
+        invokeAll(left, right);
     }
 
+    /**
+     * Computes the assigned rows in ascending row order.
+     * Each row is written exactly once.
+     */
     private void computeSequentially() {
         for (int row = startRow; row < endRow; row++) {
+            double sum = 0.0;
+
             int begin = rowPointers[row];
             int end = rowPointers[row + 1];
 
-            double sum = 0.0;
-
             for (int index = begin; index < end; index++) {
-                int column = columns[index];
-
-                if (column < 0 || column >= input.length) {
-                    throw new IllegalArgumentException(
-                            "CSR column index out of input vector bounds: "
-                                    + column);
-                }
-
-                sum += values[index] * input[column];
+                sum += values[index] * input[columns[index]];
             }
 
             output[row] = sum;
