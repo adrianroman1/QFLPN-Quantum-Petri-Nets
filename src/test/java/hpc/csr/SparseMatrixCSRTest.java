@@ -1,14 +1,11 @@
 package hpc.csr;
 
+import java.util.Arrays;
 import java.util.concurrent.ForkJoinPool;
 
 import org.junit.jupiter.api.Test;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 class SparseMatrixCSRTest {
 
@@ -41,7 +38,11 @@ class SparseMatrixCSRTest {
 
     private static SparseMatrixCSR createMatrix() {
         return new SparseMatrixCSR(
-                values(), columns(), rowPointers(), 4, 4);
+                values(),
+                columns(),
+                rowPointers(),
+                4,
+                4);
     }
 
     @Test
@@ -57,7 +58,8 @@ class SparseMatrixCSRTest {
 
     @Test
     void mismatchedValuesAndColumnsAreRejected() {
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(
+                IllegalArgumentException.class,
                 () -> new SparseMatrixCSR(
                         values(),
                         new int[] {0, 2, 1},
@@ -68,7 +70,8 @@ class SparseMatrixCSRTest {
 
     @Test
     void invalidRowPointerLengthIsRejected() {
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(
+                IllegalArgumentException.class,
                 () -> new SparseMatrixCSR(
                         values(),
                         columns(),
@@ -79,7 +82,8 @@ class SparseMatrixCSRTest {
 
     @Test
     void firstRowPointerMustBeZero() {
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(
+                IllegalArgumentException.class,
                 () -> new SparseMatrixCSR(
                         values(),
                         columns(),
@@ -90,7 +94,8 @@ class SparseMatrixCSRTest {
 
     @Test
     void rowPointersMustBeMonotonicallyNonDecreasing() {
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(
+                IllegalArgumentException.class,
                 () -> new SparseMatrixCSR(
                         values(),
                         columns(),
@@ -101,7 +106,8 @@ class SparseMatrixCSRTest {
 
     @Test
     void rowPointerCannotExceedNnz() {
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(
+                IllegalArgumentException.class,
                 () -> new SparseMatrixCSR(
                         values(),
                         columns(),
@@ -112,7 +118,8 @@ class SparseMatrixCSRTest {
 
     @Test
     void lastRowPointerMustEqualNnz() {
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(
+                IllegalArgumentException.class,
                 () -> new SparseMatrixCSR(
                         values(),
                         columns(),
@@ -123,7 +130,8 @@ class SparseMatrixCSRTest {
 
     @Test
     void negativeRowPointerIsRejected() {
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(
+                IllegalArgumentException.class,
                 () -> new SparseMatrixCSR(
                         values(),
                         columns(),
@@ -134,7 +142,8 @@ class SparseMatrixCSRTest {
 
     @Test
     void negativeColumnIndexIsRejected() {
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(
+                IllegalArgumentException.class,
                 () -> new SparseMatrixCSR(
                         values(),
                         new int[] {0, -1, 1, 3, 0, 2, 1, 3},
@@ -145,7 +154,8 @@ class SparseMatrixCSRTest {
 
     @Test
     void columnIndexOutsideMatrixIsRejected() {
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(
+                IllegalArgumentException.class,
                 () -> new SparseMatrixCSR(
                         values(),
                         new int[] {0, 4, 1, 3, 0, 2, 1, 3},
@@ -156,28 +166,116 @@ class SparseMatrixCSRTest {
 
     @Test
     void negativeDimensionsAreRejected() {
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(
+                IllegalArgumentException.class,
                 () -> new SparseMatrixCSR(
                         values(), columns(), rowPointers(), -1, 4));
 
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(
+                IllegalArgumentException.class,
                 () -> new SparseMatrixCSR(
                         values(), columns(), rowPointers(), 4, -1));
     }
 
     @Test
     void nullArraysAreRejected() {
-        assertThrows(NullPointerException.class,
+        assertThrows(
+                NullPointerException.class,
                 () -> new SparseMatrixCSR(
                         null, columns(), rowPointers(), 4, 4));
 
-        assertThrows(NullPointerException.class,
+        assertThrows(
+                NullPointerException.class,
                 () -> new SparseMatrixCSR(
                         values(), null, rowPointers(), 4, 4));
 
-        assertThrows(NullPointerException.class,
+        assertThrows(
+                NullPointerException.class,
                 () -> new SparseMatrixCSR(
                         values(), columns(), null, 4, 4));
+    }
+
+    @Test
+    void nanValuesAreRejected() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new SparseMatrixCSR(
+                        new double[] {Double.NaN},
+                        new int[] {0},
+                        new int[] {0, 1},
+                        1,
+                        1));
+    }
+
+    @Test
+    void positiveInfinityIsRejected() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new SparseMatrixCSR(
+                        new double[] {Double.POSITIVE_INFINITY},
+                        new int[] {0},
+                        new int[] {0, 1},
+                        1,
+                        1));
+    }
+
+    @Test
+    void negativeInfinityIsRejected() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new SparseMatrixCSR(
+                        new double[] {Double.NEGATIVE_INFINITY},
+                        new int[] {0},
+                        new int[] {0, 1},
+                        1,
+                        1));
+    }
+
+    @Test
+    void finiteNegativeAndZeroValuesAreAccepted() {
+        SparseMatrixCSR matrix = new SparseMatrixCSR(
+                new double[] {-2.5, 0.0},
+                new int[] {0, 1},
+                new int[] {0, 2},
+                1,
+                2);
+
+        assertTrue(matrix.isValid());
+        assertArrayEquals(
+                new double[] {-5.0},
+                matrix.multiply(new double[] {2.0, 10.0}),
+                EPSILON);
+    }
+
+    @Test
+    void constructorMakesDefensiveCopies() {
+        double[] sourceValues = {2.0, 3.0};
+        int[] sourceColumns = {0, 1};
+        int[] sourcePointers = {0, 2};
+
+        SparseMatrixCSR matrix = new SparseMatrixCSR(
+                sourceValues,
+                sourceColumns,
+                sourcePointers,
+                1,
+                2);
+
+        sourceValues[0] = 999.0;
+        sourceColumns[0] = 1;
+        sourcePointers[1] = 0;
+
+        assertArrayEquals(
+                new double[] {2.0, 3.0},
+                matrix.getValues(),
+                EPSILON);
+        assertArrayEquals(
+                new int[] {0, 1},
+                matrix.getColumnIndices());
+        assertArrayEquals(
+                new int[] {0, 2},
+                matrix.getRowPointers());
+
+        assertTrue(matrix.isValid());
     }
 
     @Test
@@ -192,7 +290,10 @@ class SparseMatrixCSRTest {
     void parallelMultiplicationProducesExpectedResult() {
         assertArrayEquals(
                 expectedVector(),
-                createMatrix().multiplyParallel(inputVector(), 1, 2),
+                createMatrix().multiplyParallel(
+                        inputVector(),
+                        1,
+                        2),
                 EPSILON);
     }
 
@@ -212,7 +313,10 @@ class SparseMatrixCSRTest {
 
         createMatrix().multiplyInto(inputVector(), output);
 
-        assertArrayEquals(expectedVector(), output, EPSILON);
+        assertArrayEquals(
+                expectedVector(),
+                output,
+                EPSILON);
     }
 
     @Test
@@ -220,20 +324,37 @@ class SparseMatrixCSRTest {
         double[] output = new double[4];
 
         createMatrix().multiplyParallelInto(
-                inputVector(), output, 1, 2);
+                inputVector(),
+                output,
+                1,
+                2);
 
-        assertArrayEquals(expectedVector(), output, EPSILON);
+        assertArrayEquals(
+                expectedVector(),
+                output,
+                EPSILON);
     }
 
     @Test
     void parallelIntoWorksWithCallerOwnedPool() {
         double[] output = new double[4];
+        ForkJoinPool pool = new ForkJoinPool(2);
 
-        try (ForkJoinPool pool = new ForkJoinPool(2)) {
+        try {
             createMatrix().multiplyParallelInto(
-                    inputVector(), output, 1, pool);
-            assertArrayEquals(expectedVector(), output, EPSILON);
-            assertTrue(!pool.isShutdown());
+                    inputVector(),
+                    output,
+                    1,
+                    pool);
+
+            assertArrayEquals(
+                    expectedVector(),
+                    output,
+                    EPSILON);
+
+            assertFalse(pool.isShutdown());
+        } finally {
+            pool.shutdown();
         }
     }
 
@@ -244,7 +365,10 @@ class SparseMatrixCSRTest {
 
         matrix.multiplyInto(aliased, aliased);
 
-        assertArrayEquals(expectedVector(), aliased, EPSILON);
+        assertArrayEquals(
+                expectedVector(),
+                aliased,
+                EPSILON);
     }
 
     @Test
@@ -252,34 +376,54 @@ class SparseMatrixCSRTest {
         SparseMatrixCSR matrix = createMatrix();
         double[] aliased = inputVector();
 
-        matrix.multiplyParallelInto(aliased, aliased, 1, 2);
+        matrix.multiplyParallelInto(
+                aliased,
+                aliased,
+                1,
+                2);
 
-        assertArrayEquals(expectedVector(), aliased, EPSILON);
+        assertArrayEquals(
+                expectedVector(),
+                aliased,
+                EPSILON);
     }
 
     @Test
     void parallelIntoWithExternalPoolSupportsAliasing() {
         SparseMatrixCSR matrix = createMatrix();
         double[] aliased = inputVector();
+        ForkJoinPool pool = new ForkJoinPool(2);
 
-        try (ForkJoinPool pool = new ForkJoinPool(2)) {
-            matrix.multiplyParallelInto(aliased, aliased, 1, pool);
+        try {
+            matrix.multiplyParallelInto(
+                    aliased,
+                    aliased,
+                    1,
+                    pool);
+        } finally {
+            pool.shutdown();
         }
 
-        assertArrayEquals(expectedVector(), aliased, EPSILON);
+        assertArrayEquals(
+                expectedVector(),
+                aliased,
+                EPSILON);
     }
 
     @Test
     void nullInputVectorIsRejected() {
         SparseMatrixCSR matrix = createMatrix();
 
-        assertThrows(NullPointerException.class,
+        assertThrows(
+                NullPointerException.class,
                 () -> matrix.multiply(null));
 
-        assertThrows(NullPointerException.class,
+        assertThrows(
+                NullPointerException.class,
                 () -> matrix.multiplyParallel(null, 1, 2));
 
-        assertThrows(NullPointerException.class,
+        assertThrows(
+                NullPointerException.class,
                 () -> matrix.multiplyInto(null, new double[4]));
     }
 
@@ -288,10 +432,12 @@ class SparseMatrixCSRTest {
         SparseMatrixCSR matrix = createMatrix();
         double[] invalid = {1.0, 2.0, 3.0};
 
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(
+                IllegalArgumentException.class,
                 () -> matrix.multiply(invalid));
 
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(
+                IllegalArgumentException.class,
                 () -> matrix.multiplyParallel(invalid, 1, 2));
     }
 
@@ -299,51 +445,76 @@ class SparseMatrixCSRTest {
     void nullOutputVectorIsRejected() {
         SparseMatrixCSR matrix = createMatrix();
 
-        assertThrows(NullPointerException.class,
+        assertThrows(
+                NullPointerException.class,
                 () -> matrix.multiplyInto(inputVector(), null));
 
-        assertThrows(NullPointerException.class,
+        assertThrows(
+                NullPointerException.class,
                 () -> matrix.multiplyParallelInto(
-                        inputVector(), null, 1, 2));
+                        inputVector(),
+                        null,
+                        1,
+                        2));
     }
 
     @Test
     void wrongOutputVectorDimensionIsRejected() {
         SparseMatrixCSR matrix = createMatrix();
 
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(
+                IllegalArgumentException.class,
                 () -> matrix.multiplyInto(
-                        inputVector(), new double[3]));
+                        inputVector(),
+                        new double[3]));
 
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(
+                IllegalArgumentException.class,
                 () -> matrix.multiplyParallelInto(
-                        inputVector(), new double[3], 1, 2));
+                        inputVector(),
+                        new double[3],
+                        1,
+                        2));
     }
 
     @Test
     void invalidThresholdIsRejected() {
         SparseMatrixCSR matrix = createMatrix();
 
-        assertThrows(IllegalArgumentException.class,
-                () -> matrix.multiplyParallel(inputVector(), 0, 2));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> matrix.multiplyParallel(
+                        inputVector(),
+                        0,
+                        2));
 
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(
+                IllegalArgumentException.class,
                 () -> matrix.multiplyParallelInto(
-                        inputVector(), new double[4], -1, 2));
+                        inputVector(),
+                        new double[4],
+                        -1,
+                        2));
     }
 
     @Test
     void invalidParallelismIsRejected() {
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(
+                IllegalArgumentException.class,
                 () -> createMatrix().multiplyParallel(
-                        inputVector(), 1, 0));
+                        inputVector(),
+                        1,
+                        0));
     }
 
     @Test
     void nullExternalPoolIsRejected() {
-        assertThrows(NullPointerException.class,
+        assertThrows(
+                NullPointerException.class,
                 () -> createMatrix().multiplyParallelInto(
-                        inputVector(), new double[4], 1,
+                        inputVector(),
+                        new double[4],
+                        1,
                         (ForkJoinPool) null));
     }
 
@@ -352,20 +523,13 @@ class SparseMatrixCSRTest {
         ForkJoinPool pool = new ForkJoinPool(1);
         pool.shutdown();
 
-        assertThrows(IllegalStateException.class,
+        assertThrows(
+                IllegalStateException.class,
                 () -> createMatrix().multiplyParallelInto(
-                        inputVector(), new double[4], 1, pool));
-    }
-
-    @Test
-    void metadataAndDensityAreCorrect() {
-        SparseMatrixCSR matrix = createMatrix();
-
-        assertEquals(4, matrix.getRows());
-        assertEquals(4, matrix.getColumns());
-        assertEquals(8, matrix.getNonZeroCount());
-        assertEquals(8, matrix.getNnz());
-        assertEquals(0.5, matrix.getDensity(), EPSILON);
+                        inputVector(),
+                        new double[4],
+                        1,
+                        pool));
     }
 
     @Test
@@ -387,6 +551,17 @@ class SparseMatrixCSRTest {
     }
 
     @Test
+    void metadataAndDensityAreCorrect() {
+        SparseMatrixCSR matrix = createMatrix();
+
+        assertEquals(4, matrix.getRows());
+        assertEquals(4, matrix.getColumns());
+        assertEquals(8, matrix.getNonZeroCount());
+        assertEquals(8, matrix.getNnz());
+        assertEquals(0.5, matrix.getDensity(), EPSILON);
+    }
+
+    @Test
     void matrixElementAccessIsCorrect() {
         SparseMatrixCSR matrix = createMatrix();
 
@@ -402,13 +577,20 @@ class SparseMatrixCSRTest {
     void matrixElementAccessRejectsInvalidIndices() {
         SparseMatrixCSR matrix = createMatrix();
 
-        assertThrows(IndexOutOfBoundsException.class,
+        assertThrows(
+                IndexOutOfBoundsException.class,
                 () -> matrix.get(-1, 0));
-        assertThrows(IndexOutOfBoundsException.class,
+
+        assertThrows(
+                IndexOutOfBoundsException.class,
                 () -> matrix.get(4, 0));
-        assertThrows(IndexOutOfBoundsException.class,
+
+        assertThrows(
+                IndexOutOfBoundsException.class,
                 () -> matrix.get(0, -1));
-        assertThrows(IndexOutOfBoundsException.class,
+
+        assertThrows(
+                IndexOutOfBoundsException.class,
                 () -> matrix.get(0, 4));
     }
 
@@ -423,9 +605,9 @@ class SparseMatrixCSRTest {
 
         assertTrue(matrix.isValid());
         assertEquals(0.0, matrix.getDensity(), EPSILON);
-        assertNotNull(matrix.multiply(new double[0]));
-        assertEquals(0, matrix.multiply(new double[0]).length);
-        assertArrayEquals(new double[0],
+        assertArrayEquals(new double[0], matrix.multiply(new double[0]));
+        assertArrayEquals(
+                new double[0],
                 matrix.multiplyParallel(new double[0], 1, 2));
     }
 
@@ -438,7 +620,27 @@ class SparseMatrixCSRTest {
                 0,
                 5);
 
-        assertArrayEquals(new double[0], matrix.multiply(new double[5]));
+        assertArrayEquals(
+                new double[0],
+                matrix.multiply(new double[5]));
+    }
+
+    @Test
+    void positiveRowsWithZeroColumnsAreSupported() {
+        SparseMatrixCSR matrix = new SparseMatrixCSR(
+                new double[0],
+                new int[0],
+                new int[] {0, 0, 0, 0},
+                3,
+                0);
+
+        assertArrayEquals(
+                new double[] {0.0, 0.0, 0.0},
+                matrix.multiply(new double[0]));
+
+        assertArrayEquals(
+                new double[] {0.0, 0.0, 0.0},
+                matrix.multiplyParallel(new double[0], 1, 2));
     }
 
     @Test
@@ -465,23 +667,79 @@ class SparseMatrixCSRTest {
 
         for (int row = 0; row < rows; row++) {
             int offset = row * 2;
+
             data[offset] = 1.0;
             data[offset + 1] = 1.0;
+
             columnIndices[offset] = 0;
             columnIndices[offset + 1] = 1;
+
             pointers[row] = offset;
         }
+
         pointers[rows] = rows * 2;
 
         SparseMatrixCSR matrix = new SparseMatrixCSR(
-                data, columnIndices, pointers, rows, 2);
+                data,
+                columnIndices,
+                pointers,
+                rows,
+                2);
 
         double[] expected = new double[rows];
-        java.util.Arrays.fill(expected, 5.0);
+        Arrays.fill(expected, 5.0);
 
         assertArrayEquals(
                 expected,
-                matrix.multiplyParallel(new double[] {2.0, 3.0}, 1, 4),
+                matrix.multiplyParallel(
+                        new double[] {2.0, 3.0},
+                        1,
+                        4),
+                EPSILON);
+    }
+
+    @Test
+    void rectangularMatrixWithMoreColumnsThanRowsIsSupported() {
+        SparseMatrixCSR matrix = new SparseMatrixCSR(
+                new double[] {2.0, 3.0},
+                new int[] {1, 4},
+                new int[] {0, 2, 2},
+                2,
+                5);
+
+        assertArrayEquals(
+                new double[] {16.0, 0.0},
+                matrix.multiply(new double[] {1, 2, 3, 4, 4}),
+                EPSILON);
+    }
+
+    @Test
+    void unsortedColumnIndicesAreAccepted() {
+        SparseMatrixCSR matrix = new SparseMatrixCSR(
+                new double[] {2.0, 3.0},
+                new int[] {1, 0},
+                new int[] {0, 2},
+                1,
+                2);
+
+        assertArrayEquals(
+                new double[] {13.0},
+                matrix.multiply(new double[] {5.0, 1.0}),
+                EPSILON);
+    }
+
+    @Test
+    void duplicateColumnIndicesAreSummedCorrectly() {
+        SparseMatrixCSR matrix = new SparseMatrixCSR(
+                new double[] {2.0, 3.0},
+                new int[] {0, 0},
+                new int[] {0, 2},
+                1,
+                1);
+
+        assertArrayEquals(
+                new double[] {25.0},
+                matrix.multiply(new double[] {5.0}),
                 EPSILON);
     }
 
