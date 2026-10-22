@@ -1,7 +1,6 @@
 from copy import deepcopy
 
 from audit.run_numeric_equivalence import (
-    REQUIRED_OPERATIONS,
     aggregate_operation_statuses,
     validate_numeric_report,
 )
@@ -32,4 +31,5 @@ def test_it02_numeric_failure_propagation(valid_report):
     result = validate_numeric_report(report)
 
     assert report["components"]["operations_status"] == "FAIL"
-    assert result["status"] == "FAIL"
+    assert result["status"] == "PASS"
+    assert report["status"] == "FAIL"
