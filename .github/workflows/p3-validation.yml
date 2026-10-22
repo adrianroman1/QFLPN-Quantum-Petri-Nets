@@ -57,34 +57,29 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install pytest
 
-      - name: Record execution environment
-        run: |
-          java -version
-          mvn --version
-          python --version
-          python -m pytest --version
-
       - name: Validate main Maven project
-        run: |
-          mvn -B -f pom.xml validate
+        run: mvn -B -f pom.xml validate
 
       - name: Run main Maven test suite
-        run: |
-          mvn -B -f pom.xml clean test
+        run: mvn -B -f pom.xml clean test
 
       - name: Validate P3 Maven project
-        run: |
-          mvn -B -f P3/pom.xml validate
+        run: mvn -B -f P3/pom.xml validate
 
       - name: Run complete P3 Java test suite
-        run: |
-          mvn -B -f P3/pom.xml clean test
+        run: mvn -B -f P3/pom.xml clean test
 
-      - name: Run Python validator regression tests
+      - name: Run Python validator and integrity tests
         run: |
           python -m pytest \
             P3/results/test_validate_benchmark.py \
+            P3/tests/test_generate_integrity.py \
             -v
+
+      - name: Verify committed integrity files
+        if: github.event_name != 'workflow_dispatch'
+        run: |
+          python P3/tools/generate_integrity.py --check
 
       - name: Run benchmark and generate evidence
         if: github.event_name == 'workflow_dispatch'
@@ -98,7 +93,13 @@ jobs:
         run: |
           bash P3/results/run_benchmark.sh
 
-      - name: Upload benchmark evidence
+      - name: Regenerate global manifest and checksums
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          python P3/tools/generate_integrity.py --write
+          python P3/tools/generate_integrity.py --check
+
+      - name: Upload benchmark and integrity evidence
         if: always() && github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
@@ -106,6 +107,8 @@ jobs:
           path: |
             P3/benchmarks/benchmark_results.csv
             P3/results/raw/${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}/
+            P3/MANIFEST.txt
+            P3/SHA256SUMS.txt
           if-no-files-found: warn
           retention-days: 90
 
