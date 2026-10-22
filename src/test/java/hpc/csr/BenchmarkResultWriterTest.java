@@ -1,6 +1,7 @@
 package hpc.csr;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -17,197 +18,192 @@ class BenchmarkResultWriterTest {
     Path temporaryDirectory;
 
     @Test
-    void shouldWriteHeaderAndOneResult() throws IOException {
+    void writesCurrentTwentyThreeColumnSchema()
+            throws IOException {
 
-        Path output =
-                temporaryDirectory.resolve(
-                        "benchmark_results.csv");
+        Path output = temporaryDirectory.resolve("benchmark.csv");
 
-        BenchmarkResult result =
-                sampleResult(
-                        "QFLPN-1M");
+        BenchmarkResultWriter.append(output, sampleResult());
 
-        BenchmarkResultWriter.append(
-                output,
-                result);
+        List<String> lines = Files.readAllLines(output);
 
-        assertTrue(
-                Files.exists(output));
-
-        List<String> lines =
-                Files.readAllLines(output);
-
-        assertEquals(
-                2,
-                lines.size());
-
+        assertEquals(2, lines.size());
         assertEquals(
                 BenchmarkResultWriter.csvHeader(),
                 lines.get(0));
 
-        assertTrue(
-                lines.get(1).contains(
-                        "QFLPN-1M"));
+        String[] columns = lines.get(1).split(",", -1);
 
-        assertTrue(
-                lines.get(1).contains(
-                        "1000000"));
-
-        assertTrue(
-                lines.get(1).contains(
-                        "1.250000000000e+01"));
+        assertEquals(23, columns.length);
+        assertEquals("4000000000", columns[18]);
+        assertEquals("500000000", columns[19]);
     }
 
     @Test
-    void shouldAppendResultsWithoutDuplicatingHeader()
+    void appendsWithoutDuplicatingHeader()
             throws IOException {
 
-        Path output =
-                temporaryDirectory.resolve(
-                        "benchmark_results.csv");
+        Path output = temporaryDirectory.resolve("benchmark.csv");
 
-        BenchmarkResult first =
-                sampleResult(
-                        "QFLPN-1M");
+        BenchmarkResultWriter.append(output, sampleResult());
+        BenchmarkResultWriter.append(output, sampleResult());
 
-        BenchmarkResult second =
-                sampleResult(
-                        "QFLPN-30M");
+        List<String> lines = Files.readAllLines(output);
 
-        BenchmarkResultWriter.append(
-                output,
-                first);
-
-        BenchmarkResultWriter.append(
-                output,
-                second);
-
-        List<String> lines =
-                Files.readAllLines(output);
-
-        assertEquals(
-                3,
-                lines.size());
-
+        assertEquals(3, lines.size());
         assertEquals(
                 BenchmarkResultWriter.csvHeader(),
                 lines.get(0));
-
-        assertTrue(
-                lines.get(1).contains(
-                        "QFLPN-1M"));
-
-        assertTrue(
-                lines.get(2).contains(
-                        "QFLPN-30M"));
     }
 
     @Test
-    void shouldCreateParentDirectories()
+    void createsParentDirectories()
             throws IOException {
 
-        Path output =
-                temporaryDirectory
-                        .resolve("results")
-                        .resolve("nested")
-                        .resolve("benchmark_results.csv");
+        Path output = temporaryDirectory
+                .resolve("nested")
+                .resolve("results")
+                .resolve("benchmark.csv");
 
-        BenchmarkResult result =
-                sampleResult(
-                        "QFLPN-12");
+        BenchmarkResultWriter.append(output, sampleResult());
 
-        BenchmarkResultWriter.append(
-                output,
-                result);
+        assertTrue(Files.exists(output));
+        assertEquals(2, Files.readAllLines(output).size());
+    }
 
-        assertTrue(
-                Files.exists(output));
+    @Test
+    void quotesCsvValuesContainingComma()
+            throws IOException {
 
-        assertEquals(
+        Path output = temporaryDirectory.resolve("quoted.csv");
+
+        BenchmarkResult result = new BenchmarkResult(
+                "2026-10-20T10:00:00Z",
+                "QFLPN-test",
+                100,
+                200L,
                 2,
-                Files.readAllLines(output).size());
-    }
-
-    @Test
-    void shouldQuoteCsvValuesContainingComma()
-            throws IOException {
-
-        Path output =
-                temporaryDirectory.resolve(
-                        "benchmark_results.csv");
-
-        BenchmarkResult result =
-                new BenchmarkResult(
-                        "2026-09-06T00:00:00Z",
-                        "QFLPN-test",
-                        12,
-                        24L,
-                        8,
-                        4096,
-                        2,
-                        3,
-                        10.0,
-                        5.0,
-                        2.0,
-                        1200.0,
-                        2400.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        1.0,
-                        "x86_64",
-                        4_000_000_000L,
-                        "21",
-                        "Linux",
-                        "test note, with comma");
-
-        BenchmarkResultWriter.append(
-                output,
-                result);
-
-        String row =
-                Files.readAllLines(
-                        output)
-                        .get(1);
-
-        assertTrue(
-                row.contains(
-                        "\"test note, with comma\""));
-    }
-
-    private static BenchmarkResult sampleResult(
-            String benchmarkId) {
-
-        return new BenchmarkResult(
-                "2026-09-06T00:00:00Z",
-                benchmarkId,
-                benchmarkId.equals("QFLPN-30M")
-                        ? 30_000_000
-                        : benchmarkId.equals("QFLPN-12")
-                        ? 12
-                        : 1_000_000,
-                benchmarkId.equals("QFLPN-30M")
-                        ? 60_000_000L
-                        : benchmarkId.equals("QFLPN-12")
-                        ? 24L
-                        : 2_000_000L,
-                8,
                 4096,
+                1,
                 2,
-                3,
-                12.5,
-                6.25,
+                20.0,
+                10.0,
                 2.0,
-                80_000.0,
-                160_000.0,
+                5000.0,
+                10000.0,
                 0.0,
                 0.0,
                 0.0,
-                3.0,
-                "x86_64; processors=8",
+                1.5,
+                "test-cpu",
                 4_000_000_000L,
+                500_000_000L,
                 "21",
                 "Linux",
-                "JUnit sample result");
+                "note, with comma");
+
+        BenchmarkResultWriter.append(output, result);
+
+        String row = Files.readAllLines(output).get(1);
+
+        assertTrue(row.contains("\"note, with comma\""));
+    }
+
+    @Test
+    void rejectsExistingFileWithOldSchema()
+            throws IOException {
+
+        Path output = temporaryDirectory.resolve("old-schema.csv");
+
+        Files.writeString(
+                output,
+                "timestamp,benchmark_id,available_memory_bytes"
+                        + System.lineSeparator()
+                        + "old,data,123"
+                        + System.lineSeparator());
+
+        String before = Files.readString(output);
+
+        assertThrows(
+                IOException.class,
+                () -> BenchmarkResultWriter.append(
+                        output,
+                        sampleResult()));
+
+        assertEquals(before, Files.readString(output));
+    }
+
+    @Test
+    void rejectsHeaderOnlyExistingFile()
+            throws IOException {
+
+        Path output = temporaryDirectory.resolve("header-only.csv");
+
+        Files.writeString(
+                output,
+                BenchmarkResultWriter.csvHeader()
+                        + System.lineSeparator());
+
+        assertThrows(
+                IOException.class,
+                () -> BenchmarkResultWriter.append(
+                        output,
+                        sampleResult()));
+    }
+
+    @Test
+    void rejectsFileWithoutFinalNewline()
+            throws IOException {
+
+        Path output = temporaryDirectory.resolve("truncated.csv");
+
+        Files.writeString(
+                output,
+                BenchmarkResultWriter.csvHeader()
+                        + System.lineSeparator()
+                        + "incomplete-record");
+
+        assertThrows(
+                IOException.class,
+                () -> BenchmarkResultWriter.append(
+                        output,
+                        sampleResult()));
+    }
+
+    @Test
+    void rejectsNullResult() {
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> BenchmarkResultWriter.append(
+                        temporaryDirectory.resolve("null.csv"),
+                        null));
+    }
+
+    private static BenchmarkResult sampleResult() {
+        return new BenchmarkResult(
+                "2026-10-20T10:00:00Z",
+                "QFLPN-100",
+                100,
+                200L,
+                2,
+                4096,
+                1,
+                2,
+                20.0,
+                10.0,
+                2.0,
+                5000.0,
+                10000.0,
+                0.0,
+                0.0,
+                0.0,
+                1.5,
+                "test-cpu",
+                4_000_000_000L,
+                500_000_000L,
+                "21",
+                "Linux",
+                "JUnit test result");
     }
 }
