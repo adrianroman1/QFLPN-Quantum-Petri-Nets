@@ -251,6 +251,7 @@ class BenchmarkAuditValidatorTest {
                 1.0,
                 "x86_64",
                 4_294_967_296L,
+                1_073_741_824L,
                 "21",
                 "Linux",
                 "JUnit benchmark audit test");
