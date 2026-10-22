@@ -254,9 +254,16 @@ class MultiplyTaskConcurrencyTest {
             pool.shutdown();
         }
 
+        // Row 0 is outside [1, 3) and must remain unchanged.
         assertEquals(-99.0, output[0], EPS);
-        assertEquals(0.0, output[1], EPS);
-        assertEquals(0.0, output[2], EPS);
+
+        // Row 1: 3*2 + 4*3 = 18.
+        assertEquals(18.0, output[1], EPS);
+
+        // Row 2: 5*2 + 6*3 = 28.
+        assertEquals(28.0, output[2], EPS);
+
+        // Row 3 is outside [1, 3) and must remain unchanged.
         assertEquals(-99.0, output[3], EPS);
     }
 
