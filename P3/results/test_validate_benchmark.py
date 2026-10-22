@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regression tests for the independent P3 CSV validator."""
+"""Regression tests for the independent P3 benchmark CSV validator."""
 
 from __future__ import annotations
 
@@ -51,7 +51,8 @@ def valid_row() -> dict[str, str]:
         "max_absolute_error": "0.0",
         "setup_time_ms": "1.5",
         "cpu": "test-cpu",
-        "available_memory_bytes": "4000000000",
+        "max_jvm_memory_bytes": "4000000000",
+        "free_jvm_heap_bytes": "500000000",
         "java_version": "21",
         "operating_system": "Linux",
         "notes": "Synthetic test data",
@@ -103,6 +104,14 @@ def test_accepts_valid_row(tmp_path: Path) -> None:
     assert result["latest_record"]["dimension"] == N
     assert result["latest_record"]["nnz"] == 2 * N
     assert result["latest_record"]["speedup"] == pytest.approx(2.0)
+    assert (
+        result["latest_record"]["max_jvm_memory_bytes"]
+        == 4_000_000_000
+    )
+    assert (
+        result["latest_record"]["free_jvm_heap_bytes"]
+        == 500_000_000
+    )
 
 
 @pytest.mark.parametrize(
@@ -119,7 +128,8 @@ def test_accepts_valid_row(tmp_path: Path) -> None:
         ("parallel_ms", "nan", "must be finite"),
         ("speedup", "nan", "must be finite"),
         ("setup_time_ms", "-1", "must not be negative"),
-        ("available_memory_bytes", "0", "must be positive"),
+        ("max_jvm_memory_bytes", "0", "must be positive"),
+        ("free_jvm_heap_bytes", "-1", "must not be negative"),
         ("java_version", "", "must not be empty"),
         ("parallelism", "0", "must be positive"),
         ("threshold", "-1", "must be positive"),
@@ -142,6 +152,21 @@ def test_rejects_invalid_fields(
     with pytest.raises(
         VALIDATOR.ValidationError,
         match=message,
+    ):
+        VALIDATOR.validate(args_for(path))
+
+
+def test_rejects_free_heap_above_maximum(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "memory.csv"
+    row = valid_row()
+    row["free_jvm_heap_bytes"] = "4000000001"
+    write_csv(path, [row])
+
+    with pytest.raises(
+        VALIDATOR.ValidationError,
+        match="cannot exceed",
     ):
         VALIDATOR.validate(args_for(path))
 
