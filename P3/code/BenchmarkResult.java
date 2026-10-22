@@ -3,8 +3,12 @@ package hpc.csr;
 /**
  * Immutable result record for a QFLPN CSR benchmark execution.
  *
- * This class contains the numerical and execution metadata that
- * will be persisted in the benchmark results CSV file.
+ * Memory fields:
+ * - maxJvmMemoryBytes: maximum heap size configured for the JVM.
+ * - freeJvmHeapBytes: currently free heap memory at capture time.
+ *
+ * These values are JVM measurements and must not be interpreted
+ * as total physical memory or operating-system available memory.
  */
 public record BenchmarkResult(
         String timestamp,
@@ -25,25 +29,15 @@ public record BenchmarkResult(
         double maxAbsoluteError,
         double setupTimeMs,
         String cpu,
-        long availableMemoryBytes,
+        long maxJvmMemoryBytes,
+        long freeJvmHeapBytes,
         String javaVersion,
         String operatingSystem,
         String notes) {
 
-    /**
-     * Validates the benchmark result.
-     */
     public BenchmarkResult {
-
-        if (timestamp == null || timestamp.isBlank()) {
-            throw new IllegalArgumentException(
-                    "timestamp must not be blank");
-        }
-
-        if (benchmarkId == null || benchmarkId.isBlank()) {
-            throw new IllegalArgumentException(
-                    "benchmarkId must not be blank");
-        }
+        requireText(timestamp, "timestamp");
+        requireText(benchmarkId, "benchmarkId");
 
         if (dimension <= 0) {
             throw new IllegalArgumentException(
@@ -75,17 +69,9 @@ public record BenchmarkResult(
                     "measuredIterations must be > 0");
         }
 
-        requireFinitePositive(
-                sequentialMs,
-                "sequentialMs");
-
-        requireFinitePositive(
-                parallelMs,
-                "parallelMs");
-
-        requireFinitePositive(
-                speedup,
-                "speedup");
+        requireFinitePositive(sequentialMs, "sequentialMs");
+        requireFinitePositive(parallelMs, "parallelMs");
+        requireFinitePositive(speedup, "speedup");
 
         requireFiniteNonNegative(
                 sequentialThroughput,
@@ -111,27 +97,25 @@ public record BenchmarkResult(
                 setupTimeMs,
                 "setupTimeMs");
 
-        if (cpu == null || cpu.isBlank()) {
+        requireText(cpu, "cpu");
+
+        if (maxJvmMemoryBytes <= 0L) {
             throw new IllegalArgumentException(
-                    "cpu must not be blank");
+                    "maxJvmMemoryBytes must be > 0");
         }
 
-        if (availableMemoryBytes < 0L) {
+        if (freeJvmHeapBytes < 0L) {
             throw new IllegalArgumentException(
-                    "availableMemoryBytes must be >= 0");
+                    "freeJvmHeapBytes must be >= 0");
         }
 
-        if (javaVersion == null || javaVersion.isBlank()) {
+        if (freeJvmHeapBytes > maxJvmMemoryBytes) {
             throw new IllegalArgumentException(
-                    "javaVersion must not be blank");
+                    "freeJvmHeapBytes cannot exceed maxJvmMemoryBytes");
         }
 
-        if (operatingSystem == null
-                || operatingSystem.isBlank()) {
-
-            throw new IllegalArgumentException(
-                    "operatingSystem must not be blank");
-        }
+        requireText(javaVersion, "javaVersion");
+        requireText(operatingSystem, "operatingSystem");
 
         if (notes == null) {
             throw new IllegalArgumentException(
@@ -139,16 +123,23 @@ public record BenchmarkResult(
         }
     }
 
+    private static void requireText(
+            String value,
+            String fieldName) {
+
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(
+                    fieldName + " must not be blank");
+        }
+    }
+
     private static void requireFinitePositive(
             double value,
             String fieldName) {
 
-        if (!Double.isFinite(value)
-                || value <= 0.0) {
-
+        if (!Double.isFinite(value) || value <= 0.0) {
             throw new IllegalArgumentException(
-                    fieldName
-                            + " must be finite and > 0");
+                    fieldName + " must be finite and > 0");
         }
     }
 
@@ -156,12 +147,9 @@ public record BenchmarkResult(
             double value,
             String fieldName) {
 
-        if (!Double.isFinite(value)
-                || value < 0.0) {
-
+        if (!Double.isFinite(value) || value < 0.0) {
             throw new IllegalArgumentException(
-                    fieldName
-                            + " must be finite and >= 0");
+                    fieldName + " must be finite and >= 0");
         }
     }
 }
