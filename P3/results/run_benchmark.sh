@@ -2,13 +2,20 @@
 
 set -Eeuo pipefail
 
-# QFLPN P3 automated benchmark and evidence generation.
+# QFLPN P3 reproducible benchmark and evidence generation.
+#
+# Each execution receives a unique evidence directory:
+# P3/results/raw/<RUN_ID>/
+#
+# The benchmark CSV is append-only. Existing measurements are
+# never rewritten by this script.
 
 N="${N:-1000000}"
-WARMUP="${WARMUP:-1}"
-ITERATIONS="${ITERATIONS:-2}"
+WARMUP="${WARMUP:-5}"
+ITERATIONS="${ITERATIONS:-10}"
 THRESHOLD="${THRESHOLD:-4096}"
 PARALLELISM="${PARALLELISM:-2}"
+RUN_ID="${RUN_ID:-}"
 
 SCRIPT_DIR="$(
     cd "$(dirname "${BASH_SOURCE[0]}")"
@@ -25,14 +32,10 @@ ROOT_DIR="$(
     pwd
 )"
 
-RAW_DIR="$P3_DIR/results/raw"
+RAW_ROOT="$P3_DIR/results/raw"
 BENCHMARK_DIR="$P3_DIR/benchmarks"
 
 CSV_FILE="$BENCHMARK_DIR/benchmark_results.csv"
-LOG_FILE="$RAW_DIR/benchmark-QFLPN-${N}.log"
-ENV_FILE="$RAW_DIR/environment.txt"
-REPORT_FILE="$P3_DIR/results/validation-report.json"
-CHECKSUM_FILE="$P3_DIR/SHA256SUMS.txt"
 
 fail() {
     echo "[FAIL] $*" >&2
@@ -67,7 +70,7 @@ positive_integer ITERATIONS "$ITERATIONS"
 positive_integer THRESHOLD "$THRESHOLD"
 positive_integer PARALLELISM "$PARALLELISM"
 
-for executable in java mvn python3 sha256sum git; do
+for executable in java mvn python3 sha256sum git date; do
     command -v "$executable" >/dev/null 2>&1 ||
         fail "Required executable not found: $executable"
 done
@@ -75,24 +78,48 @@ done
 python3 -m pytest --version >/dev/null 2>&1 ||
     fail "pytest is required: python3 -m pip install pytest"
 
-mkdir -p "$RAW_DIR" "$BENCHMARK_DIR"
-
 cd "$ROOT_DIR"
 
 GIT_COMMIT="$(git rev-parse HEAD)"
 GIT_BRANCH="$(git branch --show-current)"
 
-# Preserve the original output streams.
-# The log is closed before its SHA-256 is calculated.
+if [[ -z "$RUN_ID" ]]; then
+    RUN_ID="$(
+        date -u +%Y%m%dT%H%M%SZ
+    )-${GIT_COMMIT:0:12}-$$"
+fi
+
+[[ "$RUN_ID" =~ ^[A-Za-z0-9._-]+$ ]] ||
+    fail "RUN_ID contains unsupported characters"
+
+RAW_DIR="$RAW_ROOT/$RUN_ID"
+LOG_FILE="$RAW_DIR/benchmark.log"
+ENV_FILE="$RAW_DIR/environment.txt"
+REPORT_FILE="$RAW_DIR/validation-report.json"
+CHECKSUM_FILE="$RAW_DIR/SHA256SUMS.txt"
+
+mkdir -p "$RAW_ROOT" "$BENCHMARK_DIR"
+
+if [[ -e "$RAW_DIR" ]]; then
+    fail "Evidence directory already exists: $RAW_DIR"
+fi
+
+mkdir "$RAW_DIR"
+
+# Preserve the original terminal/CI output streams.
 exec 3>&1 4>&2
+
 : > "$LOG_FILE"
+
+# All benchmark output is captured in the unique execution log.
 exec > "$LOG_FILE" 2>&1
 
-echo "QFLPN P3 AUTOMATED BENCHMARK"
+echo "QFLPN P3 REPRODUCIBLE BENCHMARK"
 echo "UTC start: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "Repository: $ROOT_DIR"
 echo "Git branch: $GIT_BRANCH"
 echo "Git commit: $GIT_COMMIT"
+echo "Run ID: $RUN_ID"
 
 # ------------------------------------------------------------
 # Environment evidence.
@@ -100,6 +127,9 @@ echo "Git commit: $GIT_COMMIT"
 
 {
     echo "QFLPN P3 EXECUTION ENVIRONMENT"
+    echo "Run ID: $RUN_ID"
+
+    echo
     echo "UTC timestamp:"
     date -u +%Y-%m-%dT%H:%M:%SZ
 
@@ -174,7 +204,7 @@ echo "Git commit: $GIT_COMMIT"
 echo "[PASS] Environment captured"
 
 # ------------------------------------------------------------
-# Java tests.
+# Java test suite.
 # ------------------------------------------------------------
 
 echo
@@ -185,7 +215,7 @@ mvn -B -f "$P3_DIR/pom.xml" clean test
 echo "[PASS] Maven tests"
 
 # ------------------------------------------------------------
-# Python tests.
+# Python validator regression tests.
 # ------------------------------------------------------------
 
 echo
@@ -198,7 +228,7 @@ python3 -m pytest \
 echo "[PASS] Python validator tests"
 
 # ------------------------------------------------------------
-# CSV baseline.
+# Validate the existing CSV before appending a new record.
 # ------------------------------------------------------------
 
 echo
@@ -211,10 +241,6 @@ import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
-
-if not path.exists() or path.stat().st_size == 0:
-    print(0)
-    raise SystemExit(0)
 
 expected = [
     "timestamp",
@@ -241,6 +267,13 @@ expected = [
     "notes",
 ]
 
+if not path.exists():
+    print(0)
+    raise SystemExit(0)
+
+if path.stat().st_size == 0:
+    raise SystemExit("Existing benchmark CSV is empty")
+
 with path.open(
     "r",
     encoding="utf-8",
@@ -253,14 +286,16 @@ with path.open(
 
     rows = list(reader)
 
-    if any(None in row for row in rows):
-        raise SystemExit("Malformed existing CSV row")
+    for index, row in enumerate(rows, start=1):
+        if None in row:
+            raise SystemExit(
+                f"Malformed existing CSV row {index}"
+            )
 
-    if any(
-        any(value is None for value in row.values())
-        for row in rows
-    ):
-        raise SystemExit("Missing field in existing CSV row")
+        if any(value is None for value in row.values()):
+            raise SystemExit(
+                f"Missing field in existing CSV row {index}"
+            )
 
 print(len(rows))
 PY
@@ -269,7 +304,7 @@ PY
 echo "Existing CSV records: $BEFORE_COUNT"
 
 # ------------------------------------------------------------
-# Java benchmark.
+# Execute the Java benchmark.
 # ------------------------------------------------------------
 
 echo
@@ -289,7 +324,7 @@ java \
 echo "[PASS] Java benchmark process"
 
 # ------------------------------------------------------------
-# Exactly one new record.
+# Require exactly one new CSV record.
 # ------------------------------------------------------------
 
 echo
@@ -318,14 +353,16 @@ with path.open(
 
     rows = list(reader)
 
-    if any(None in row for row in rows):
-        raise SystemExit("Malformed benchmark CSV row")
+    for index, row in enumerate(rows, start=1):
+        if None in row:
+            raise SystemExit(
+                f"Malformed benchmark CSV row {index}"
+            )
 
-    if any(
-        any(value is None for value in row.values())
-        for row in rows
-    ):
-        raise SystemExit("Missing field in benchmark CSV row")
+        if any(value is None for value in row.values()):
+            raise SystemExit(
+                f"Missing field in benchmark CSV row {index}"
+            )
 
 print(len(rows))
 PY
@@ -339,7 +376,7 @@ EXPECTED_COUNT=$((BEFORE_COUNT + 1))
 echo "[PASS] Exactly one new CSV record"
 
 # ------------------------------------------------------------
-# Independent validation and JSON report.
+# Independent validation of the newly appended result.
 # ------------------------------------------------------------
 
 echo
@@ -375,14 +412,15 @@ for artifact in \
         fail "Missing or empty evidence file: $artifact"
 done
 
-echo "[PASS] Evidence files exist"
+echo "[PASS] CSV exists"
+echo "[PASS] Execution log exists"
+echo "[PASS] Environment report exists"
+echo "[PASS] Validation JSON exists"
 echo "[PASS] Benchmark execution completed"
-echo "Log closed before SHA-256 generation."
 
 # ------------------------------------------------------------
 # Close the log before calculating its checksum.
-# All following output goes to the original CI/terminal streams.
-# Do not write to LOG_FILE after this point.
+# No benchmark output is written to LOG_FILE after this point.
 # ------------------------------------------------------------
 
 exec 1>&3 2>&4
@@ -391,14 +429,16 @@ cd "$P3_DIR"
 
 sha256sum \
     "benchmarks/benchmark_results.csv" \
-    "results/raw/benchmark-QFLPN-${N}.log" \
-    "results/raw/environment.txt" \
-    "results/validation-report.json" \
-    > "$CHECKSUM_FILE"
+    "results/raw/$RUN_ID/benchmark.log" \
+    "results/raw/$RUN_ID/environment.txt" \
+    "results/raw/$RUN_ID/validation-report.json" \
+    > "results/raw/$RUN_ID/SHA256SUMS.txt"
 
-[[ -s "$CHECKSUM_FILE" ]] ||
-    fail "SHA256SUMS.txt was not generated"
+[[ -s "results/raw/$RUN_ID/SHA256SUMS.txt" ]] ||
+    fail "Run-specific SHA256SUMS.txt was not generated"
 
-sha256sum -c SHA256SUMS.txt
+sha256sum -c "results/raw/$RUN_ID/SHA256SUMS.txt"
 
 echo "[PASS] SHA-256 verification"
+echo "[PASS] Run ID: $RUN_ID"
+echo "[PASS] Evidence directory: P3/results/raw/$RUN_ID"
