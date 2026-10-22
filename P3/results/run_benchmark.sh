@@ -3,12 +3,8 @@
 set -Eeuo pipefail
 
 # QFLPN P3 reproducible benchmark and evidence generation.
-#
-# Each execution receives a unique evidence directory:
-# P3/results/raw/<RUN_ID>/
-#
-# The benchmark CSV is append-only. Existing measurements are
-# never rewritten by this script.
+# Current CSV schema is owned by results/validate_benchmark.py.
+# Each run writes immutable, uniquely identified raw evidence.
 
 N="${N:-1000000}"
 WARMUP="${WARMUP:-5}"
@@ -17,25 +13,15 @@ THRESHOLD="${THRESHOLD:-4096}"
 PARALLELISM="${PARALLELISM:-2}"
 RUN_ID="${RUN_ID:-}"
 
-SCRIPT_DIR="$(
-    cd "$(dirname "${BASH_SOURCE[0]}")"
-    pwd
-)"
-
-P3_DIR="$(
-    cd "$SCRIPT_DIR/.."
-    pwd
-)"
-
-ROOT_DIR="$(
-    cd "$P3_DIR/.."
-    pwd
-)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+P3_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+ROOT_DIR="$(cd "$P3_DIR/.." && pwd)"
 
 RAW_ROOT="$P3_DIR/results/raw"
 BENCHMARK_DIR="$P3_DIR/benchmarks"
-
 CSV_FILE="$BENCHMARK_DIR/benchmark_results.csv"
+VALIDATOR="$P3_DIR/results/validate_benchmark.py"
+PYTHON_TEST="$P3_DIR/results/test_validate_benchmark.py"
 
 fail() {
     echo "[FAIL] $*" >&2
@@ -75,6 +61,12 @@ for executable in java mvn python3 sha256sum git date; do
         fail "Required executable not found: $executable"
 done
 
+[[ -f "$VALIDATOR" ]] ||
+    fail "Validator not found: $VALIDATOR"
+
+[[ -f "$PYTHON_TEST" ]] ||
+    fail "Python validator tests not found: $PYTHON_TEST"
+
 python3 -m pytest --version >/dev/null 2>&1 ||
     fail "pytest is required: python3 -m pip install pytest"
 
@@ -84,9 +76,7 @@ GIT_COMMIT="$(git rev-parse HEAD)"
 GIT_BRANCH="$(git branch --show-current)"
 
 if [[ -z "$RUN_ID" ]]; then
-    RUN_ID="$(
-        date -u +%Y%m%dT%H%M%SZ
-    )-${GIT_COMMIT:0:12}-$$"
+    RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-${GIT_COMMIT:0:12}-$$"
 fi
 
 [[ "$RUN_ID" =~ ^[A-Za-z0-9._-]+$ ]] ||
@@ -100,18 +90,13 @@ CHECKSUM_FILE="$RAW_DIR/SHA256SUMS.txt"
 
 mkdir -p "$RAW_ROOT" "$BENCHMARK_DIR"
 
-if [[ -e "$RAW_DIR" ]]; then
+[[ ! -e "$RAW_DIR" ]] ||
     fail "Evidence directory already exists: $RAW_DIR"
-fi
 
 mkdir "$RAW_DIR"
 
-# Preserve the original terminal/CI output streams.
 exec 3>&1 4>&2
-
 : > "$LOG_FILE"
-
-# All benchmark output is captured in the unique execution log.
 exec > "$LOG_FILE" 2>&1
 
 echo "QFLPN P3 REPRODUCIBLE BENCHMARK"
@@ -128,43 +113,33 @@ echo "Run ID: $RUN_ID"
 {
     echo "QFLPN P3 EXECUTION ENVIRONMENT"
     echo "Run ID: $RUN_ID"
-
     echo
     echo "UTC timestamp:"
     date -u +%Y-%m-%dT%H:%M:%SZ
-
     echo
     echo "Git branch:"
     echo "$GIT_BRANCH"
-
     echo
     echo "Git commit:"
     echo "$GIT_COMMIT"
-
     echo
     echo "Git status:"
     git status --short
-
     echo
     echo "Java version:"
     java -version
-
     echo
     echo "Maven version:"
     mvn --version
-
     echo
     echo "Python version:"
     python3 --version
-
     echo
     echo "Pytest version:"
     python3 -m pytest --version
-
     echo
     echo "Operating system:"
     uname -a
-
     echo
     echo "CPU:"
     if command -v lscpu >/dev/null 2>&1; then
@@ -172,7 +147,6 @@ echo "Run ID: $RUN_ID"
     else
         echo "lscpu unavailable"
     fi
-
     echo
     echo "Memory:"
     if command -v free >/dev/null 2>&1; then
@@ -180,7 +154,6 @@ echo "Run ID: $RUN_ID"
     else
         echo "free unavailable"
     fi
-
     echo
     echo "Benchmark configuration:"
     echo "N=$N"
@@ -189,7 +162,6 @@ echo "Run ID: $RUN_ID"
     echo "ITERATIONS=$ITERATIONS"
     echo "THRESHOLD=$THRESHOLD"
     echo "PARALLELISM=$PARALLELISM"
-
     echo
     echo "Expected workload:"
     echo "A[i,i] = 1.0"
@@ -198,21 +170,20 @@ echo "Run ID: $RUN_ID"
     echo "x[i] = 1.0"
     echo "Expected y[i] = 1.5"
     echo "Numerical tolerance = 1.0e-12"
-
 } > "$ENV_FILE" 2>&1
 
 echo "[PASS] Environment captured"
 
 # ------------------------------------------------------------
-# Java test suite.
+# P3 Java tests and compilation.
 # ------------------------------------------------------------
 
 echo
-echo "=== MAVEN CLEAN TEST ==="
+echo "=== P3 MAVEN CLEAN TEST ==="
 
 mvn -B -f "$P3_DIR/pom.xml" clean test
 
-echo "[PASS] Maven tests"
+echo "[PASS] P3 Maven tests"
 
 # ------------------------------------------------------------
 # Python validator regression tests.
@@ -221,80 +192,76 @@ echo "[PASS] Maven tests"
 echo
 echo "=== PYTHON VALIDATOR TESTS ==="
 
-python3 -m pytest \
-    "$P3_DIR/results/test_validate_benchmark.py" \
-    -v
+python3 -m pytest "$PYTHON_TEST" -v
 
 echo "[PASS] Python validator tests"
 
 # ------------------------------------------------------------
-# Validate the existing CSV before appending a new record.
+# Validate existing CSV structure and all historical records.
+# The expected schema is imported from the authoritative
+# Python validator; no duplicate 22/23-column list is kept here.
 # ------------------------------------------------------------
 
 echo
-echo "=== CSV BASELINE ==="
+echo "=== CSV BASELINE VALIDATION ==="
 
 BEFORE_COUNT="$(
-    python3 - "$CSV_FILE" <<'PY'
+python3 - "$CSV_FILE" "$VALIDATOR" <<'PY'
 import csv
+import importlib.util
 import sys
 from pathlib import Path
 
-path = Path(sys.argv[1])
+csv_path = Path(sys.argv[1])
+validator_path = Path(sys.argv[2])
 
-expected = [
-    "timestamp",
-    "benchmark_id",
-    "dimension",
-    "non_zero_count",
-    "parallelism",
-    "threshold",
-    "warmup_iterations",
-    "measured_iterations",
-    "sequential_ms",
-    "parallel_ms",
-    "speedup",
-    "sequential_throughput_states_per_s",
-    "parallel_throughput_states_per_s",
-    "sequential_expected_error",
-    "parallel_expected_error",
-    "max_absolute_error",
-    "setup_time_ms",
-    "cpu",
-    "available_memory_bytes",
-    "java_version",
-    "operating_system",
-    "notes",
-]
+spec = importlib.util.spec_from_file_location(
+    "p3_benchmark_validator",
+    validator_path,
+)
+if spec is None or spec.loader is None:
+    raise SystemExit("Cannot load benchmark validator")
 
-if not path.exists():
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+expected_header = module.EXPECTED_HEADER
+
+if not csv_path.exists():
     print(0)
     raise SystemExit(0)
 
-if path.stat().st_size == 0:
+if not csv_path.is_file():
+    raise SystemExit("Benchmark CSV path is not a regular file")
+
+if csv_path.stat().st_size == 0:
     raise SystemExit("Existing benchmark CSV is empty")
 
-with path.open(
-    "r",
-    encoding="utf-8",
-    newline="",
-) as handle:
+with csv_path.open("r", encoding="utf-8", newline="") as handle:
     reader = csv.DictReader(handle)
 
-    if reader.fieldnames != expected:
-        raise SystemExit("Invalid existing CSV header")
+    if reader.fieldnames != expected_header:
+        raise SystemExit(
+            "Existing CSV header does not match the "
+            "authoritative 23-column schema"
+        )
 
     rows = list(reader)
+
+    if not rows:
+        raise SystemExit(
+            "Existing CSV contains a header but no data records"
+        )
 
     for index, row in enumerate(rows, start=1):
         if None in row:
             raise SystemExit(
-                f"Malformed existing CSV row {index}"
+                f"Existing CSV row {index} has extra columns"
             )
 
         if any(value is None for value in row.values()):
             raise SystemExit(
-                f"Missing field in existing CSV row {index}"
+                f"Existing CSV row {index} has missing fields"
             )
 
 print(len(rows))
@@ -303,8 +270,15 @@ PY
 
 echo "Existing CSV records: $BEFORE_COUNT"
 
+if [[ -f "$CSV_FILE" ]]; then
+    python3 "$VALIDATOR" --csv "$CSV_FILE"
+    echo "[PASS] Existing benchmark records validated"
+else
+    echo "[INFO] No previous CSV; writer will create the file"
+fi
+
 # ------------------------------------------------------------
-# Execute the Java benchmark.
+# Execute Java benchmark.
 # ------------------------------------------------------------
 
 echo
@@ -324,44 +298,55 @@ java \
 echo "[PASS] Java benchmark process"
 
 # ------------------------------------------------------------
-# Require exactly one new CSV record.
+# Require exactly one new row and validate the complete CSV.
 # ------------------------------------------------------------
 
 echo
 echo "=== CSV PROVENANCE CHECK ==="
 
 AFTER_COUNT="$(
-    python3 - "$CSV_FILE" <<'PY'
+python3 - "$CSV_FILE" "$VALIDATOR" <<'PY'
 import csv
+import importlib.util
 import sys
 from pathlib import Path
 
-path = Path(sys.argv[1])
+csv_path = Path(sys.argv[1])
+validator_path = Path(sys.argv[2])
 
-if not path.is_file():
+if not csv_path.is_file():
     raise SystemExit("Benchmark CSV was not created")
 
-with path.open(
-    "r",
-    encoding="utf-8",
-    newline="",
-) as handle:
+spec = importlib.util.spec_from_file_location(
+    "p3_benchmark_validator",
+    validator_path,
+)
+if spec is None or spec.loader is None:
+    raise SystemExit("Cannot load benchmark validator")
+
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+with csv_path.open("r", encoding="utf-8", newline="") as handle:
     reader = csv.DictReader(handle)
 
-    if reader.fieldnames is None:
-        raise SystemExit("Benchmark CSV has no header")
+    if reader.fieldnames != module.EXPECTED_HEADER:
+        raise SystemExit(
+            "Generated CSV header does not match "
+            "the authoritative 23-column schema"
+        )
 
     rows = list(reader)
 
     for index, row in enumerate(rows, start=1):
         if None in row:
             raise SystemExit(
-                f"Malformed benchmark CSV row {index}"
+                f"Generated CSV row {index} has extra columns"
             )
 
         if any(value is None for value in row.values()):
             raise SystemExit(
-                f"Missing field in benchmark CSV row {index}"
+                f"Generated CSV row {index} has missing fields"
             )
 
 print(len(rows))
@@ -371,19 +356,18 @@ PY
 EXPECTED_COUNT=$((BEFORE_COUNT + 1))
 
 [[ "$AFTER_COUNT" -eq "$EXPECTED_COUNT" ]] ||
-    fail "Expected one new CSV record; expected=$EXPECTED_COUNT actual=$AFTER_COUNT"
+    fail "Expected exactly one new CSV record; expected=$EXPECTED_COUNT actual=$AFTER_COUNT"
 
 echo "[PASS] Exactly one new CSV record"
 
 # ------------------------------------------------------------
-# Independent validation of the newly appended result.
+# Independent validation of all rows and run configuration.
 # ------------------------------------------------------------
 
 echo
 echo "=== INDEPENDENT VALIDATION ==="
 
-python3 \
-    "$P3_DIR/results/validate_benchmark.py" \
+python3 "$VALIDATOR" \
     --csv "$CSV_FILE" \
     --expected-n "$N" \
     --warmup "$WARMUP" \
@@ -396,7 +380,7 @@ python3 \
 echo "[PASS] Independent validation"
 
 # ------------------------------------------------------------
-# Evidence presence.
+# Evidence presence and non-empty files.
 # ------------------------------------------------------------
 
 echo
@@ -416,13 +400,8 @@ echo "[PASS] CSV exists"
 echo "[PASS] Execution log exists"
 echo "[PASS] Environment report exists"
 echo "[PASS] Validation JSON exists"
-echo "[PASS] Benchmark execution completed"
 
-# ------------------------------------------------------------
-# Close the log before calculating its checksum.
-# No benchmark output is written to LOG_FILE after this point.
-# ------------------------------------------------------------
-
+# Stop redirecting before hashing the log.
 exec 1>&3 2>&4
 
 cd "$P3_DIR"
