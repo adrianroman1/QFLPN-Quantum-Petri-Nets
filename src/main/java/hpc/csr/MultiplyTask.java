@@ -4,45 +4,38 @@ import java.util.Objects;
 import java.util.concurrent.RecursiveAction;
 
 /**
- * MultiplyTask
- *
  * Fork/Join task pentru multiplicarea unei matrice CSR cu un vector:
+ * y = A * x.
  *
- *                         y = A * x
+ * Partiționarea se face pe rânduri. Fiecare subtask scrie exclusiv
+ * în intervalul propriu din vectorul de ieșire.
  *
- * Task-ul împarte intervalul de rânduri al matricei în subintervale
- * independente. Fiecare subtask calculează rezultatul pentru propriile
- * rânduri, fără modificarea rezultatelor celorlalte task-uri.
- *
- * Implementarea este orientată către execuție deterministică și
- * thread-safe la nivelul partiționării pe rânduri: fiecare task scrie
- * exclusiv în pozițiile de output aferente intervalului său.
+ * Matricile dreptunghiulare sunt acceptate: startRow/endRow se
+ * raportează la rândurile matricei și la vectorul de ieșire, nu
+ * la dimensiunea vectorului de intrare.
  */
 public final class MultiplyTask extends RecursiveAction {
+
+    private static final long serialVersionUID = 1L;
 
     private final double[] values;
     private final int[] columns;
     private final int[] rowPointers;
-
     private final double[] input;
     private final double[] output;
-
     private final int startRow;
     private final int endRow;
-
     private final int threshold;
 
     /**
-     * Constructor principal.
-     *
-     * @param values valorile nenule ale matricei CSR
-     * @param columns indicii coloanelor pentru valorile CSR
-     * @param rowPointers pointerii de început și sfârșit ai fiecărui rând
-     * @param input vectorul de intrare x
-     * @param output vectorul de ieșire y
-     * @param startRow primul rând inclus în interval
-     * @param endRow ultimul rând exclus din interval
-     * @param threshold numărul maxim de rânduri procesate direct de un task
+     * @param values valorile nenule CSR
+     * @param columns indicii coloanelor
+     * @param rowPointers pointerii CSR ai rândurilor
+     * @param input vectorul de intrare
+     * @param output vectorul rezultat
+     * @param startRow primul rând inclus
+     * @param endRow ultimul rând exclus
+     * @param threshold numărul maxim de rânduri calculate direct
      */
     public MultiplyTask(
             double[] values,
@@ -54,25 +47,12 @@ public final class MultiplyTask extends RecursiveAction {
             int endRow,
             int threshold) {
 
-        this.values = Objects.requireNonNull(
-                values,
-                "values cannot be null");
-
-        this.columns = Objects.requireNonNull(
-                columns,
-                "columns cannot be null");
-
+        this.values = Objects.requireNonNull(values, "values cannot be null");
+        this.columns = Objects.requireNonNull(columns, "columns cannot be null");
         this.rowPointers = Objects.requireNonNull(
-                rowPointers,
-                "rowPointers cannot be null");
-
-        this.input = Objects.requireNonNull(
-                input,
-                "input cannot be null");
-
-        this.output = Objects.requireNonNull(
-                output,
-                "output cannot be null");
+                rowPointers, "rowPointers cannot be null");
+        this.input = Objects.requireNonNull(input, "input cannot be null");
+        this.output = Objects.requireNonNull(output, "output cannot be null");
 
         if (values.length != columns.length) {
             throw new IllegalArgumentException(
@@ -104,11 +84,11 @@ public final class MultiplyTask extends RecursiveAction {
                     "threshold must be greater than zero");
         }
 
-        if (startRow > input.length) {
-            throw new IllegalArgumentException(
-                    "startRow exceeds input vector length");
-        }
-
+        /*
+         * endRow este exclusiv și reprezintă un indice de rând.
+         * Numărul de rânduri poate depăși numărul de coloane.
+         * Prin urmare, nu comparăm startRow cu input.length.
+         */
         if (endRow > output.length) {
             throw new IllegalArgumentException(
                     "endRow exceeds output vector length");
@@ -119,16 +99,8 @@ public final class MultiplyTask extends RecursiveAction {
         this.threshold = threshold;
     }
 
-    /**
-     * Execută task-ul Fork/Join.
-     *
-     * Dacă intervalul este suficient de mic, calculul este efectuat
-     * direct. În caz contrar, intervalul este împărțit în două
-     * subtask-uri independente.
-     */
     @Override
     protected void compute() {
-
         int rowCount = endRow - startRow;
 
         if (rowCount <= threshold) {
@@ -138,46 +110,25 @@ public final class MultiplyTask extends RecursiveAction {
 
         int middle = startRow + rowCount / 2;
 
-        MultiplyTask leftTask =
-                new MultiplyTask(
-                        values,
-                        columns,
-                        rowPointers,
-                        input,
-                        output,
-                        startRow,
-                        middle,
-                        threshold);
+        MultiplyTask leftTask = new MultiplyTask(
+                values, columns, rowPointers, input, output,
+                startRow, middle, threshold);
 
-        MultiplyTask rightTask =
-                new MultiplyTask(
-                        values,
-                        columns,
-                        rowPointers,
-                        input,
-                        output,
-                        middle,
-                        endRow,
-                        threshold);
+        MultiplyTask rightTask = new MultiplyTask(
+                values, columns, rowPointers, input, output,
+                middle, endRow, threshold);
 
         invokeAll(leftTask, rightTask);
     }
 
-    /**
-     * Calculează secvențial rezultatul pentru intervalul de rânduri
-     * alocat acestui task.
-     */
     private void computeSequentially() {
-
         for (int row = startRow; row < endRow; row++) {
-
             int begin = rowPointers[row];
             int end = rowPointers[row + 1];
 
             double sum = 0.0;
 
             for (int index = begin; index < end; index++) {
-
                 int column = columns[index];
 
                 if (column < 0 || column >= input.length) {
@@ -193,23 +144,14 @@ public final class MultiplyTask extends RecursiveAction {
         }
     }
 
-    /**
-     * @return primul rând inclus în task
-     */
     public int getStartRow() {
         return startRow;
     }
 
-    /**
-     * @return ultimul rând exclus din task
-     */
     public int getEndRow() {
         return endRow;
     }
 
-    /**
-     * @return pragul de divizare Fork/Join
-     */
     public int getThreshold() {
         return threshold;
     }
