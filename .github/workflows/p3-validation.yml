@@ -74,14 +74,15 @@ jobs:
             P3/results/test_validate_benchmark.py \
             -v
 
-      - name: Run benchmark and generate evidence
+      - name: Run benchmark and generate unique evidence
         if: github.event_name == 'workflow_dispatch'
         env:
           N: "1000000"
-          WARMUP: "1"
-          ITERATIONS: "2"
+          WARMUP: "5"
+          ITERATIONS: "10"
           THRESHOLD: "4096"
           PARALLELISM: "2"
+          RUN_ID: "${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}"
         run: |
           bash P3/results/run_benchmark.sh
 
@@ -89,13 +90,10 @@ jobs:
         if: always() && github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
-          name: p3-benchmark-evidence
+          name: p3-benchmark-evidence-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             P3/benchmarks/benchmark_results.csv
-            P3/results/raw/benchmark-QFLPN-1000000.log
-            P3/results/raw/environment.txt
-            P3/results/validation-report.json
-            P3/SHA256SUMS.txt
+            P3/results/raw/${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}/
           if-no-files-found: warn
           retention-days: 90
 
@@ -112,9 +110,22 @@ jobs:
         if: success() && github.event_name == 'workflow_dispatch'
         env:
           TARGET_BRANCH: ${{ github.ref_name }}
+          RUN_ID: "${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}"
         run: |
           if [[ -z "$TARGET_BRANCH" ]]; then
             echo "::error::Target branch is empty."
+            exit 1
+          fi
+
+          if [[ ! "$RUN_ID" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            echo "::error::Invalid benchmark RUN_ID."
+            exit 1
+          fi
+
+          EVIDENCE_DIR="P3/results/raw/$RUN_ID"
+
+          if [[ ! -d "$EVIDENCE_DIR" ]]; then
+            echo "::error::Benchmark evidence directory is missing."
             exit 1
           fi
 
@@ -123,16 +134,13 @@ jobs:
 
           git add \
             P3/benchmarks/benchmark_results.csv \
-            P3/results/raw/benchmark-QFLPN-1000000.log \
-            P3/results/raw/environment.txt \
-            P3/results/validation-report.json \
-            P3/SHA256SUMS.txt
+            "$EVIDENCE_DIR"
 
           if git diff --cached --quiet; then
             echo "No generated evidence changes."
             exit 0
           fi
 
-          git commit -m "[skip ci] P3 automated benchmark evidence"
+          git commit -m "[skip ci] P3 benchmark evidence $RUN_ID"
 
           git push origin "HEAD:refs/heads/${TARGET_BRANCH}"
