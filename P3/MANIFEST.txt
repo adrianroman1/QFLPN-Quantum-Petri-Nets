@@ -1,198 +1,376 @@
 QFLPN P3 — PROJECT MANIFEST
-========================================
+===============================================
 
-Project:
+PROJECT
+-------
 QFLPN — Quantum-Fuzzy Logical Petri Nets
 
-Part:
+COMPONENT
+---------
 P3 — Sparse Quantum-Fuzzy Logical Petri Nets:
-     CSR/SpMV Algorithms and Large-Scale State Evolution
+CSR/SpMV Algorithms and Large-Scale State Evolution
 
-Repository:
+REPOSITORY
+----------
 adrianroman1/QFLPN-Quantum-Petri-Nets
 
-Manifest purpose:
-Inventory of the P3 source, tests, validation procedures,
-manuscript traceability and experimental evidence.
+BRANCH
+------
+main
 
-========================================
-1. PROJECT STRUCTURE
-========================================
+PURPOSE
+-------
+Inventory of P3 source code, tests, validation,
+benchmarking, documentation and experimental evidence.
+
+This manifest describes repository organization.
+It does not certify that all tests or experiments pass.
+
+===============================================
+1. ROOT P3 FILES
+===============================================
 
 P3/
     pom.xml
+    MANIFEST.txt
+    SHA256SUMS.txt
+    P3_AUDIT_REPORT.md
+    VALIDATION_ALIGNMENT.md
+    VALIDATION_PROTOCOL.md
+    ACCEPTANCE_CHECKLIST.md
 
-    code/
-        SparseMatrixCSR.java
-        MultiplyTask.java
-        QFLPNCoreEngine.java
-        BenchmarkRunner.java
-        BenchmarkResult.java
-        BenchmarkResultWriter.java
-        BenchmarkResultReader.java
-        BenchmarkAuditValidator.java
-        BenchmarkEnvironment.java
+===============================================
+2. JAVA IMPLEMENTATION
+===============================================
 
-    tests/
-        SparseMatrixCSRTest.java
-        QFLPNCoreEngineTest.java
-        MultiplyTaskTest.java
-        BenchmarkResultWriterTest.java
-        BenchmarkAuditValidatorTest.java
-        BenchmarkResultReaderTest.java
-        BenchmarkScaleTest.java
-        BenchmarkRunnerNumericalValidationTest.java
-        BenchmarkEnvironmentTest.java
-        BenchmarkResultTest.java
-        CSRvsDenseOracleTest.java
+P3/code/
 
-    results/
-        Results.md
-        Reproducibility.md
-        Traceability.md
-        validate_benchmark.py
-        test_validate_benchmark.py
-        run_benchmark.sh
+    AuditResult.java
+    BenchmarkAuditValidator.java
+    BenchmarkEnvironment.java
+    BenchmarkMetadata.java
+    BenchmarkResult.java
+    BenchmarkResultReader.java
+    BenchmarkResultWriter.java
+    BenchmarkRunner.java
+    BenchmarkScale.java
+    EnvironmentInfo.java
+    MainApp.java
+    MultiplyTask.java
+    QFLPNCoreEngine.java
+    SparseMatrixCSR.java
 
-    artifacts/
-        Result.md
+MAVEN CONFIGURATION
+-------------------
 
-    benchmarks/
-        benchmark_results.csv
+Build descriptor:
+    P3/pom.xml
 
-    results/raw/
-        benchmark execution logs
-        environment reports
-        independent validation reports
+Main source directory:
+    P3/code
 
-========================================
-2. VALIDATION COMPONENTS
-========================================
+Test source directory:
+    P3/tests
 
-Java:
-    Maven
-    Java 21
-    JUnit 5
+Java release:
+    21
 
-Python:
+JUnit Jupiter:
+    5.10.2
+
+===============================================
+3. JAVA TEST SUITE
+===============================================
+
+P3/tests/
+
+    BenchmarkAuditValidatorTest.java
+    BenchmarkEnvironmentTest.java
+    BenchmarkResultReaderTest.java
+    BenchmarkResultTest.java
+    BenchmarkResultWriterTest.java
+    BenchmarkRunnerNumericalValidationTest.java
+    BenchmarkScaleTest.java
+    CSRvsDenseOracleTest.java
+    MultiplyTaskTest.java
+    QFLPNCoreEngineTest.java
+    SparseMatrixCSRTest.java
+
+Test execution:
+    mvn -B -f P3/pom.xml clean test
+
+The actual test count and result must be taken
+from the corresponding Maven/Surefire execution.
+
+===============================================
+4. PYTHON VALIDATION AND BENCHMARK
+===============================================
+
+P3/results/
+
     validate_benchmark.py
     test_validate_benchmark.py
+    run_benchmark.sh
 
-Benchmark:
-    CSR matrix-vector multiplication
-    Sequential SpMV
-    Parallel SpMV
-    Java Fork/Join
+    Results.md
+    Reproducibility.md
+    Traceability.md
+    validation-report.json
 
-Numerical validation:
-    Sequential expected output
-    Parallel expected output
-    Maximum absolute difference
-    Configured numerical tolerance
+Python test execution:
+    python3 -m pytest \
+        P3/results/test_validate_benchmark.py -v
 
-========================================
-3. CSV SCHEMA
-========================================
+Independent validator:
+    P3/results/validate_benchmark.py
 
-The benchmark CSV contains 22 columns:
+Authoritative CSV schema:
+    EXPECTED_HEADER
 
-timestamp
-benchmark_id
-dimension
-non_zero_count
-parallelism
-threshold
-warmup_iterations
-measured_iterations
-sequential_ms
-parallel_ms
-speedup
-sequential_throughput_states_per_s
-parallel_throughput_states_per_s
-sequential_expected_error
-parallel_expected_error
-max_absolute_error
-setup_time_ms
-cpu
-available_memory_bytes
-java_version
-operating_system
-notes
+The CSV schema must not be duplicated manually
+in independent scripts or documentation.
+
+===============================================
+5. BENCHMARK DATA
+===============================================
+
+P3/benchmarks/
+
+    benchmark_results.csv
+
+Purpose:
+    Persistent benchmark measurements.
+
+The CSV file contains historical and/or newly
+generated records.
+
+Every record must be interpreted using its own
+configuration and provenance.
+
+The presence of a record does not establish
+that it belongs to the latest source revision.
+
+===============================================
+6. RAW EXPERIMENTAL EVIDENCE
+===============================================
+
+P3/results/raw/
+
+Purpose:
+    Historical and run-specific benchmark evidence.
+
+Current script run directory convention:
+
+    P3/results/raw/<RUN_ID>/
+
+Expected run-specific artifacts:
+
+    benchmark.log
+    environment.txt
+    validation-report.json
+    SHA256SUMS.txt
+
+Each RUN_ID must identify one execution.
+
+A new execution must not overwrite evidence
+from an earlier execution.
+
+===============================================
+7. ADDITIONAL ARTIFACTS
+===============================================
+
+P3/artifacts/
+
+    Result.md
+
+Purpose:
+    Supplementary P3 result artifact.
+
+===============================================
+8. VALIDATION WORKFLOW
+===============================================
+
+.github/workflows/p3-validation.yml
+
+Workflow responsibilities:
+
+    Main Maven validation
+    Main Maven tests
+    P3 Maven validation
+    P3 Java tests
+    Python validator tests
+    Manual benchmark execution
+    JUnit report upload
+    Benchmark evidence upload
+
+Benchmark execution trigger:
+
+    workflow_dispatch
+
+A normal push-triggered successful workflow
+does not by itself establish that the benchmark
+was executed.
+
+===============================================
+9. CSV AND BENCHMARK CONTRACT
+===============================================
 
 The authoritative schema is defined in:
-P3/code/BenchmarkResultWriter.java
 
-========================================
-4. EXPERIMENTAL EVIDENCE
-========================================
+    P3/results/validate_benchmark.py
 
-Expected benchmark CSV:
-    P3/benchmarks/benchmark_results.csv
+The benchmark script imports EXPECTED_HEADER
+from the validator.
 
-Expected raw execution evidence:
-    P3/results/raw/
+Target reproducibility configuration:
 
-Expected independent validation:
-    P3/results/raw/
+    N=1000000
+    NNZ=2000000
+    WARMUP=5
+    ITERATIONS=10
+    THRESHOLD=4096
+    PARALLELISM=2
 
-Expected checksums:
+Numerical tolerance:
+
+    1.0e-12
+
+Performance definitions:
+
+    speedup = sequential_ms / parallel_ms
+
+    time_reduction =
+        1 - parallel_ms / sequential_ms
+
+All reported metrics must derive from the
+same benchmark execution.
+
+===============================================
+10. HISTORICAL EXPERIMENTAL EVIDENCE
+===============================================
+
+A historical benchmark record is present.
+
+Historical configuration:
+
+    N=1000000
+    NNZ=2000000
+    WARMUP=1
+    ITERATIONS=2
+    THRESHOLD=4096
+    PARALLELISM=2
+
+Historical reported speedup:
+
+    2.932783051931
+
+Historical reported time reduction:
+
+    65.90269439324527 percent
+
+These values belong to the historical 1/2
+configuration.
+
+They must not be represented as results of
+the target 5/10 configuration.
+
+===============================================
+11. DOCUMENTATION CONTRACT
+===============================================
+
+P3/P3_AUDIT_REPORT.md
+    Technical audit, findings and acceptance status.
+
+P3/VALIDATION_ALIGNMENT.md
+    Manuscript, implementation, tests and results alignment.
+
+P3/VALIDATION_PROTOCOL.md
+    Reproducible validation procedure.
+
+P3/ACCEPTANCE_CHECKLIST.md
+    Mandatory final acceptance criteria.
+
+P3/results/Results.md
+    Experimental results.
+
+P3/results/Reproducibility.md
+    Experimental environment and reproduction instructions.
+
+P3/results/Traceability.md
+    Manuscript-to-code and test traceability.
+
+All documents must agree with the actual source,
+CSV schema and execution evidence.
+
+===============================================
+12. SHA-256 INTEGRITY
+===============================================
+
+Global manifest:
+
     P3/SHA256SUMS.txt
 
-No benchmark measurement is considered verified
-solely because a benchmark script or CSV schema exists.
+Run-specific manifests:
 
-A benchmark result requires:
-    - actual execution;
-    - retained CSV data;
-    - execution log;
-    - environment information;
-    - independent validation;
-    - source revision identification;
-    - SHA-256 checksums.
+    P3/results/raw/<RUN_ID>/SHA256SUMS.txt
 
-========================================
-5. ACCEPTANCE POLICY
-========================================
+Rules:
 
-A successful JUnit run establishes only the behavior
-covered by the tests executed on that source revision.
+    Hashes must be calculated from actual files.
+    Hashes must not be fabricated.
+    A modified artifact requires regenerated hashes.
+    A successful checksum does not prove scientific
+    correctness; it proves file integrity.
 
-It does not independently establish:
-    - large-scale performance;
-    - measured speedup;
-    - measured time reduction;
-    - peak memory consumption;
-    - reproducibility of an experimental result.
+===============================================
+13. ACCEPTANCE REQUIREMENTS
+===============================================
 
-Performance claims must be supported by actual
-benchmark evidence.
+Required before P3_ACCEPTED:
 
-========================================
-6. LAST VERIFIED CI REFERENCE
-========================================
+    Main Maven build PASS
+    Main Maven tests PASS
+    P3 Maven build PASS
+    P3 Java tests PASS
+    Python tests PASS
+    CSR and SpMV verification PASS
+    Fork/Join verification PASS
+    Rectangular matrix regression PASS
+    Benchmark 5/10 executed
+    Independent benchmark validation PASS
+    CSV provenance verified
+    Environment evidence complete
+    SHA-256 verification PASS
+    GitHub Actions final run PASS
+    Duplicate source copies reconciled
+    Manuscript and documentation aligned
 
-Workflow:
-P3 CSR, SpMV and JUnit Validation
+===============================================
+14. CURRENT ACCEPTANCE STATUS
+===============================================
 
-Run:
-39341861788
+Implementation:
+    PRESENT
 
-Commit:
-1d0f9895079b614f2dd44fd42ce72583434c0d83
+Historical benchmark evidence:
+    PRESENT
 
-Observed result:
-154 tests
-0 failures
-0 errors
-0 skipped
+Target 5/10 benchmark:
+    PENDING
 
-Build:
-SUCCESS
+Latest CI verification:
+    PENDING
 
-This reference identifies a historical successful CI run.
-It must not be interpreted as proof that a later commit
-has also passed validation.
+Final checksum verification:
+    PENDING
 
-========================================
+Documentation alignment:
+    IN PROGRESS
+
+Overall acceptance:
+
+    P3_ACCEPTED = NOT GRANTED
+
+===============================================
 END OF MANIFEST
-========================================
+===============================================
