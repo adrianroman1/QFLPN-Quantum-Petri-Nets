@@ -126,6 +126,108 @@ jobs:
       - name: Independently verify P3 integrity
         run: python P3/tools/verify_integrity.py --root P3
 
+      - name: Populate P3 acceptance report from evidence
+        if: always()
+        env:
+          RUN_ID: "${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}"
+          REPO: "${{ github.repository }}"
+          SHA: "${{ github.sha }}"
+          WORKFLOW_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        run: |
+          python - <<'PY'
+          import csv
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path('.')
+          report_path = root / 'P3' / 'results' / 'raw' / os.environ['RUN_ID'] / 'validation-report.json'
+          csv_path = root / 'P3' / 'benchmarks' / 'benchmark_results_v2.csv'
+          accept_path = root / 'P3' / 'ACCEPTANCE_REPORT.md'
+
+          repo = os.environ.get('REPO', 'PENDING')
+          sha = os.environ.get('SHA', 'PENDING')
+          run_id = os.environ.get('RUN_ID', 'PENDING')
+          workflow_url = os.environ.get('WORKFLOW_URL', 'PENDING')
+          status = 'PENDING VALIDATION — NOT ACCEPTED'
+          benchmark = 'PENDING'
+          speedup = 'PENDING'
+          dimension = 'PENDING'
+          nnz = 'PENDING'
+          evidence_note = 'No evidence available yet.'
+
+          if report_path.exists():
+              try:
+                  report = json.loads(report_path.read_text(encoding='utf-8'))
+                  if report.get('validation') == 'PASS' and report.get('all_records_valid') is True:
+                      status = 'PENDING VALIDATION — NOT ACCEPTED'
+                      evidence_note = 'Evidence collected; workflow pass is not equivalent to final acceptance without manual sign-off.'
+                  else:
+                      evidence_note = 'Evidence exists but validation is not PASS.'
+              except Exception:
+                  evidence_note = 'Evidence exists but could not be parsed.'
+
+          if csv_path.exists():
+              try:
+                  with csv_path.open('r', encoding='utf-8', newline='') as stream:
+                      rows = list(csv.DictReader(stream))
+                  if rows:
+                      row = rows[-1]
+                      benchmark = row.get('benchmark_id', 'PENDING')
+                      speedup = row.get('speedup', 'PENDING')
+                      dimension = row.get('dimension', 'PENDING')
+                      nnz = row.get('non_zero_count', 'PENDING')
+              except Exception:
+                  benchmark = 'PENDING'
+                  speedup = 'PENDING'
+                  dimension = 'PENDING'
+                  nnz = 'PENDING'
+
+          lines = [
+              '# P3 Acceptance Report',
+              '',
+              'This file is regenerated from CI evidence and is intentionally conservative.',
+              'It must not assert ACCEPTED without a complete pass on the same commit SHA and workflow run.',
+              '',
+              '## Current evidence',
+              '',
+              f'- Repository: `{repo}`',
+              f'- Commit SHA: `{sha}`',
+              f'- GitHub Actions run ID: `{run_id}`',
+              f'- Workflow URL: `{workflow_url}`',
+              f'- Benchmark model: `{benchmark}`',
+              f'- Dimension: `{dimension}`',
+              f'- Non-zero values: `{nnz}`',
+              f'- Speedup: `{speedup}`',
+              '',
+              '## Decision',
+              '',
+              f'Current decision: `{status}`',
+              '',
+              '## Evidence notes',
+              '',
+              f'- {evidence_note}',
+              '',
+              '## Acceptance gates',
+              '',
+              '| Gate | Status |',
+              '| --- | --- |',
+              '| Root Maven validation | PENDING |',
+              '| Root Maven tests | PENDING |',
+              '| P3 Maven validation | PENDING |',
+              '| P3 Maven tests | PENDING |',
+              '| Python validator and integrity tests | PENDING |',
+              '| Python syntax validation | PENDING |',
+              '| Benchmark execution | PENDING |',
+              '| Strict CSV validation | PENDING |',
+              '| Manifest generation | PENDING |',
+              '| Independent SHA-256 verification | PENDING |',
+              '',
+              'A final ACCEPTED decision requires the complete workflow evidence set to pass on the same commit.',
+          ]
+          accept_path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+          PY
+
       - name: Generate benchmark job summary
         if: always()
         run: |
@@ -144,6 +246,7 @@ jobs:
             P3/results/raw/${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}/
             P3/MANIFEST.txt
             P3/SHA256SUMS.txt
+            P3/ACCEPTANCE_REPORT.md
           if-no-files-found: warn
           retention-days: 90
 
