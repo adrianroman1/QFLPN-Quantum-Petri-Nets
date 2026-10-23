@@ -1,14 +1,16 @@
 package hpc.csr;
 
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.Objects;
 import java.util.concurrent.ForkJoinPool;
 
 /**
  * Immutable Compressed Sparse Row matrix.
  *
- * Duplicate column indices are supported. Their values are
- * interpreted additively by get(), multiply() and multiplyParallel().
+ * Duplicate column indices are accepted. Their values are interpreted
+ * additively in the mathematical sense, and row entries are internally
+ * canonicalized to be deterministic across evaluation order.
  */
 public final class SparseMatrixCSR {
 
@@ -35,11 +37,84 @@ public final class SparseMatrixCSR {
 
         validateCSRStructure(values, columnIndices, rowPointers, rows, columns);
 
-        this.values = Arrays.copyOf(values, values.length);
-        this.columnIndices = Arrays.copyOf(columnIndices, columnIndices.length);
-        this.rowPointers = Arrays.copyOf(rowPointers, rowPointers.length);
+        CanonicalizedMatrix canonical = canonicalize(values, columnIndices, rowPointers, rows);
+
+        this.values = Arrays.copyOf(canonical.values, canonical.values.length);
+        this.columnIndices = Arrays.copyOf(canonical.columnIndices, canonical.columnIndices.length);
+        this.rowPointers = Arrays.copyOf(canonical.rowPointers, canonical.rowPointers.length);
         this.rows = rows;
         this.columns = columns;
+    }
+
+    private static final class CanonicalizedMatrix {
+        final double[] values;
+        final int[] columnIndices;
+        final int[] rowPointers;
+
+        CanonicalizedMatrix(double[] values, int[] columnIndices, int[] rowPointers) {
+            this.values = values;
+            this.columnIndices = columnIndices;
+            this.rowPointers = rowPointers;
+        }
+    }
+
+    private static CanonicalizedMatrix canonicalize(
+            double[] values,
+            int[] columnIndices,
+            int[] rowPointers,
+            int rows) {
+
+        int nnz = values.length;
+        double[] renamedValues = new double[nnz];
+        int[] renamedColumns = new int[nnz];
+        int[] normalizedPointers = new int[rowPointers.length];
+
+        int writeIndex = 0;
+        normalizedPointers[0] = 0;
+
+        for (int row = 0; row < rows; row++) {
+            int start = rowPointers[row];
+            int end = rowPointers[row + 1];
+            int rowLength = end - start;
+
+            if (rowLength == 0) {
+                normalizedPointers[row] = writeIndex;
+                if (row + 1 < normalizedPointers.length) {
+                    normalizedPointers[row + 1] = writeIndex;
+                }
+                continue;
+            }
+
+            Integer[] order = new Integer[rowLength];
+            for (int i = 0; i < rowLength; i++) {
+                order[i] = start + i;
+            }
+
+            Arrays.sort(order, Comparator.comparingInt(index -> columnIndices[index]));
+
+            int rowWrite = 0;
+            for (int index : order) {
+                int column = columnIndices[index];
+                double value = values[index];
+
+                if (rowWrite > 0 && renamedColumns[writeIndex + rowWrite - 1] == column) {
+                    renamedValues[writeIndex + rowWrite - 1] += value;
+                } else {
+                    renamedColumns[writeIndex + rowWrite] = column;
+                    renamedValues[writeIndex + rowWrite] = value;
+                    rowWrite++;
+                }
+            }
+
+            normalizedPointers[row] = writeIndex;
+            writeIndex += rowWrite;
+            normalizedPointers[row + 1] = writeIndex;
+        }
+
+        return new CanonicalizedMatrix(
+                Arrays.copyOf(renamedValues, writeIndex),
+                Arrays.copyOf(renamedColumns, writeIndex),
+                Arrays.copyOf(normalizedPointers, rows + 1));
     }
 
     private static void validateDimensions(int rows, int columns) {
@@ -270,10 +345,6 @@ public final class SparseMatrixCSR {
         return (double) values.length / (double) totalElements;
     }
 
-    /**
-     * Returns the mathematical matrix element.
-     * Duplicate CSR entries for the same column are summed.
-     */
     public double get(int row, int column) {
         if (row < 0 || row >= rows) {
             throw new IndexOutOfBoundsException(
