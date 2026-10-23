@@ -1,6 +1,7 @@
 package hpc.csr;
 
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.Objects;
 import java.util.concurrent.ForkJoinPool;
 
@@ -33,13 +34,16 @@ public final class SparseMatrixCSR {
         Objects.requireNonNull(columnIndices, "columnIndices cannot be null");
         Objects.requireNonNull(rowPointers, "rowPointers cannot be null");
 
-        int[] normalizedColumns = normalizeAndValidate(values, columnIndices, rowPointers, rows, columns);
+        NormalizedCSR normalized = normalizeAndValidate(values, columnIndices, rowPointers, rows, columns);
 
-        this.values = Arrays.copyOf(values, values.length);
-        this.columnIndices = Arrays.copyOf(normalizedColumns, normalizedColumns.length);
-        this.rowPointers = Arrays.copyOf(rowPointers, rowPointers.length);
+        this.values = normalized.values();
+        this.columnIndices = normalized.columns();
+        this.rowPointers = normalized.rowPointers();
         this.rows = rows;
         this.columns = columns;
+    }
+
+    private record NormalizedCSR(int[] columns, double[] values, int[] rowPointers) {
     }
 
     private static void validateDimensions(int rows, int columns) {
@@ -51,7 +55,7 @@ public final class SparseMatrixCSR {
         }
     }
 
-    private static int[] normalizeAndValidate(
+    private static NormalizedCSR normalizeAndValidate(
             double[] values,
             int[] columnIndices,
             int[] rowPointers,
@@ -108,69 +112,59 @@ public final class SparseMatrixCSR {
             }
         }
 
-        int[] normalizedColumns = Arrays.copyOf(columnIndices, columnIndices.length);
-        double[] normalizedValues = Arrays.copyOf(values, values.length);
+        int[] compactColumns = new int[values.length];
+        double[] compactValues = new double[values.length];
+        int[] compactRowPointers = new int[rows + 1];
+        compactRowPointers[0] = 0;
 
-        int start = 0;
+        int writeIndex = 0;
         for (int row = 0; row < rows; row++) {
-            int end = rowPointers[row + 1];
-            if (end - start <= 1) {
-                start = end;
+            int rowStart = rowPointers[row];
+            int rowEnd = rowPointers[row + 1];
+            int count = rowEnd - rowStart;
+
+            if (count == 0) {
+                compactRowPointers[row + 1] = writeIndex;
                 continue;
             }
 
-            int[] sliceCols = Arrays.copyOfRange(normalizedColumns, start, end);
-            double[] sliceVals = Arrays.copyOfRange(normalizedValues, start, end);
-            int[] sortedOrder = new int[ sliceCols.length ];
-            for (int i = 0; i < sortedOrder.length; i++) {
-                sortedOrder[i] = i;
+            int[] order = new int[count];
+            for (int i = 0; i < count; i++) {
+                order[i] = rowStart + i;
             }
-            Arrays.sort(sortedOrder, (a, b) -> Integer.compare(sliceCols[a], sliceCols[b]));
 
-            int write = 0;
-            for (int i = 0; i < sortedOrder.length; i++) {
-                int index = sortedOrder[i];
-                int col = sliceCols[index];
-                double val = sliceVals[index];
-                if (write > 0 && sliceCols[sortedOrder[write - 1]] == col) {
-                    normalizedValues[start + write - 1] += val;
+            Arrays.sort(order, Comparator.comparingInt(index -> columnIndices[index]));
+
+            int rowWrite = 0;
+            for (int pos = 0; pos < order.length; pos++) {
+                int index = order[pos];
+                int currentColumn = columnIndices[index];
+                double currentValue = values[index];
+
+                if (rowWrite > 0 && compactColumns[writeIndex + rowWrite - 1] == currentColumn) {
+                    compactValues[writeIndex + rowWrite - 1] += currentValue;
                     continue;
                 }
-                normalizedColumns[start + write] = col;
-                normalizedValues[start + write] = val;
-                write++;
+
+                compactColumns[writeIndex + rowWrite] = currentColumn;
+                compactValues[writeIndex + rowWrite] = currentValue;
+                rowWrite++;
             }
 
-            for (int i = write; i < end - start; i++) {
-                normalizedColumns[start + i] = -1;
+            for (int i = 0; i < rowWrite; i++) {
+                compactColumns[writeIndex + i] = compactColumns[writeIndex + i];
             }
 
-            int range = end - start;
-            int[] compactCols = new int[write];
-            double[] compactVals = new double[write];
-            System.arraycopy(normalizedColumns, start, compactCols, 0, write);
-            System.arraycopy(normalizedValues, start, compactVals, 0, write);
-            System.arraycopy(compactCols, 0, normalizedColumns, start, write);
-            System.arraycopy(compactVals, 0, normalizedValues, start, write);
-
-            for (int i = start + write; i < end; i++) {
-                normalizedColumns[i] = -1;
-                normalizedValues[i] = 0.0;
-            }
-
-            rowPointers[row + 1] = start + write;
-            start = rowPointers[row + 1];
+            writeIndex += rowWrite;
+            compactRowPointers[row + 1] = writeIndex;
         }
 
-        int total = 0;
-        for (int row = 0; row < rows; row++) {
-            total += rowPointers[row + 1] - rowPointers[row];
-        }
-        if (total != values.length) {
-            throw new IllegalArgumentException("Duplicate column normalization changed NNZ unexpectedly.");
-        }
+        int finalNnz = compactRowPointers[rows];
+        int[] normalizedColumns = Arrays.copyOf(compactColumns, finalNnz);
+        double[] normalizedValues = Arrays.copyOf(compactValues, finalNnz);
+        int[] normalizedRowPointers = Arrays.copyOf(compactRowPointers, rows + 1);
 
-        return normalizedColumns;
+        return new NormalizedCSR(normalizedColumns, normalizedValues, normalizedRowPointers);
     }
 
     public double[] multiply(double[] x) {
