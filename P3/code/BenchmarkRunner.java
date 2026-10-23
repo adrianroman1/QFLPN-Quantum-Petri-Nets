@@ -313,6 +313,45 @@ public final class BenchmarkRunner {
         return maximum;
     }
 
+    /**
+     * Returns the maximum absolute deviation of the output vector
+     * from a scalar analytical reference value.
+     *
+     * @param values output vector to validate
+     * @param expected expected value for every vector element
+     * @return maximum absolute error
+     * @throws IllegalArgumentException if the vector is null
+     * @throws IllegalStateException if the expected value, an output
+     *         value, or a computed error is non-finite
+     */
+    static double maxExpectedError(double[] values, double expected) {
+        if (values == null) {
+            throw new IllegalArgumentException(
+                    "Values must not be null.");
+        }
+
+        if (!Double.isFinite(expected)) {
+            throw new IllegalStateException(
+                    "Expected value must be finite.");
+        }
+
+        double maximum = 0.0;
+        for (int i = 0; i < values.length; i++) {
+            if (!Double.isFinite(values[i])) {
+                throw new IllegalStateException(
+                        "Non-finite output at index " + i);
+            }
+
+            double error = Math.abs(values[i] - expected);
+            if (!Double.isFinite(error)) {
+                throw new IllegalStateException(
+                        "Non-finite error at index " + i);
+            }
+            maximum = Math.max(maximum, error);
+        }
+        return maximum;
+    }
+
     private static void validateSamples(double[] samples) {
         if (samples == null || samples.length == 0) {
             throw new IllegalArgumentException(
@@ -452,44 +491,6 @@ public final class BenchmarkRunner {
                 r.parallelExpectedError(),
                 r.maxAbsoluteError());
 
-        String markdown = """
-                # QFLPN P3 Benchmark V2
-
-                - Run ID: `%s`
-                - Validation: **PASS**
-                - Dimension / NNZ: %d / %d
-                - Warm-up / measured: %d / %d
-
-                | Metric | Sequential | Parallel |
-                |---|---:|---:|
-                | Mean (ms) | %.6f | %.6f |
-                | Median (ms) | %.6f | %.6f |
-                | Std. dev. (ms) | %.6f | %.6f |
-                | Throughput (states/s) | %.6f | %.6f |
-
-                - Speedup: **%.6f×**
-                - Sequential oracle error: %.3e
-                - Parallel oracle error: %.3e
-                - Sequential/parallel maximum difference: %.3e
-                """.formatted(
-                r.runId(),
-                r.dimension(),
-                r.nonZeroCount(),
-                r.warmupIterations(),
-                r.measuredIterations(),
-                r.sequentialMs(),
-                r.parallelMs(),
-                r.sequentialMedianMs(),
-                r.parallelMedianMs(),
-                r.sequentialStdDevMs(),
-                r.parallelStdDevMs(),
-                r.sequentialThroughput(),
-                r.parallelThroughput(),
-                r.speedup(),
-                r.sequentialExpectedError(),
-                r.parallelExpectedError(),
-                r.maxAbsoluteError());
-
         String text = """
                 QFLPN P3 BENCHMARK V2
                 RUN_ID=%s
@@ -528,11 +529,6 @@ public final class BenchmarkRunner {
         Files.writeString(
                 directory.resolve("benchmark-report.json"),
                 json,
-                StandardCharsets.UTF_8);
-
-        Files.writeString(
-                directory.resolve("benchmark-report.md"),
-                markdown,
                 StandardCharsets.UTF_8);
 
         Files.writeString(
