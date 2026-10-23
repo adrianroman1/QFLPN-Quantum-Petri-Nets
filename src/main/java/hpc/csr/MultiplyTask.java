@@ -26,18 +26,6 @@ public final class MultiplyTask extends RecursiveAction {
     private final int endRow;
     private final int threshold;
 
-    /**
-     * Creates a validated multiplication task.
-     *
-     * @param values CSR nonzero values
-     * @param columns CSR column indices
-     * @param rowPointers CSR row pointers
-     * @param input input vector
-     * @param output output vector
-     * @param startRow first row, inclusive
-     * @param endRow last row, exclusive
-     * @param threshold maximum number of rows computed by one leaf task
-     */
     public MultiplyTask(
             double[] values,
             int[] columns,
@@ -81,11 +69,6 @@ public final class MultiplyTask extends RecursiveAction {
         this.threshold = threshold;
     }
 
-    /**
-     * Private constructor used by recursive children.
-     * Arrays are already validated snapshots and are safe to share
-     * between child tasks. The output array is intentionally shared.
-     */
     private MultiplyTask(
             double[] values,
             int[] columns,

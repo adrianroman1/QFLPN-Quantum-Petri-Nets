@@ -139,6 +139,12 @@ public final class BenchmarkResultWriter {
                     "Cannot append: benchmark CSV is empty.");
         }
 
+        long headerBytes = CSV_HEADER.getBytes(StandardCharsets.UTF_8).length + 1L;
+        if (size <= headerBytes) {
+            throw new IOException(
+                    "Cannot append: CSV contains only the header and no data rows.");
+        }
+
         try (SeekableByteChannel channel = Files.newByteChannel(
                 path, StandardOpenOption.READ)) {
 

@@ -33,10 +33,10 @@ public final class SparseMatrixCSR {
         Objects.requireNonNull(columnIndices, "columnIndices cannot be null");
         Objects.requireNonNull(rowPointers, "rowPointers cannot be null");
 
-        validateCSRStructure(values, columnIndices, rowPointers, rows, columns);
+        int[] normalizedColumns = normalizeAndValidate(values, columnIndices, rowPointers, rows, columns);
 
         this.values = Arrays.copyOf(values, values.length);
-        this.columnIndices = Arrays.copyOf(columnIndices, columnIndices.length);
+        this.columnIndices = Arrays.copyOf(normalizedColumns, normalizedColumns.length);
         this.rowPointers = Arrays.copyOf(rowPointers, rowPointers.length);
         this.rows = rows;
         this.columns = columns;
@@ -51,7 +51,7 @@ public final class SparseMatrixCSR {
         }
     }
 
-    private static void validateCSRStructure(
+    private static int[] normalizeAndValidate(
             double[] values,
             int[] columnIndices,
             int[] rowPointers,
@@ -107,6 +107,70 @@ public final class SparseMatrixCSR {
                                 + i + ": " + values[i]);
             }
         }
+
+        int[] normalizedColumns = Arrays.copyOf(columnIndices, columnIndices.length);
+        double[] normalizedValues = Arrays.copyOf(values, values.length);
+
+        int start = 0;
+        for (int row = 0; row < rows; row++) {
+            int end = rowPointers[row + 1];
+            if (end - start <= 1) {
+                start = end;
+                continue;
+            }
+
+            int[] sliceCols = Arrays.copyOfRange(normalizedColumns, start, end);
+            double[] sliceVals = Arrays.copyOfRange(normalizedValues, start, end);
+            int[] sortedOrder = new int[ sliceCols.length ];
+            for (int i = 0; i < sortedOrder.length; i++) {
+                sortedOrder[i] = i;
+            }
+            Arrays.sort(sortedOrder, (a, b) -> Integer.compare(sliceCols[a], sliceCols[b]));
+
+            int write = 0;
+            for (int i = 0; i < sortedOrder.length; i++) {
+                int index = sortedOrder[i];
+                int col = sliceCols[index];
+                double val = sliceVals[index];
+                if (write > 0 && sliceCols[sortedOrder[write - 1]] == col) {
+                    normalizedValues[start + write - 1] += val;
+                    continue;
+                }
+                normalizedColumns[start + write] = col;
+                normalizedValues[start + write] = val;
+                write++;
+            }
+
+            for (int i = write; i < end - start; i++) {
+                normalizedColumns[start + i] = -1;
+            }
+
+            int range = end - start;
+            int[] compactCols = new int[write];
+            double[] compactVals = new double[write];
+            System.arraycopy(normalizedColumns, start, compactCols, 0, write);
+            System.arraycopy(normalizedValues, start, compactVals, 0, write);
+            System.arraycopy(compactCols, 0, normalizedColumns, start, write);
+            System.arraycopy(compactVals, 0, normalizedValues, start, write);
+
+            for (int i = start + write; i < end; i++) {
+                normalizedColumns[i] = -1;
+                normalizedValues[i] = 0.0;
+            }
+
+            rowPointers[row + 1] = start + write;
+            start = rowPointers[row + 1];
+        }
+
+        int total = 0;
+        for (int row = 0; row < rows; row++) {
+            total += rowPointers[row + 1] - rowPointers[row];
+        }
+        if (total != values.length) {
+            throw new IllegalArgumentException("Duplicate column normalization changed NNZ unexpectedly.");
+        }
+
+        return normalizedColumns;
     }
 
     public double[] multiply(double[] x) {
@@ -270,10 +334,6 @@ public final class SparseMatrixCSR {
         return (double) values.length / (double) totalElements;
     }
 
-    /**
-     * Returns the mathematical matrix element.
-     * Duplicate CSR entries for the same column are summed.
-     */
     public double get(int row, int column) {
         if (row < 0 || row >= rows) {
             throw new IndexOutOfBoundsException(
@@ -302,6 +362,64 @@ public final class SparseMatrixCSR {
             return true;
         } catch (IllegalArgumentException exception) {
             return false;
+        }
+    }
+
+    private static void validateCSRStructure(
+            double[] values,
+            int[] columnIndices,
+            int[] rowPointers,
+            int rows,
+            int columns) {
+
+        if (values.length != columnIndices.length) {
+            throw new IllegalArgumentException(
+                    "values and columnIndices must have the same length.");
+        }
+
+        if (rows == Integer.MAX_VALUE || rowPointers.length != rows + 1) {
+            throw new IllegalArgumentException(
+                    "rowPointers length must be rows + 1.");
+        }
+
+        if (rowPointers.length == 0 || rowPointers[0] != 0) {
+            throw new IllegalArgumentException("rowPointers[0] must be 0.");
+        }
+
+        int previous = 0;
+        for (int i = 0; i < rowPointers.length; i++) {
+            int current = rowPointers[i];
+
+            if (current < 0 || current < previous) {
+                throw new IllegalArgumentException(
+                        "rowPointers must be non-negative and monotonically non-decreasing.");
+            }
+            if (current > values.length) {
+                throw new IllegalArgumentException(
+                        "rowPointers value exceeds NNZ at index " + i + ".");
+            }
+            previous = current;
+        }
+
+        if (rowPointers[rows] != values.length) {
+            throw new IllegalArgumentException(
+                    "The last row pointer must equal NNZ.");
+        }
+
+        for (int i = 0; i < columnIndices.length; i++) {
+            int column = columnIndices[i];
+            if (column < 0 || column >= columns) {
+                throw new IllegalArgumentException(
+                        "Column index out of bounds at position " + i + ": " + column);
+            }
+        }
+
+        for (int i = 0; i < values.length; i++) {
+            if (!Double.isFinite(values[i])) {
+                throw new IllegalArgumentException(
+                        "CSR values must be finite. Invalid value at position "
+                                + i + ": " + values[i]);
+            }
         }
     }
 
