@@ -10,9 +10,7 @@ import sys
 from pathlib import Path
 
 DEFAULT_ROOT = Path(__file__).resolve().parents[1]
-EXCLUDED_DIRS = {
-    ".git", "target", "__pycache__", ".pytest_cache", ".mypy_cache",
-}
+EXCLUDED_DIRS = {".git", "target", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
 GENERATED_FILES = {"MANIFEST.txt", "SHA256SUMS.txt"}
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 MANIFEST_HEADER = [
@@ -32,34 +30,24 @@ def digest_file(path: Path) -> str:
 def independent_inventory(root: Path) -> list[str]:
     """Rebuild the inventory independently; never follow symbolic links."""
     found: list[str] = []
-
-    for directory, subdirectories, filenames in os.walk(
-        root, topdown=True, followlinks=False
-    ):
+    for directory, subdirectories, filenames in os.walk(root, topdown=True, followlinks=False):
         parent = Path(directory)
         subdirectories[:] = sorted(
-            name
-            for name in subdirectories
-            if name not in EXCLUDED_DIRS
-            and not (parent / name).is_symlink()
+            name for name in subdirectories if name not in EXCLUDED_DIRS and not (parent / name).is_symlink()
         )
 
-        for filename in filenames:
+        for filename in sorted(filenames):
             item = parent / filename
             relative = item.relative_to(root).as_posix()
-
             if relative in GENERATED_FILES:
                 continue
             if item.is_symlink() or not item.is_file():
                 continue
-
             found.append(relative)
 
     found.sort()
-
     if len(found) != len(set(found)):
         raise ValueError("filesystem inventory contains duplicate paths")
-
     return found
 
 
@@ -81,22 +69,15 @@ def parse_manifest(path: Path) -> list[str]:
 
     if any(not entry for entry in entries):
         raise ValueError("manifest contains blank path entries")
-
     if len(entries) != declared_count:
-        raise ValueError(
-            f"manifest file-count mismatch: declared {declared_count}, "
-            f"found {len(entries)}"
-        )
-
+        raise ValueError(f"manifest file-count mismatch: declared {declared_count}, found {len(entries)}")
     if entries != sorted(entries):
         raise ValueError("manifest paths are not sorted")
-
     if len(entries) != len(set(entries)):
         raise ValueError("manifest contains duplicate paths")
 
     for entry in entries:
         candidate = Path(entry)
-
         if (
             candidate.is_absolute()
             or "\\" in entry
@@ -128,7 +109,6 @@ def parse_checksums(path: Path) -> dict[str, str]:
             raise ValueError(f"malformed checksum line {number}")
 
         value, name = match.groups()
-
         if name in result:
             raise ValueError(f"duplicate checksum entry: {name}")
 
@@ -141,6 +121,8 @@ def parse_checksums(path: Path) -> dict[str, str]:
             or name.strip() != name
         ):
             raise ValueError(f"unsafe checksum path: {name}")
+        if not HEX64.fullmatch(value):
+            raise ValueError(f"checksum digest is not a valid SHA-256 for {name}")
 
         result[name] = value
 
@@ -152,7 +134,6 @@ def parse_checksums(path: Path) -> dict[str, str]:
 
 def verify(root: Path) -> dict[str, object]:
     root = Path(root).resolve()
-
     if not root.is_dir():
         raise ValueError(f"P3 root does not exist: {root}")
 
@@ -168,9 +149,7 @@ def verify(root: Path) -> dict[str, object]:
     if listed != actual:
         missing = sorted(set(actual) - set(listed))
         extra = sorted(set(listed) - set(actual))
-        raise ValueError(
-            f"manifest inventory mismatch; missing={missing}; extra={extra}"
-        )
+        raise ValueError(f"manifest inventory mismatch; missing={missing}; extra={extra}")
 
     checksums = parse_checksums(checksum_path)
     expected_names = set(actual) | {"MANIFEST.txt"}
@@ -178,23 +157,17 @@ def verify(root: Path) -> dict[str, object]:
     if set(checksums) != expected_names:
         missing = sorted(expected_names - set(checksums))
         extra = sorted(set(checksums) - expected_names)
-        raise ValueError(
-            f"checksum inventory mismatch; missing={missing}; extra={extra}"
-        )
+        raise ValueError(f"checksum inventory mismatch; missing={missing}; extra={extra}")
 
     verified = 0
-
     for relative in actual:
         expected = checksums[relative]
         actual_digest = digest_file(root / relative)
-
         if actual_digest != expected:
             raise ValueError(f"SHA-256 mismatch: {relative}")
-
         verified += 1
 
     manifest_digest = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
-
     if manifest_digest != checksums["MANIFEST.txt"]:
         raise ValueError("SHA-256 mismatch: MANIFEST.txt")
 
@@ -206,19 +179,14 @@ def verify(root: Path) -> dict[str, object]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Independently verify P3 file inventory and SHA-256 hashes."
-    )
+    parser = argparse.ArgumentParser(description="Independently verify P3 file inventory and SHA-256 hashes.")
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
     args = parser.parse_args()
 
     try:
         result = verify(args.root)
-        print(
-            "[PASS] Independent integrity verification: "
-            f"{result['manifest_entries']} files; "
-            f"{result['sha256_entries_verified']} SHA-256 digests"
-        )
+        print("[PASS] Independent integrity verification: "
+              f"{result['manifest_entries']} files; {result['sha256_entries_verified']} SHA-256 digests")
         return 0
     except (OSError, ValueError) as exc:
         print(f"[FAIL] {exc}", file=sys.stderr)
