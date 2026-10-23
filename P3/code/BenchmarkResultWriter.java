@@ -166,25 +166,35 @@ public final class BenchmarkResultWriter {
         String content =
                 StandardCharsets.UTF_8.decode(buffer).toString();
 
-        int newline = content.indexOf('\n');
+        if (content.isBlank()) {
+            throw new IOException(
+                    "Existing CSV is empty; refusing to append");
+        }
+
+        String normalized = content.replace("\r\n", "\n")
+                .replace("\r", "\n");
+
+        if (normalized.equals(HEADER + "\n")
+                || normalized.equals(HEADER)) {
+            throw new IOException(
+                    "CSV contains only a header and no data rows");
+        }
+
+        int newline = normalized.indexOf('\n');
 
         if (newline < 0) {
             throw new IOException(
                     "Existing CSV has no complete header");
         }
 
-        String firstLine = content.substring(0, newline);
-
-        if (firstLine.endsWith("\r")) {
-            firstLine = firstLine.substring(0, firstLine.length() - 1);
-        }
+        String firstLine = normalized.substring(0, newline);
 
         if (!HEADER.equals(firstLine)) {
             throw new IOException(
                     "V2 CSV header mismatch; refusing to append");
         }
 
-        char last = content.charAt(content.length() - 1);
+        char last = normalized.charAt(normalized.length() - 1);
 
         if (last != '\n' && last != '\r') {
             throw new IOException(

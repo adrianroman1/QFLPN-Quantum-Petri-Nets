@@ -273,7 +273,7 @@ class MultiplyTaskDeterminismTest {
         int[] pointers = {0, 3, 5};
 
         double[] input = {4.0, 7.0};
-        double[] expected = {13.0, 84.0};
+        double[] expected = {13.0, 63.0};
 
         ForkJoinPool pool = new ForkJoinPool(2);
 

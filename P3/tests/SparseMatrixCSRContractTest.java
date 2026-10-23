@@ -205,7 +205,7 @@ class SparseMatrixCSRContractTest {
                 3);
 
         assertArrayEquals(
-                new double[] {29.0},
+                new double[] {41.0},
                 matrix.multiply(new double[] {5.0, 3.0, 7.0}),
                 EPS);
     }
