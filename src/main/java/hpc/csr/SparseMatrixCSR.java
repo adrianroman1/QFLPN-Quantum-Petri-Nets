@@ -1,6 +1,7 @@
 package hpc.csr;
 
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.Objects;
 import java.util.concurrent.ForkJoinPool;
 
@@ -121,11 +122,11 @@ public final class SparseMatrixCSR {
 
             int[] sliceCols = Arrays.copyOfRange(normalizedColumns, start, end);
             double[] sliceVals = Arrays.copyOfRange(normalizedValues, start, end);
-            int[] sortedOrder = new int[ sliceCols.length ];
+            Integer[] sortedOrder = new Integer[sliceCols.length];
             for (int i = 0; i < sortedOrder.length; i++) {
                 sortedOrder[i] = i;
             }
-            Arrays.sort(sortedOrder, (a, b) -> Integer.compare(sliceCols[a], sliceCols[b]));
+            Arrays.sort(sortedOrder, Comparator.comparingInt(index -> sliceCols[index]));
 
             int write = 0;
             for (int i = 0; i < sortedOrder.length; i++) {
