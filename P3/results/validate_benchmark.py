@@ -151,7 +151,6 @@ def validate_row(row: dict[str, str], index: int) -> dict[str, Any]:
 
         for key in ("cpu", "java_version", "operating_system"):
             text_value(row, key)
-        # notes may be empty, but it must exist and must not be null.
         need(row.get("notes") is not None, "notes field is missing")
 
         close(speedup, seq_mean / par_mean, "speedup")
