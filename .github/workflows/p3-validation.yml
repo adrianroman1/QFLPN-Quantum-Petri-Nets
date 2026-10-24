@@ -21,8 +21,10 @@ on:
       - "src/**"
       - ".github/workflows/p3-validation.yml"
 
+# Required for p3_integrity_persist to commit the generated integrity files.
+# GitHub branch protection can still reject the push; that must fail the job.
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: p3-validation-${{ github.ref }}
@@ -52,6 +54,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: true
 
       - name: Set up Java 21
         uses: actions/setup-java@v4
@@ -391,7 +394,78 @@ jobs:
           echo "P3_P1_STYLE_MANIFEST_AND_SHA256SUMS_GENERATED"
 
       # ========================================================
-      # 9. INDIVIDUAL MANIFEST PUBLICATION
+      # 9. PERSIST INTEGRITY FILES IN THE REPOSITORY
+      #
+      # This is the actual repository write stage.
+      # It commits ONLY the two global integrity files.
+      # Pull requests are intentionally read-only.
+      # ========================================================
+
+      - name: Persist P3 MANIFEST and SHA256SUMS in repository
+        id: p3_integrity_persist
+        if: >-
+          always() &&
+          github.event_name != 'pull_request' &&
+          steps.p3_integrity_generate.outcome == 'success'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          test -s P3/MANIFEST.txt
+          test -s P3/SHA256SUMS.txt
+
+          if [ -z "${GITHUB_REF_NAME:-}" ]; then
+            echo "P3_INTEGRITY_PERSIST_FAILED: branch name is unavailable" >&2
+            exit 1
+          fi
+
+          if [[ "$GITHUB_REF" != refs/heads/* ]]; then
+            echo "P3_INTEGRITY_PERSIST_FAILED: refusing non-branch ref" >&2
+            echo "GITHUB_REF=$GITHUB_REF" >&2
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Stage only the two generated integrity files.
+          git add -- P3/MANIFEST.txt P3/SHA256SUMS.txt
+
+          if git diff --cached --quiet; then
+            echo "P3_INTEGRITY_FILES_ALREADY_CURRENT"
+          else
+            git commit \
+              -m "chore(p3): persist generated integrity manifests"
+
+            # A protected branch may reject this push. Do not hide that failure.
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
+
+          # Verify that the remote branch contains exactly the generated blobs.
+          git fetch origin "$GITHUB_REF_NAME"
+
+          LOCAL_MANIFEST="$(git hash-object P3/MANIFEST.txt)"
+          REMOTE_MANIFEST="$(git rev-parse "FETCH_HEAD:P3/MANIFEST.txt")"
+
+          LOCAL_SHA256="$(git hash-object P3/SHA256SUMS.txt)"
+          REMOTE_SHA256="$(git rev-parse "FETCH_HEAD:P3/SHA256SUMS.txt")"
+
+          if [ "$LOCAL_MANIFEST" != "$REMOTE_MANIFEST" ]; then
+            echo "P3_INTEGRITY_PERSIST_FAILED: remote MANIFEST differs" >&2
+            exit 1
+          fi
+
+          if [ "$LOCAL_SHA256" != "$REMOTE_SHA256" ]; then
+            echo "P3_INTEGRITY_PERSIST_FAILED: remote SHA256SUMS differs" >&2
+            exit 1
+          fi
+
+          echo "P3_INTEGRITY_FILES_PERSISTED_AND_REMOTE_VERIFIED"
+          echo "P3_MANIFEST_BLOB=$REMOTE_MANIFEST"
+          echo "P3_SHA256SUMS_BLOB=$REMOTE_SHA256"
+
+      # ========================================================
+      # 10. INDIVIDUAL MANIFEST PUBLICATION
       # ========================================================
 
       - name: Verify and publish complete P3 MANIFEST.txt
@@ -460,7 +534,7 @@ jobs:
           PY
 
       # ========================================================
-      # 10. INDIVIDUAL SHA256SUMS PUBLICATION
+      # 11. INDIVIDUAL SHA256SUMS PUBLICATION
       # ========================================================
 
       - name: Verify and publish complete P3 SHA256SUMS.txt
@@ -545,7 +619,7 @@ jobs:
           PY
 
       # ========================================================
-      # 11. AUTOMATIC DISCOVERY AND FULL DISPLAY
+      # 12. AUTOMATIC DISCOVERY AND FULL DISPLAY
       #     EXCLUDING SEPARATELY PUBLISHED INTEGRITY FILES
       # ========================================================
 
@@ -673,7 +747,7 @@ jobs:
           PY
 
       # ========================================================
-      # 12. PUBLISH COMPLETE VALIDATION ARTIFACTS
+      # 13. PUBLISH COMPLETE VALIDATION ARTIFACTS
       # ========================================================
 
       - name: Upload complete P3 validation evidence
@@ -688,7 +762,7 @@ jobs:
             P3/
 
       # ========================================================
-      # 13. FINAL INDEPENDENT PACKAGE VERIFICATION
+      # 14. FINAL INDEPENDENT PACKAGE VERIFICATION
       # ========================================================
 
       - name: Independently verify complete P3 package and publish verdict
@@ -696,6 +770,7 @@ jobs:
         if: always()
         shell: bash
         env:
+          EVENT_NAME: ${{ github.event_name }}
           P3_ENVIRONMENT: ${{ steps.p3_environment.outcome }}
           P3_REQUIRED_FILES: ${{ steps.p3_required_files.outcome }}
           P3_PYTHON_COMPILE: ${{ steps.p3_python_compile.outcome }}
@@ -707,6 +782,7 @@ jobs:
           P3_BENCHMARK: ${{ steps.p3_benchmark.outcome }}
           P3_BENCHMARK_SUMMARY: ${{ steps.p3_benchmark_summary.outcome }}
           P3_INTEGRITY_GENERATE: ${{ steps.p3_integrity_generate.outcome }}
+          P3_INTEGRITY_PERSIST: ${{ steps.p3_integrity_persist.outcome }}
           P3_DISPLAY_MANIFEST: ${{ steps.p3_display_manifest.outcome }}
           P3_DISPLAY_SHA256: ${{ steps.p3_display_sha256.outcome }}
           P3_DISPLAY_ALL_TEXT: ${{ steps.p3_display_all_text.outcome }}
@@ -736,6 +812,7 @@ jobs:
               "p3_benchmark": "P3_BENCHMARK",
               "p3_benchmark_summary": "P3_BENCHMARK_SUMMARY",
               "p3_integrity_generate": "P3_INTEGRITY_GENERATE",
+              "p3_integrity_persist": "P3_INTEGRITY_PERSIST",
               "p3_display_manifest": "P3_DISPLAY_MANIFEST",
               "p3_display_sha256": "P3_DISPLAY_SHA256",
               "p3_display_all_text": "P3_DISPLAY_ALL_TEXT",
@@ -756,6 +833,18 @@ jobs:
           print("P3_CI_OUTCOMES_CAPTURED")
           print(json.dumps(outcomes, indent=2))
           PY
+
+          # Persistence is mandatory for push and workflow_dispatch runs.
+          # PR runs are intentionally read-only and do not attempt a push.
+          if [ "$EVENT_NAME" != "pull_request" ]; then
+            if [ "$P3_INTEGRITY_PERSIST" != "success" ]; then
+              echo "P3_FINAL_VERDICT_REJECTED: integrity files were not persisted" >&2
+              exit 1
+            fi
+
+            test -s P3/MANIFEST.txt
+            test -s P3/SHA256SUMS.txt
+          fi
 
           set +e
           python3 P3/tools/verify_final_package.py \
