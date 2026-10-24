@@ -129,7 +129,7 @@ def build_inventory_contents(
             or Path(relative).name in EXCLUDED_NAMES
         ):
             raise RuntimeError(
-                f"Unsafe inventory path: {relative}"
+                f"Unsafe inventory path outside P3/: {relative}"
             )
 
         relative_paths.append(relative)
