@@ -271,6 +271,27 @@ def test_format_environment_reports_missing_file(
     assert "MISSING" in "\n".join(lines)
 
 
+def test_effective_verdict_accepts_complete_package() -> None:
+    assert MODULE.effective_verdict(
+        "P3_ACCEPTED",
+        [],
+    ) == "P3_ACCEPTED"
+
+
+def test_effective_verdict_rejects_missing_evidence() -> None:
+    assert MODULE.effective_verdict(
+        "P3_ACCEPTED",
+        ["P3/reports/environment.txt"],
+    ) == "P3_REJECTED"
+
+
+def test_effective_verdict_rejects_unknown_verdict() -> None:
+    assert MODULE.effective_verdict(
+        "UNKNOWN",
+        [],
+    ) == "P3_REJECTED"
+
+
 def test_build_summary_contains_verdict_and_run_id(
     tmp_path: Path,
 ) -> None:
@@ -286,6 +307,7 @@ def test_build_summary_contains_verdict_and_run_id(
     )
 
     assert "# QFLPN P3 — FINAL VALIDATION SUMMARY" in summary
+    assert "- Final verdict: **P3_ACCEPTED**" in summary
     assert "**P3_ACCEPTED**" in summary
     assert RUN_ID in summary
 
@@ -368,6 +390,35 @@ def test_build_summary_reports_missing_evidence(
 
     assert missing_relative in summary
     assert "MISSING" in summary
+    assert "- Final verdict: **P3_REJECTED**" in summary
+    assert "P3_REJECTED / INCOMPLETE EVIDENCE" in summary
+    assert "**Final verdict: P3_ACCEPTED**" not in summary
+
+
+def test_build_summary_rejects_accepted_verdict_with_missing_evidence(
+    tmp_path: Path,
+) -> None:
+    create_evidence_tree(tmp_path)
+
+    missing_relative = "P3/reports/environment.txt"
+    (tmp_path / missing_relative).unlink()
+
+    verdict_path = tmp_path / "verdict.json"
+    create_verdict(verdict_path, verdict="P3_ACCEPTED")
+
+    summary = MODULE.build_summary(
+        tmp_path,
+        verdict_path,
+        RUN_ID,
+    )
+
+    header = next(
+        line
+        for line in summary.splitlines()
+        if line.startswith("- Final verdict:")
+    )
+
+    assert header == "- Final verdict: **P3_REJECTED**"
     assert "P3_REJECTED / INCOMPLETE EVIDENCE" in summary
 
 
@@ -385,7 +436,8 @@ def test_build_summary_rejects_unknown_verdict(
         RUN_ID,
     )
 
-    assert "P3_REJECTED" in summary
+    assert "- Final verdict: **P3_REJECTED**" in summary
+    assert "P3_REJECTED / INCOMPLETE EVIDENCE" in summary
 
 
 def test_build_summary_includes_verification_error(
