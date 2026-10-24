@@ -107,9 +107,11 @@ def require(condition: bool, message: str) -> None:
 
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
+
     with path.open("rb") as stream:
         for block in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(block)
+
     return digest.hexdigest()
 
 
@@ -166,10 +168,12 @@ def independent_inventory(root: Path) -> list[str]:
                 continue
 
             relative = path.relative_to(root).as_posix()
+
             require(
                 safe_relative_path(relative),
                 f"unsafe filesystem path discovered: {relative}",
             )
+
             found.append(relative)
 
     found.sort()
@@ -199,10 +203,12 @@ def parse_manifest(path: Path) -> list[str]:
         all(entries),
         "MANIFEST.txt contains an empty path entry",
     )
+
     require(
         entries == sorted(entries),
         "MANIFEST.txt paths are not sorted",
     )
+
     require(
         len(entries) == len(set(entries)),
         "MANIFEST.txt contains duplicate paths",
@@ -213,6 +219,7 @@ def parse_manifest(path: Path) -> list[str]:
             safe_relative_path(entry),
             f"unsafe or noncanonical manifest path: {entry}",
         )
+
         require(
             PurePosixPath(entry).name not in GLOBAL_INTEGRITY_NAMES,
             f"self-referential global integrity path: {entry}",
@@ -238,6 +245,7 @@ def parse_checksums(path: Path) -> dict[str, str]:
 
     for number, line in enumerate(content.splitlines(), start=1):
         match = re.fullmatch(r"([0-9a-f]{64})  ([^\r\n]+)", line)
+
         require(
             match is not None,
             f"malformed SHA256SUMS.txt line {number}",
@@ -250,10 +258,12 @@ def parse_checksums(path: Path) -> dict[str, str]:
             HEX64.fullmatch(digest) is not None,
             f"invalid SHA-256 digest on line {number}",
         )
+
         require(
             safe_relative_path(relative),
             f"unsafe checksum path on line {number}: {relative}",
         )
+
         require(
             relative not in result,
             f"duplicate checksum path: {relative}",
@@ -277,6 +287,7 @@ def verify_global_integrity(root: Path) -> dict[str, int]:
         manifest_path.is_file() and not manifest_path.is_symlink(),
         "P3/MANIFEST.txt is missing or unsafe",
     )
+
     require(
         checksums_path.is_file() and not checksums_path.is_symlink(),
         "P3/SHA256SUMS.txt is missing or unsafe",
@@ -305,6 +316,7 @@ def verify_global_integrity(root: Path) -> dict[str, int]:
         )
 
         actual_digest = sha256_file(target)
+
         require(
             actual_digest == checksums[relative],
             f"SHA-256 mismatch: {relative}",
@@ -330,25 +342,70 @@ def verify_required_files(root: Path) -> None:
 
 
 def load_json(path: Path, label: str) -> dict[str, Any]:
-    require(path.is_file() and not path.is_symlink(), f"{label} is missing")
+    require(
+        path.is_file() and not path.is_symlink(),
+        f"{label} is missing",
+    )
 
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise VerificationError(f"{label} is invalid JSON: {exc}") from exc
+        raise VerificationError(
+            f"{label} is invalid JSON: {exc}"
+        ) from exc
 
-    require(isinstance(value, dict), f"{label} must be a JSON object")
+    require(
+        isinstance(value, dict),
+        f"{label} must be a JSON object",
+    )
+
     return value
 
 
 def finite_number(value: Any, label: str) -> float:
+    """Convert a finite numeric value, including a CSV numeric string.
+
+    csv.DictReader returns strings for every CSV field. Reject booleans,
+    empty strings, non-numeric strings, NaN and positive/negative infinity.
+    """
+
     require(
-        isinstance(value, (int, float)) and not isinstance(value, bool),
+        not isinstance(value, bool),
         f"{label} must be numeric",
     )
 
-    result = float(value)
-    require(math.isfinite(result), f"{label} must be finite")
+    require(
+        isinstance(value, (int, float, str)),
+        f"{label} must be numeric",
+    )
+
+    if isinstance(value, str):
+        normalized = value.strip()
+
+        require(
+            bool(normalized),
+            f"{label} must be numeric",
+        )
+
+        try:
+            result = float(normalized)
+        except ValueError as exc:
+            raise VerificationError(
+                f"{label} must be numeric"
+            ) from exc
+    else:
+        try:
+            result = float(value)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise VerificationError(
+                f"{label} must be numeric"
+            ) from exc
+
+    require(
+        math.isfinite(result),
+        f"{label} must be finite",
+    )
+
     return result
 
 
@@ -358,16 +415,43 @@ def verify_benchmark(
     expected: dict[str, int],
 ) -> dict[str, Any]:
     require(
-        RUN_ID_RE.fullmatch(run_id) is not None,
+        isinstance(run_id, str)
+        and RUN_ID_RE.fullmatch(run_id) is not None,
         "RUN_ID contains unsupported characters",
     )
 
-    csv_path = root / "P3" / "benchmarks" / "benchmark_results_v2.csv"
-    validator_path = root / "P3" / "results" / "validate_benchmark.py"
-    report_path = root / "P3" / "results" / "raw" / run_id / "validation-report.json"
+    csv_path = (
+        root
+        / "P3"
+        / "benchmarks"
+        / "benchmark_results_v2.csv"
+    )
 
-    require(csv_path.is_file(), "canonical benchmark V2 CSV is missing")
-    require(validator_path.is_file(), "canonical benchmark validator is missing")
+    validator_path = (
+        root
+        / "P3"
+        / "results"
+        / "validate_benchmark.py"
+    )
+
+    report_path = (
+        root
+        / "P3"
+        / "results"
+        / "raw"
+        / run_id
+        / "validation-report.json"
+    )
+
+    require(
+        csv_path.is_file() and not csv_path.is_symlink(),
+        "canonical benchmark V2 CSV is missing",
+    )
+
+    require(
+        validator_path.is_file() and not validator_path.is_symlink(),
+        "canonical benchmark validator is missing",
+    )
 
     # Re-run the authoritative validator against the complete CSV.
     import importlib.util
@@ -376,8 +460,11 @@ def verify_benchmark(
         "p3_authoritative_benchmark_validator",
         validator_path,
     )
-    require(spec is not None and spec.loader is not None,
-            "cannot load authoritative P3 benchmark validator")
+
+    require(
+        spec is not None and spec.loader is not None,
+        "cannot load authoritative P3 benchmark validator",
+    )
 
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
@@ -389,49 +476,76 @@ def verify_benchmark(
         result.get("schema") == "qflpn-benchmark-v2",
         "benchmark validator returned an unexpected schema",
     )
+
     require(
         result.get("validation") == "PASS"
         and result.get("all_records_valid") is True,
         "authoritative benchmark validator did not return PASS",
     )
 
-    report = load_json(report_path, "run-specific validation-report.json")
+    report = load_json(
+        report_path,
+        "run-specific validation-report.json",
+    )
 
     require(
         report.get("schema") == "qflpn-benchmark-v2",
         "validation-report.json schema mismatch",
     )
+
     require(
         report.get("validation") == "PASS",
         "validation-report.json does not report PASS",
     )
+
     require(
         report.get("all_records_valid") is True,
         "validation-report.json does not confirm all records valid",
     )
 
     records = report.get("records")
+
     require(
-        isinstance(records, int) and not isinstance(records, bool) and records >= 1,
+        isinstance(records, int)
+        and not isinstance(records, bool)
+        and records >= 1,
         "validation-report.json has an invalid records count",
     )
 
     latest = report.get("latest_record")
+
     require(
         isinstance(latest, dict),
         "validation-report.json latest_record is missing",
     )
+
     require(
         latest.get("run_id") == run_id,
         "validation-report.json RUN_ID does not match workflow RUN_ID",
     )
 
-    with csv_path.open("r", encoding="utf-8-sig", newline="") as stream:
-        reader = csv.DictReader(stream, strict=True)
-        matching_rows = [
-            row for row in reader
-            if row.get("run_id") == run_id
-        ]
+    try:
+        with csv_path.open(
+            "r",
+            encoding="utf-8-sig",
+            newline="",
+        ) as stream:
+            reader = csv.DictReader(stream, strict=True)
+
+            require(
+                reader.fieldnames is not None,
+                "benchmark CSV header is missing",
+            )
+
+            matching_rows = [
+                row
+                for row in reader
+                if row.get("run_id") == run_id
+            ]
+    except (OSError, UnicodeError, csv.Error) as exc:
+        raise VerificationError(
+            f"cannot read canonical benchmark CSV: {exc}"
+        ) from exc
 
     require(
         len(matching_rows) == 1,
@@ -441,12 +555,21 @@ def verify_benchmark(
 
     row = matching_rows[0]
 
+    try:
+        csv_dimension = int(row["dimension"])
+        csv_nnz = int(row["non_zero_count"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise VerificationError(
+            f"CSV dimension or non_zero_count is invalid: {exc}"
+        ) from exc
+
     require(
-        latest.get("dimension") == int(row["dimension"]),
+        latest.get("dimension") == csv_dimension,
         "CSV/JSON dimension mismatch",
     )
+
     require(
-        latest.get("nnz") == int(row["non_zero_count"]),
+        latest.get("nnz") == csv_nnz,
         "CSV/JSON non_zero_count mismatch",
     )
 
@@ -458,11 +581,23 @@ def verify_benchmark(
     )
 
     for report_key, csv_key in comparisons:
-        left = finite_number(latest.get(report_key), f"JSON {report_key}")
-        right = finite_number(row.get(csv_key), f"CSV {csv_key}")
+        left = finite_number(
+            latest.get(report_key),
+            f"JSON {report_key}",
+        )
+
+        right = finite_number(
+            row.get(csv_key),
+            f"CSV {csv_key}",
+        )
 
         require(
-            math.isclose(left, right, rel_tol=1e-8, abs_tol=1e-12),
+            math.isclose(
+                left,
+                right,
+                rel_tol=1e-8,
+                abs_tol=1e-12,
+            ),
             f"CSV/JSON mismatch for {csv_key}",
         )
 
@@ -471,12 +606,21 @@ def verify_benchmark(
         "validation JSON record count differs from authoritative CSV validation",
     )
 
-    run_directory = root / "P3" / "results" / "raw" / run_id
+    run_directory = (
+        root
+        / "P3"
+        / "results"
+        / "raw"
+        / run_id
+    )
 
     for filename in REQUIRED_RUN_FILES:
         path = run_directory / filename
+
         require(
-            path.is_file() and not path.is_symlink() and path.stat().st_size > 0,
+            path.is_file()
+            and not path.is_symlink()
+            and path.stat().st_size > 0,
             f"run-specific evidence is missing or empty: {filename}",
         )
 
@@ -495,16 +639,25 @@ def verify_benchmark(
     run_checksums: dict[str, str] = {}
 
     for number, line in enumerate(checksum_lines, start=1):
-        match = re.fullmatch(r"([0-9a-f]{64})  ([^\r\n]+)", line)
+        match = re.fullmatch(
+            r"([0-9a-f]{64})  ([^\r\n]+)",
+            line,
+        )
+
         require(
             match is not None,
             f"malformed run-specific checksum line {number}",
         )
+
         assert match is not None
 
         digest, relative = match.groups()
-        require(relative not in run_checksums,
-                f"duplicate run-specific checksum: {relative}")
+
+        require(
+            relative not in run_checksums,
+            f"duplicate run-specific checksum: {relative}",
+        )
+
         run_checksums[relative] = digest
 
     expected_run_paths = {
@@ -524,8 +677,11 @@ def verify_benchmark(
 
     for relative, expected_digest in run_checksums.items():
         path = p3_root / PurePosixPath(relative)
-        require(path.is_file() and not path.is_symlink(),
-                f"run checksum target is missing or unsafe: {relative}")
+
+        require(
+            path.is_file() and not path.is_symlink(),
+            f"run checksum target is missing or unsafe: {relative}",
+        )
 
         require(
             sha256_file(path) == expected_digest,
@@ -536,10 +692,13 @@ def verify_benchmark(
         "run_id": run_id,
         "schema": "qflpn-benchmark-v2",
         "records": records,
-        "dimension": int(row["dimension"]),
-        "non_zero_count": int(row["non_zero_count"]),
-        "speedup": float(row["speedup"]),
-        "max_absolute_error": float(row["max_absolute_error"]),
+        "dimension": csv_dimension,
+        "non_zero_count": csv_nnz,
+        "speedup": finite_number(row.get("speedup"), "CSV speedup"),
+        "max_absolute_error": finite_number(
+            row.get("max_absolute_error"),
+            "CSV max_absolute_error",
+        ),
     }
 
 
@@ -548,6 +707,7 @@ def verify_ci_outcomes(path: Path) -> dict[str, str]:
 
     for stage in REQUIRED_CI_STAGES:
         value = outcomes.get(stage)
+
         require(
             value == "success",
             f"mandatory CI stage {stage} did not succeed: {value!r}",
@@ -567,11 +727,28 @@ def verify_package(
 ) -> dict[str, Any]:
     root = Path(root).resolve()
 
-    require(root.is_dir(), f"repository root does not exist: {root}")
+    require(
+        root.is_dir(),
+        f"repository root does not exist: {root}",
+    )
 
+    # Validate RUN_ID and benchmark evidence before global integrity.
+    # This ensures a malformed benchmark cannot mask a more relevant
+    # RUN_ID, CSV, report, or run-specific checksum error.
+    benchmark = verify_benchmark(
+        root,
+        run_id,
+        expected,
+    )
+
+    # Required package files and global integrity are checked only after
+    # benchmark evidence has been validated.
     verify_required_files(root)
+
     integrity = verify_global_integrity(root)
-    benchmark = verify_benchmark(root, run_id, expected)
+
+    # CI outcomes are checked last so malformed outcomes are not masked
+    # by unrelated benchmark or global-integrity failures.
     outcomes = verify_ci_outcomes(outcomes_path)
 
     return {
@@ -586,14 +763,54 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Independently verify the complete QFLPN P3 package."
     )
-    parser.add_argument("--root", type=Path, default=ROOT)
-    parser.add_argument("--run-id", required=True)
-    parser.add_argument("--outcomes-json", type=Path, required=True)
-    parser.add_argument("--expected-n", type=int, required=True)
-    parser.add_argument("--warmup", type=int, required=True)
-    parser.add_argument("--iterations", type=int, required=True)
-    parser.add_argument("--threshold", type=int, required=True)
-    parser.add_argument("--parallelism", type=int, required=True)
+
+    parser.add_argument(
+        "--root",
+        type=Path,
+        default=ROOT,
+    )
+
+    parser.add_argument(
+        "--run-id",
+        required=True,
+    )
+
+    parser.add_argument(
+        "--outcomes-json",
+        type=Path,
+        required=True,
+    )
+
+    parser.add_argument(
+        "--expected-n",
+        type=int,
+        required=True,
+    )
+
+    parser.add_argument(
+        "--warmup",
+        type=int,
+        required=True,
+    )
+
+    parser.add_argument(
+        "--iterations",
+        type=int,
+        required=True,
+    )
+
+    parser.add_argument(
+        "--threshold",
+        type=int,
+        required=True,
+    )
+
+    parser.add_argument(
+        "--parallelism",
+        type=int,
+        required=True,
+    )
+
     args = parser.parse_args()
 
     expected = {
@@ -611,6 +828,7 @@ def main() -> int:
             expected,
             args.outcomes_json,
         )
+
     except Exception as exc:
         print(
             json.dumps(
@@ -622,9 +840,17 @@ def main() -> int:
                 allow_nan=False,
             )
         )
+
         return 1
 
-    print(json.dumps(result, indent=2, allow_nan=False))
+    print(
+        json.dumps(
+            result,
+            indent=2,
+            allow_nan=False,
+        )
+    )
+
     return 0
 
 
