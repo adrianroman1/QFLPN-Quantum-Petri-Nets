@@ -124,6 +124,20 @@ def format_environment(root: Path, maximum_lines: int = 60) -> list[str]:
     return output
 
 
+def effective_verdict(
+    declared_verdict: Any,
+    missing_evidence: list[str],
+) -> str:
+    """Fail closed when the verifier verdict or mandatory evidence is invalid."""
+    if declared_verdict != "P3_ACCEPTED":
+        return "P3_REJECTED"
+
+    if missing_evidence:
+        return "P3_REJECTED"
+
+    return "P3_ACCEPTED"
+
+
 def build_summary(
     root: Path,
     verdict_path: Path,
@@ -133,17 +147,17 @@ def build_summary(
     root = root.resolve()
     verdict = load_json(verdict_path)
 
-    decision = verdict.get("verdict", "P3_REJECTED")
-
-    if decision not in {"P3_ACCEPTED", "P3_REJECTED"}:
-        decision = "P3_REJECTED"
-
     evidence = evidence_status(root)
     missing = [
         name
         for name, present, _ in evidence
         if not present
     ]
+
+    decision = effective_verdict(
+        verdict.get("verdict", "P3_REJECTED"),
+        missing,
+    )
 
     integrity = verdict.get("integrity", {})
     benchmark = verdict.get("benchmark", {})
@@ -228,7 +242,7 @@ def build_summary(
         "",
     ])
 
-    if decision == "P3_ACCEPTED" and not missing:
+    if decision == "P3_ACCEPTED":
         output.extend([
             "**P3_ACCEPTED** — the independent verifier accepted "
             "the package and all mandatory evidence files are present.",
