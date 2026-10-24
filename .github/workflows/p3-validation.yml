@@ -1,4 +1,4 @@
-name: P3 Validation — Complete Automated Validation and Integrity
+name: P2 Canonical Reproducibility and Acceptance
 
 on:
   workflow_dispatch:
@@ -6,1252 +6,763 @@ on:
   push:
     branches:
       - main
-      - "fix/**"
     paths:
-      - "P3/**"
-      - "src/**"
-      - "pom.xml"
-      - ".github/workflows/p3-validation.yml"
+      - "P2/**"
+      - "audit/**"
+      - ".github/workflows/p2-validation.yml"
 
   pull_request:
     branches:
       - main
     paths:
-      - "P3/**"
-      - "src/**"
-      - "pom.xml"
-      - ".github/workflows/p3-validation.yml"
+      - "P2/**"
+      - "audit/**"
+      - ".github/workflows/p2-validation.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
-  group: p3-validation-${{ github.ref }}
+  group: p2-validation-${{ github.ref }}
   cancel-in-progress: false
 
-env:
-  P3_RUN_ID: p3-${{ github.run_id }}-${{ github.run_attempt }}
-  P3_N: "1000000"
-  P3_WARMUP: "5"
-  P3_ITERATIONS: "10"
-  P3_THRESHOLD: "4096"
-  P3_PARALLELISM: "2"
-
 jobs:
-  p3_validation:
-    name: p3_validation
+  p2-canonical-validation:
+    name: P2 Mathematical Validation and Evidence
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
 
     steps:
-
-      # ==========================================================
-      # 01. CHECKOUT
-      # ==========================================================
-
-      - name: Checkout exact commit
-        id: checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
-          fetch-depth: 1
+          fetch-depth: 0
 
-      # ==========================================================
-      # 02. ENVIRONMENT
-      # ==========================================================
-
-      - name: Set up Java 21
-        id: java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "21"
-          cache: maven
-
-      - name: Set up Python 3.12
-        id: python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: P2/requirements-p2.txt
 
-      - name: Install Python test dependencies
-        id: python_dependencies
+      - name: Install P2 dependencies
         shell: bash
         run: |
           set -Eeuo pipefail
-          python -m pip install --disable-pip-version-check pytest
+          python -m pip install --upgrade pip
+          python -m pip install -r P2/requirements-p2.txt
 
-      # ==========================================================
-      # 03. INITIALIZE RUN OUTPUTS
-      #
-      # Do not delete MANIFEST.txt or SHA256SUMS.txt.
-      # Do not delete historical benchmark records.
-      # Do not delete P3/artifacts.
-      # ==========================================================
+      # ========================================================
+      # AUDIT PYTHON — COMPILATION AND AUTOMATED TESTS
+      # ========================================================
 
-      - name: Initialize current P3 run
-        id: initialize
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-
-          mkdir -p P3/reports
-          mkdir -p P3/results/raw
-          mkdir -p P3/benchmarks
-
-          RUN_DIR="P3/results/raw/${P3_RUN_ID}"
-
-          if [[ ! "$P3_RUN_ID" =~ ^p3-[0-9]+-[0-9]+$ ]]; then
-            echo "::error::Invalid P3_RUN_ID"
-            exit 1
-          fi
-
-          mkdir -p "$RUN_DIR"
-
-          printf '%s\n' "NOT_EXECUTED" \
-            > P3/reports/environment.txt
-
-          printf '%s\n' "NOT_EXECUTED" \
-            > P3/reports/pytest-report.txt
-
-          printf '%s\n' "NOT_EXECUTED" \
-            > P3/reports/benchmark-execution.log
-
-          printf '%s\n' "NOT_EXECUTED" \
-            > P3/reports/benchmark-summary.md
-
-          echo "[PASS] Current run directory initialized."
-          echo "[PASS] Existing P3 integrity files preserved."
-          echo "[PASS] Historical benchmark data preserved."
-          echo "[PASS] Existing P3/artifacts preserved."
-
-      # ==========================================================
-      # 04. ENVIRONMENT REPORT
-      # ==========================================================
-
-      - name: Record complete P3 execution environment
-        id: environment
-        if: always()
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-
-          {
-            echo "QFLPN P3 VALIDATION ENVIRONMENT"
-            echo "WORKFLOW=p3_validation"
-            echo "RUN_ID=${P3_RUN_ID}"
-            echo "COMMIT=${GITHUB_SHA}"
-            echo "REF=${GITHUB_REF}"
-            echo "EVENT=${GITHUB_EVENT_NAME}"
-            echo "RUN=${GITHUB_RUN_ID}"
-            echo "ATTEMPT=${GITHUB_RUN_ATTEMPT}"
-            echo "UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            echo
-            echo "JAVA"
-            java -version 2>&1
-            echo
-            echo "MAVEN"
-            mvn -version
-            echo
-            echo "PYTHON"
-            python --version
-            echo
-            echo "OPERATING SYSTEM"
-            uname -a
-            echo
-            echo "CPU"
-            lscpu
-            echo
-            echo "MEMORY"
-            free -h
-            echo
-            echo "DISK"
-            df -h
-          } > P3/reports/environment.txt
-
-          test -s P3/reports/environment.txt
-
-          echo "[PASS] Environment report generated."
-
-      # ==========================================================
-      # 05. PREFLIGHT
-      # ==========================================================
-
-      - name: Preflight — verify P3 source and test inventory
-        id: preflight
-        if: always()
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-
-          required_files=(
-            "pom.xml"
-            "P3/pom.xml"
-            "P3/results/run_benchmark.sh"
-            "P3/results/validate_benchmark.py"
-            "P3/results/test_validate_benchmark.py"
-            "P3/results/generate_benchmark_summary.py"
-            "P3/tools/generate_integrity.py"
-            "P3/tools/verify_integrity.py"
-            "P3/tests/test_generate_integrity.py"
-            "P3/tests/test_verify_integrity.py"
-          )
-
-          for file in "${required_files[@]}"; do
-            if [[ ! -s "$file" ]]; then
-              echo "::error::Missing or empty required file: $file"
-              exit 1
-            fi
-            echo "[PASS] $file"
-          done
-
-          required_directories=(
-            "P3"
-            "P3/benchmarks"
-            "P3/results"
-            "P3/results/raw"
-            "P3/reports"
-            "P3/tests"
-            "P3/tools"
-          )
-
-          for directory in "${required_directories[@]}"; do
-            if [[ ! -d "$directory" ]]; then
-              echo "::error::Missing directory: $directory"
-              exit 1
-            fi
-            echo "[PASS] ${directory}/"
-          done
-
-          echo "[PASS] P3 preflight completed."
-
-      # ==========================================================
-      # 06. PYTHON COMPILATION
-      # ==========================================================
-
-      - name: Compile all P3 Python scripts and tests
-        id: py_compile
-        if: always() && steps.preflight.outcome == 'success'
-        continue-on-error: true
+      - name: Compile P2 and audit Python files
         shell: bash
         run: |
           set -Eeuo pipefail
 
           python -m py_compile \
-            P3/results/validate_benchmark.py \
-            P3/results/test_validate_benchmark.py \
-            P3/results/generate_benchmark_summary.py \
-            P3/tools/generate_integrity.py \
-            P3/tools/verify_integrity.py \
-            P3/tests/test_generate_integrity.py \
-            P3/tests/test_verify_integrity.py
+            audit/run_numeric_equivalence.py \
+            audit/test_numeric_equivalence.py \
+            audit/conftest.py \
+            audit/test_integration_it01.py \
+            audit/test_integration_it02.py \
+            audit/test_integration_it03.py \
+            audit/test_integration_it04.py \
+            audit/test_integration_it05.py
 
-          echo "[PASS] All required P3 Python files compile."
+          echo "[PASS] Audit Python syntax compilation"
 
-      # ==========================================================
-      # 07. ROOT MAVEN TESTS
-      #
-      # Root pom.xml is a separate Maven project.
-      # P3 Maven tests are executed by run_benchmark.sh.
-      # ==========================================================
-
-      - name: Run root Maven tests
-        id: root_maven
-        if: always() && steps.preflight.outcome == 'success'
-        continue-on-error: true
+      - name: Run P2 numeric audit unit tests
+        id: audit_unit_tests
         shell: bash
         run: |
           set -Eeuo pipefail
 
-          mvn --batch-mode --no-transfer-progress test
+          python -m pytest \
+            audit/test_numeric_equivalence.py \
+            -v \
+            --tb=short \
+            2>&1 | tee audit-unit-tests.log
 
-      # ==========================================================
-      # 08. ALL P3 PYTHON TESTS
-      # ==========================================================
-
-      - name: Run all P3 Python test suites
-        id: pytest
-        if: always() && steps.preflight.outcome == 'success'
-        continue-on-error: true
+      - name: Run P2 numeric audit integration tests
+        id: audit_integration_tests
         shell: bash
         run: |
           set -Eeuo pipefail
 
-          set -o pipefail
+          python -m pytest \
+            audit/test_integration_it01.py \
+            audit/test_integration_it02.py \
+            audit/test_integration_it03.py \
+            audit/test_integration_it04.py \
+            audit/test_integration_it05.py \
+            -v \
+            --tb=short \
+            2>&1 | tee audit-integration-tests.log
 
-          python -m pytest -v \
-            P3/results \
-            P3/tests \
-            2>&1 | tee P3/reports/pytest-report.txt
+      # ========================================================
+      # P2 EXECUTION ENVIRONMENT
+      # ========================================================
 
-      # ==========================================================
-      # 09. P3 BENCHMARK AND P3 MAVEN TESTS
-      #
-      # run_benchmark.sh already executes:
-      # mvn -B -f P3/pom.xml clean test
-      #
-      # Do not execute P3 Maven a second time here.
-      # ==========================================================
-
-      - name: Execute P3 benchmark and P3 Maven validation
-        id: benchmark
-        if: always() && steps.preflight.outcome == 'success'
-        continue-on-error: true
-        shell: bash
-        env:
-          RUN_ID: ${{ env.P3_RUN_ID }}
-          N: ${{ env.P3_N }}
-          WARMUP: ${{ env.P3_WARMUP }}
-          ITERATIONS: ${{ env.P3_ITERATIONS }}
-          THRESHOLD: ${{ env.P3_THRESHOLD }}
-          PARALLELISM: ${{ env.P3_PARALLELISM }}
-        run: |
-          set -Eeuo pipefail
-
-          chmod +x P3/results/run_benchmark.sh
-
-          bash P3/results/run_benchmark.sh \
-            2>&1 | tee P3/reports/benchmark-execution.log
-
-      # ==========================================================
-      # 10. EXACT RUN_ID EVIDENCE VALIDATION
-      # ==========================================================
-
-      - name: Validate benchmark evidence for exact RUN_ID
-        id: benchmark_evidence
-        if: always() && steps.benchmark.outcome == 'success'
-        continue-on-error: true
+      - name: Capture P2 execution environment
         shell: bash
         run: |
           set -Eeuo pipefail
 
-          RUN_DIR="P3/results/raw/${P3_RUN_ID}"
-          CSV="P3/benchmarks/benchmark_results_v2.csv"
+          mkdir -p P2/reports
 
-          required_files=(
-            "$CSV"
-            "${RUN_DIR}/benchmark-report.json"
-            "${RUN_DIR}/benchmark-report.md"
-            "${RUN_DIR}/benchmark-report.txt"
-            "${RUN_DIR}/validation-report.json"
-            "${RUN_DIR}/SHA256SUMS.txt"
-          )
+          ENV_FILE="P2/reports/environment.txt"
 
-          for file in "${required_files[@]}"; do
-            if [[ ! -s "$file" ]]; then
-              echo "::error::Missing benchmark evidence: $file"
-              exit 1
-            fi
-            echo "[PASS] $file"
-          done
-
-          python - "$CSV" "$RUN_DIR" "$P3_RUN_ID" "$GITHUB_SHA" <<'PY'
-          import csv
-          import json
-          import math
-          import sys
-          from pathlib import Path
-
-          csv_path = Path(sys.argv[1])
-          run_dir = Path(sys.argv[2])
-          expected_run_id = sys.argv[3]
-          expected_commit = sys.argv[4]
-
-          report_path = run_dir / "validation-report.json"
-          benchmark_json = run_dir / "benchmark-report.json"
-
-          def read_json(path):
-              try:
-                  value = json.loads(path.read_text(encoding="utf-8"))
-              except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-                  raise SystemExit(f"Invalid JSON {path}: {exc}")
-              if not isinstance(value, dict):
-                  raise SystemExit(f"{path} must contain a JSON object")
-              return value
-
-          report = read_json(report_path)
-          benchmark = read_json(benchmark_json)
-
-          if report.get("schema") != "qflpn-benchmark-v2":
-              raise SystemExit("Invalid benchmark validation schema")
-
-          if report.get("validation") != "PASS":
-              raise SystemExit("Benchmark validation is not PASS")
-
-          if report.get("all_records_valid") is not True:
-              raise SystemExit("Not all benchmark records are valid")
-
-          if not isinstance(report.get("records"), int):
-              raise SystemExit("Invalid benchmark record count")
-
-          if report["records"] < 1:
-              raise SystemExit("No validated benchmark records")
-
-          latest = report.get("latest_record")
-          if not isinstance(latest, dict):
-              raise SystemExit("Missing latest_record")
-
-          if latest.get("run_id") != expected_run_id:
-              raise SystemExit("Validation JSON RUN_ID mismatch")
-
-          try:
-              with csv_path.open(
-                  "r", encoding="utf-8-sig", newline=""
-              ) as stream:
-                  reader = csv.DictReader(stream, strict=True)
-
-                  if not reader.fieldnames:
-                      raise SystemExit("CSV header is missing")
-
-                  rows = list(reader)
-
-          except (OSError, UnicodeError, csv.Error) as exc:
-              raise SystemExit(f"Cannot parse benchmark CSV: {exc}")
-
-          matching = [
-              row for row in rows
-              if row.get("run_id") == expected_run_id
-          ]
-
-          if len(matching) != 1:
-              raise SystemExit(
-                  "Expected exactly one CSV record for RUN_ID; "
-                  f"found {len(matching)}"
-              )
-
-          row = matching[0]
-
-          if benchmark.get("run_id") not in (None, expected_run_id):
-              raise SystemExit("Benchmark JSON RUN_ID mismatch")
-
-          if benchmark.get("commit") not in (None, expected_commit):
-              raise SystemExit("Benchmark JSON commit mismatch")
-
-          try:
-              dimension = int(row["dimension"])
-              nnz = int(row["non_zero_count"])
-              speedup = float(row["speedup"])
-              seq_ms = float(row["sequential_mean_ms"])
-              par_ms = float(row["parallel_mean_ms"])
-              max_error = float(row["max_absolute_error"])
-          except (KeyError, TypeError, ValueError) as exc:
-              raise SystemExit(f"Invalid CSV benchmark values: {exc}")
-
-          if dimension != latest.get("dimension"):
-              raise SystemExit("CSV/JSON dimension mismatch")
-
-          if nnz != latest.get("nnz"):
-              raise SystemExit("CSV/JSON NNZ mismatch")
-
-          if not all(math.isfinite(x) for x in (
-              speedup, seq_ms, par_ms, max_error
-          )):
-              raise SystemExit("Non-finite benchmark value")
-
-          if min(speedup, seq_ms, par_ms) <= 0:
-              raise SystemExit("Benchmark times and speedup must be positive")
-
-          if max_error < 0 or max_error > 1e-12:
-              raise SystemExit("Numerical error exceeds 1e-12")
-
-          if not math.isclose(
-              speedup,
-              float(latest["speedup"]),
-              rel_tol=1e-8,
-              abs_tol=1e-12,
-          ):
-              raise SystemExit("CSV/JSON speedup mismatch")
-
-          if not math.isclose(
-              max_error,
-              float(latest["max_error"]),
-              rel_tol=1e-8,
-              abs_tol=1e-12,
-          ):
-              raise SystemExit("CSV/JSON maximum error mismatch")
-
-          if not math.isclose(
-              seq_ms,
-              float(latest["sequential_mean_ms"]),
-              rel_tol=1e-8,
-              abs_tol=1e-12,
-          ):
-              raise SystemExit("CSV/JSON sequential mean mismatch")
-
-          if not math.isclose(
-              par_ms,
-              float(latest["parallel_mean_ms"]),
-              rel_tol=1e-8,
-              abs_tol=1e-12,
-          ):
-              raise SystemExit("CSV/JSON parallel mean mismatch")
-
-          print("[PASS] Benchmark V2 schema.")
-          print("[PASS] Validation status.")
-          print("[PASS] Exact RUN_ID.")
-          print("[PASS] Exactly one CSV record.")
-          print("[PASS] CSV/JSON dimension and NNZ.")
-          print("[PASS] CSV/JSON timing and speedup.")
-          print("[PASS] Numerical error <= 1e-12.")
-          print("[PASS] Benchmark evidence associated with current commit.")
-          PY
-
-          (
-            cd P3
-            sha256sum --check \
-              "results/raw/${P3_RUN_ID}/SHA256SUMS.txt"
-          )
-
-          echo "[PASS] Run-scoped SHA256SUMS.txt verified."
-
-      # ==========================================================
-      # 11. BENCHMARK SUMMARY
-      # ==========================================================
-
-      - name: Generate benchmark summary
-        id: benchmark_summary
-        if: always() && steps.benchmark_evidence.outcome == 'success'
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-
-          python3 P3/results/generate_benchmark_summary.py \
-            --csv P3/benchmarks/benchmark_results_v2.csv \
-            --report "P3/results/raw/${P3_RUN_ID}/validation-report.json" \
-            --run-id "${P3_RUN_ID}" \
-            --output P3/reports/benchmark-summary.md
-
-          test -s P3/reports/benchmark-summary.md
-
-          echo "[PASS] Benchmark summary generated."
-
-      # ==========================================================
-      # 12. AGGREGATE ALL EXECUTION RESULTS
-      #
-      # This creates the final reports before integrity generation.
-      # ==========================================================
-
-      - name: Generate P3 validation and acceptance reports
-        id: aggregate_reports
-        if: always()
-        continue-on-error: true
-        shell: bash
-        env:
-          INITIALIZE_OUTCOME: ${{ steps.initialize.outcome }}
-          ENVIRONMENT_OUTCOME: ${{ steps.environment.outcome }}
-          PREFLIGHT_OUTCOME: ${{ steps.preflight.outcome }}
-          PY_COMPILE_OUTCOME: ${{ steps.py_compile.outcome }}
-          ROOT_MAVEN_OUTCOME: ${{ steps.root_maven.outcome }}
-          PYTEST_OUTCOME: ${{ steps.pytest.outcome }}
-          BENCHMARK_OUTCOME: ${{ steps.benchmark.outcome }}
-          EVIDENCE_OUTCOME: ${{ steps.benchmark_evidence.outcome }}
-          SUMMARY_OUTCOME: ${{ steps.benchmark_summary.outcome }}
-        run: |
-          set -Eeuo pipefail
-
-          python - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          reports = Path("P3/reports")
-          reports.mkdir(parents=True, exist_ok=True)
-
-          gates = {
-              "initialize": os.environ["INITIALIZE_OUTCOME"],
-              "environment": os.environ["ENVIRONMENT_OUTCOME"],
-              "preflight": os.environ["PREFLIGHT_OUTCOME"],
-              "python_compile": os.environ["PY_COMPILE_OUTCOME"],
-              "root_maven": os.environ["ROOT_MAVEN_OUTCOME"],
-              "pytest_all_p3_suites": os.environ["PYTEST_OUTCOME"],
-              "p3_maven_and_benchmark": os.environ["BENCHMARK_OUTCOME"],
-              "benchmark_evidence": os.environ["EVIDENCE_OUTCOME"],
-              "benchmark_summary": os.environ["SUMMARY_OUTCOME"],
-          }
-
-          passed = all(value == "success" for value in gates.values())
-
-          summary = {
-              "schema": "qflpn-p3-validation-summary-v4",
-              "workflow": "p3_validation",
-              "run_id": os.environ["P3_RUN_ID"],
-              "commit": os.environ["GITHUB_SHA"],
-              "event": os.environ["GITHUB_EVENT_NAME"],
-              "gates": gates,
-              "pre_integrity_status": "PASS" if passed else "FAIL",
-              "manifest": "P3/MANIFEST.txt",
-              "checksums": "P3/SHA256SUMS.txt",
-              "integrity_generation": "PENDING",
-              "integrity_verification": "PENDING",
-          }
-
-          acceptance = {
-              "schema": "qflpn-p3-acceptance-v4",
-              "workflow": "p3_validation",
-              "run_id": summary["run_id"],
-              "commit": summary["commit"],
-              "status_before_integrity": (
-                  "PASS" if passed else "FAIL"
-              ),
-              "gates": gates,
-              "benchmark": {
-                  "status": (
-                      "VALIDATED"
-                      if gates["benchmark_evidence"] == "success"
-                      else "NOT_VALIDATED"
-                  ),
-                  "csv": "P3/benchmarks/benchmark_results_v2.csv",
-                  "run_directory": (
-                      "P3/results/raw/" + summary["run_id"]
-                  ),
-                  "numerical_tolerance": 1e-12,
-              },
-              "integrity": {
-                  "manifest": "P3/MANIFEST.txt",
-                  "checksums": "P3/SHA256SUMS.txt",
-                  "generation": "PENDING",
-                  "independent_verification": "PENDING",
-              },
-              "final_verdict": (
-                  "DETERMINED_BY_p3_validation_FINAL_GATE"
-              ),
-          }
-
-          (reports / "validation-summary.json").write_text(
-              json.dumps(summary, indent=2, sort_keys=True) + "\n",
-              encoding="utf-8",
-          )
-
-          (reports / "acceptance-report.json").write_text(
-              json.dumps(acceptance, indent=2, sort_keys=True) + "\n",
-              encoding="utf-8",
-          )
-
-          lines = [
-              "# QFLPN P3 — p3_validation",
-              "",
-              f"- RUN_ID: `{summary['run_id']}`",
-              f"- Commit: `{summary['commit']}`",
-              f"- Pre-integrity status: **{summary['pre_integrity_status']}**",
-              "- Manifest: `P3/MANIFEST.txt`",
-              "- Checksums: `P3/SHA256SUMS.txt`",
-              "- Final integrity: pending",
-              "",
-              "| Gate | Outcome |",
-              "|---|---|",
-          ]
-
-          lines.extend(
-              f"| {name} | {value.upper()} |"
-              for name, value in gates.items()
-          )
-
-          lines.extend([
-              "",
-              "The authoritative final verdict is enforced by "
-              "the p3_validation final gate.",
-              "",
-          ])
-
-          (reports / "validation-summary.md").write_text(
-              "\n".join(lines),
-              encoding="utf-8",
-          )
-
-          benchmark_summary = reports / "benchmark-summary.md"
-          if not benchmark_summary.is_file() or not benchmark_summary.stat().st_size:
-              benchmark_summary.write_text(
-                  "# QFLPN P3 benchmark summary\n\n"
-                  "- Validation: **NOT EXECUTED OR FAILED**\n"
-                  f"- RUN_ID: `{summary['run_id']}`\n",
-                  encoding="utf-8",
-              )
-
-          print("[PASS] validation-summary.json generated.")
-          print("[PASS] validation-summary.md generated.")
-          print("[PASS] acceptance-report.json generated.")
-          print("[PASS] benchmark-summary.md available.")
-          print("[INFO] Final integrity is the next mandatory stage.")
-          PY
-
-          test -s P3/reports/validation-summary.json
-          test -s P3/reports/validation-summary.md
-          test -s P3/reports/acceptance-report.json
-          test -s P3/reports/benchmark-summary.md
-
-      # ==========================================================
-      # 13. VERIFY COMPLETE REPORT INVENTORY
-      #
-      # Do not require MANIFEST/SHA here.
-      # They are generated only after every report exists.
-      # ==========================================================
-
-      - name: Verify all final P3 reports and current run evidence
-        id: report_inventory
-        if: always()
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-
-          RUN_DIR="P3/results/raw/${P3_RUN_ID}"
-
-          required_reports=(
-            "P3/reports/environment.txt"
-            "P3/reports/pytest-report.txt"
-            "P3/reports/benchmark-execution.log"
-            "P3/reports/benchmark-summary.md"
-            "P3/reports/validation-summary.json"
-            "P3/reports/validation-summary.md"
-            "P3/reports/acceptance-report.json"
-          )
-
-          for file in "${required_reports[@]}"; do
-            if [[ ! -s "$file" ]]; then
-              echo "::error::Missing required P3 report: $file"
-              exit 1
-            fi
-            echo "[PASS] $file"
-          done
-
-          test -d "$RUN_DIR"
-
-          if [[ "${{ steps.benchmark.outcome }}" == "success" ]]; then
-            benchmark_files=(
-              "P3/benchmarks/benchmark_results_v2.csv"
-              "${RUN_DIR}/benchmark-report.json"
-              "${RUN_DIR}/benchmark-report.md"
-              "${RUN_DIR}/benchmark-report.txt"
-              "${RUN_DIR}/validation-report.json"
-              "${RUN_DIR}/SHA256SUMS.txt"
-            )
-
-            for file in "${benchmark_files[@]}"; do
-              if [[ ! -s "$file" ]]; then
-                echo "::error::Missing benchmark evidence: $file"
-                exit 1
-              fi
-              echo "[PASS] $file"
-            done
-          fi
-
-          echo "[PASS] Final report inventory verified."
-
-      # ==========================================================
-      # 14. FINAL MANIFEST AND SHA256 GENERATION
-      #
-      # Existing generator is the single source of truth.
-      # No deletion and no second generation.
-      # ==========================================================
-
-      - name: Generate P3 MANIFEST.txt and SHA256SUMS.txt
-        id: integrity_generate
-        if: always()
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-
-          python3 P3/tools/generate_integrity.py --write
-
-          test -s P3/MANIFEST.txt
-          test -s P3/SHA256SUMS.txt
-
-          grep -Fx "reports/acceptance-report.json" \
-            P3/MANIFEST.txt
-
-          grep -E '^[0-9a-f]{64}  MANIFEST\.txt$' \
-            P3/SHA256SUMS.txt
-
-          echo "[PASS] P3/MANIFEST.txt generated."
-          echo "[PASS] P3/SHA256SUMS.txt generated."
-          echo "[PASS] Acceptance report included in MANIFEST."
-          echo "[PASS] MANIFEST hash included in SHA256SUMS."
-
-      # ==========================================================
-      # 15. INDEPENDENT INTEGRITY VERIFICATION
-      #
-      # No files inside P3 are modified after this step.
-      # ==========================================================
-
-      - name: Verify final P3 integrity independently
-        id: integrity_verify
-        if: always() && steps.integrity_generate.outcome == 'success'
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-
-          test -s P3/MANIFEST.txt
-          test -s P3/SHA256SUMS.txt
-
-          python3 P3/tools/verify_integrity.py
-
-          python3 P3/tools/generate_integrity.py --check
-
-          MANIFEST_COUNT="$(
-            grep -cve '^[[:space:]]*$' P3/MANIFEST.txt
-          )"
-
-          CHECKSUM_COUNT="$(
-            grep -Ec '^[0-9a-f]{64}  ' P3/SHA256SUMS.txt
-          )"
-
-          echo "MANIFEST_ENTRIES=${MANIFEST_COUNT}"
-          echo "SHA256_ENTRIES=${CHECKSUM_COUNT}"
-
-          if [[ "$MANIFEST_COUNT" -lt 1 ]]; then
-            echo "::error::MANIFEST is empty"
-            exit 1
-          fi
-
-          if [[ "$CHECKSUM_COUNT" -lt 1 ]]; then
-            echo "::error::SHA256SUMS is empty"
-            exit 1
-          fi
-
-          echo "[PASS] Independent P3 integrity verification."
-          echo "[PASS] Deterministic manifest regeneration check."
-          echo "[PASS] SHA256 inventory is non-empty."
-
-      # ==========================================================
-      # 16. DISPLAY ACTUAL RESULTS
-      #
-      # This step reads existing reports and CSV.
-      # It does not modify files inside P3.
-      # ==========================================================
-
-      - name: Display complete P3 benchmark and integrity results
-        id: display_results
-        if: always()
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-
-          python - <<'PY'
-          import csv
-          import json
-          from pathlib import Path
-
-          run_id = "${{ env.P3_RUN_ID }}"
-          csv_path = Path("P3/benchmarks/benchmark_results_v2.csv")
-          report_path = Path("P3/results/raw") / run_id / "validation-report.json"
-
-          print("==============================================")
-          print("QFLPN P3 — AUTOMATED RESULTS")
-          print("==============================================")
-          print("RUN_ID:", run_id)
-
-          if csv_path.is_file():
-              with csv_path.open(
-                  "r", encoding="utf-8-sig", newline=""
-              ) as stream:
-                  reader = csv.DictReader(stream)
-                  rows = [
-                      row for row in reader
-                      if row.get("run_id") == run_id
-                  ]
-
-              if len(rows) == 1:
-                  row = rows[0]
-                  for key in (
-                      "dimension",
-                      "non_zero_count",
-                      "parallelism",
-                      "threshold",
-                      "warmup_iterations",
-                      "measured_iterations",
-                      "sequential_mean_ms",
-                      "sequential_median_ms",
-                      "sequential_stddev_ms",
-                      "parallel_mean_ms",
-                      "parallel_median_ms",
-                      "parallel_stddev_ms",
-                      "speedup",
-                      "sequential_throughput_states_per_s",
-                      "parallel_throughput_states_per_s",
-                      "max_absolute_error",
-                      "cpu",
-                      "java_version",
-                      "operating_system",
-                  ):
-                      print(f"{key}: {row.get(key)}")
-              else:
-                  print("Current RUN_ID CSV records:", len(rows))
-          else:
-              print("Benchmark CSV: NOT AVAILABLE")
-
-          if report_path.is_file():
-              try:
-                  report = json.loads(
-                      report_path.read_text(encoding="utf-8")
-                  )
-                  print("Benchmark validation:", report.get("validation"))
-                  print("Validated CSV records:", report.get("records"))
-                  print(
-                      "All records valid:",
-                      report.get("all_records_valid")
-                  )
-              except (OSError, json.JSONDecodeError) as exc:
-                  print("Validation JSON read error:", exc)
-          else:
-              print("Benchmark validation report: NOT AVAILABLE")
-
-          manifest = Path("P3/MANIFEST.txt")
-          checksums = Path("P3/SHA256SUMS.txt")
-
-          if manifest.is_file():
-              entries = [
-                  line for line in manifest.read_text(
-                      encoding="utf-8"
-                  ).splitlines()
-                  if line.strip()
-              ]
-              print("MANIFEST entries:", len(entries))
-              print("MANIFEST path: P3/MANIFEST.txt")
-          else:
-              print("MANIFEST: NOT GENERATED")
-
-          if checksums.is_file():
-              entries = [
-                  line for line in checksums.read_text(
-                      encoding="utf-8"
-                  ).splitlines()
-                  if line.strip()
-              ]
-              print("SHA256 entries:", len(entries))
-              print("SHA256 path: P3/SHA256SUMS.txt")
-          else:
-              print("SHA256SUMS: NOT GENERATED")
-
-          print("==============================================")
-          PY
-
-      # ==========================================================
-      # 17. STAGE ALL EXISTING P3 EVIDENCE OUTSIDE P3
-      #
-      # Preserve all raw runs and P3/artifacts.
-      # Do not modify the integrity inventory.
-      # ==========================================================
-
-      - name: Stage complete P3 evidence
-        id: stage_evidence
-        if: always()
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-
-          DEST="${RUNNER_TEMP}/p3-validation-evidence"
-
-          rm -rf "$DEST"
-          mkdir -p "$DEST"
-
-          test -s P3/MANIFEST.txt
-          test -s P3/SHA256SUMS.txt
-
-          cp -a P3/MANIFEST.txt "$DEST/"
-          cp -a P3/SHA256SUMS.txt "$DEST/"
-
-          if [[ -d P3/reports ]]; then
-            cp -a P3/reports "$DEST/"
-          fi
-
-          if [[ -d P3/results/raw ]]; then
-            mkdir -p "$DEST/results"
-            cp -a P3/results/raw "$DEST/results/"
-          fi
-
-          if [[ -d P3/artifacts ]]; then
-            cp -a P3/artifacts "$DEST/"
-          fi
-
-          if [[ -d P3/benchmarks ]]; then
-            mkdir -p "$DEST/benchmarks"
-            cp -a P3/benchmarks "$DEST/"
-          fi
-
-          if [[ -d P3/tools ]]; then
-            cp -a P3/tools "$DEST/"
-          fi
-
-          if [[ -d P3/tests ]]; then
-            cp -a P3/tests "$DEST/"
-          fi
-
-          test -s "$DEST/MANIFEST.txt"
-          test -s "$DEST/SHA256SUMS.txt"
-
-          echo "[PASS] MANIFEST copied."
-          echo "[PASS] SHA256SUMS copied."
-          echo "[PASS] All P3 reports staged."
-          echo "[PASS] All historical raw runs staged."
-          echo "[PASS] Existing P3/artifacts staged."
-          echo "[PASS] Benchmark evidence staged."
-
-      # ==========================================================
-      # 18. UPLOAD COMPLETE P3 EVIDENCE
-      # ==========================================================
-
-      - name: Upload complete P3 validation evidence
-        id: upload_p3_evidence
-        if: always()
-        continue-on-error: true
-        uses: actions/upload-artifact@v4
-        with:
-          name: P3-validation-${{ github.run_id }}-${{ github.run_attempt }}
-          if-no-files-found: error
-          retention-days: 90
-          path: |
-            ${{ runner.temp }}/p3-validation-evidence/
-
-      # ==========================================================
-      # 19. FINAL ACCEPTANCE GATE
-      #
-      # The final verdict is external to P3 so that no file inside
-      # P3 is modified after final MANIFEST/SHA verification.
-      # ==========================================================
-
-      - name: Enforce final p3_validation acceptance
-        id: final_gate
-        if: always()
-        shell: bash
-        env:
-          CHECKOUT_OUTCOME: ${{ steps.checkout.outcome }}
-          JAVA_OUTCOME: ${{ steps.java.outcome }}
-          PYTHON_OUTCOME: ${{ steps.python.outcome }}
-          DEPENDENCIES_OUTCOME: ${{ steps.python_dependencies.outcome }}
-          INITIALIZE_OUTCOME: ${{ steps.initialize.outcome }}
-          ENVIRONMENT_OUTCOME: ${{ steps.environment.outcome }}
-          PREFLIGHT_OUTCOME: ${{ steps.preflight.outcome }}
-          PY_COMPILE_OUTCOME: ${{ steps.py_compile.outcome }}
-          ROOT_MAVEN_OUTCOME: ${{ steps.root_maven.outcome }}
-          PYTEST_OUTCOME: ${{ steps.pytest.outcome }}
-          BENCHMARK_OUTCOME: ${{ steps.benchmark.outcome }}
-          EVIDENCE_OUTCOME: ${{ steps.benchmark_evidence.outcome }}
-          SUMMARY_OUTCOME: ${{ steps.benchmark_summary.outcome }}
-          REPORTS_OUTCOME: ${{ steps.aggregate_reports.outcome }}
-          INVENTORY_OUTCOME: ${{ steps.report_inventory.outcome }}
-          INTEGRITY_GENERATE_OUTCOME: ${{ steps.integrity_generate.outcome }}
-          INTEGRITY_VERIFY_OUTCOME: ${{ steps.integrity_verify.outcome }}
-          DISPLAY_OUTCOME: ${{ steps.display_results.outcome }}
-          STAGE_OUTCOME: ${{ steps.stage_evidence.outcome }}
-          UPLOAD_OUTCOME: ${{ steps.upload_p3_evidence.outcome }}
-        run: |
-          set -Eeuo pipefail
-
-          python - <<'PY'
-          import json
-          import os
-          import sys
-          from datetime import datetime, timezone
-          from pathlib import Path
-
-          names = [
-              "CHECKOUT_OUTCOME",
-              "JAVA_OUTCOME",
-              "PYTHON_OUTCOME",
-              "DEPENDENCIES_OUTCOME",
-              "INITIALIZE_OUTCOME",
-              "ENVIRONMENT_OUTCOME",
-              "PREFLIGHT_OUTCOME",
-              "PY_COMPILE_OUTCOME",
-              "ROOT_MAVEN_OUTCOME",
-              "PYTEST_OUTCOME",
-              "BENCHMARK_OUTCOME",
-              "EVIDENCE_OUTCOME",
-              "SUMMARY_OUTCOME",
-              "REPORTS_OUTCOME",
-              "INVENTORY_OUTCOME",
-              "INTEGRITY_GENERATE_OUTCOME",
-              "INTEGRITY_VERIFY_OUTCOME",
-              "DISPLAY_OUTCOME",
-              "STAGE_OUTCOME",
-              "UPLOAD_OUTCOME",
-          ]
-
-          gates = {
-              name: os.environ.get(name, "missing")
-              for name in names
-          }
-
-          passed = all(value == "success" for value in gates.values())
-
-          manifest = Path("P3/MANIFEST.txt")
-          checksums = Path("P3/SHA256SUMS.txt")
-
-          manifest_count = 0
-          checksum_count = 0
-
-          if manifest.is_file():
-              manifest_count = sum(
-                  1 for line in manifest.read_text(
-                      encoding="utf-8"
-                  ).splitlines()
-                  if line.strip()
-              )
-
-          if checksums.is_file():
-              checksum_count = sum(
-                  1 for line in checksums.read_text(
-                      encoding="utf-8"
-                  ).splitlines()
-                  if line.strip()
-              )
-
-          verdict = {
-              "schema": "qflpn-p3-final-verdict-v3",
-              "workflow": "p3_validation",
-              "run_id": os.environ["P3_RUN_ID"],
-              "commit": os.environ["GITHUB_SHA"],
-              "event": os.environ["GITHUB_EVENT_NAME"],
-              "timestamp_utc": datetime.now(
-                  timezone.utc
-              ).isoformat(),
-              "status": "PASS" if passed else "FAIL",
-              "gates": gates,
-              "integrity": {
-                  "manifest": "P3/MANIFEST.txt",
-                  "manifest_entries": manifest_count,
-                  "checksums": "P3/SHA256SUMS.txt",
-                  "checksum_entries": checksum_count,
-                  "generation": gates["INTEGRITY_GENERATE_OUTCOME"],
-                  "independent_verification": (
-                      gates["INTEGRITY_VERIFY_OUTCOME"]
-                  ),
-              },
-              "evidence_artifact": (
-                  "P3-validation-"
-                  + os.environ["GITHUB_RUN_ID"]
-                  + "-"
-                  + os.environ["GITHUB_RUN_ATTEMPT"]
-              ),
-          }
-
-          verdict_path = (
-              Path(os.environ["RUNNER_TEMP"])
-              / "p3-validation-final-verdict.json"
-          )
-
-          verdict_path.write_text(
-              json.dumps(verdict, indent=2, sort_keys=True) + "\n",
-              encoding="utf-8",
-          )
-
-          print("==============================================")
-          print("QFLPN P3 FINAL VALIDATION")
-          print("==============================================")
-          print("JOB: p3_validation")
-          print("RUN_ID:", verdict["run_id"])
-          print("COMMIT:", verdict["commit"])
-
-          for name, outcome in gates.items():
-              print(f"{name}: {outcome}")
-
-          print("MANIFEST ENTRIES:", manifest_count)
-          print("SHA256 ENTRIES:", checksum_count)
-          print("FINAL STATUS:", verdict["status"])
-          print("FINAL VERDICT:", verdict_path)
-          print("==============================================")
-
-          if manifest_count < 1 or checksum_count < 1:
-              print("[FAIL] Integrity inventory is empty.")
-              sys.exit(1)
-
-          if not passed:
-              print("[FAIL] p3_validation")
-              print(json.dumps(gates, indent=2))
-              sys.exit(1)
-
-          print("[PASS] p3_validation")
-          print("[PASS] All mandatory gates succeeded.")
-          print("[PASS] MANIFEST and SHA256 generated.")
-          print("[PASS] Independent integrity verification passed.")
-          print("[PASS] Complete P3 evidence artifact uploaded.")
-          PY
-
-      # ==========================================================
-      # 20. UPLOAD AUTHORITATIVE FINAL VERDICT
-      # ==========================================================
-
-      - name: Upload authoritative p3_validation verdict
-        id: upload_final_verdict
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: p3_validation-final-verdict-${{ github.run_id }}-${{ github.run_attempt }}
-          if-no-files-found: error
-          retention-days: 90
-          path: |
-            ${{ runner.temp }}/p3-validation-final-verdict.json
-
-      # ==========================================================
-      # 21. GITHUB ACTIONS SUMMARY
-      #
-      # Summary is outside P3 and does not invalidate checksums.
-      # ==========================================================
-
-      - name: Publish complete p3_validation summary
-        if: always()
-        shell: bash
-        run: |
           {
-            echo "# QFLPN P3 — p3_validation"
+            echo "QFLPN P2 EXECUTION ENVIRONMENT"
             echo
-            echo "- RUN_ID: \`${P3_RUN_ID}\`"
-            echo "- Commit: \`${GITHUB_SHA}\`"
-            echo "- Ref: \`${GITHUB_REF}\`"
-            echo "- Workflow run: \`${GITHUB_RUN_ID}\`"
-            echo "- Attempt: \`${GITHUB_RUN_ATTEMPT}\`"
+            echo "UTC timestamp:"
+            date -u +%Y-%m-%dT%H:%M:%SZ
+
             echo
-            echo "## Automated P3 outputs"
-            echo "- \`P3/reports/environment.txt\`"
-            echo "- \`P3/reports/pytest-report.txt\`"
-            echo "- \`P3/reports/benchmark-execution.log\`"
-            echo "- \`P3/reports/benchmark-summary.md\`"
-            echo "- \`P3/reports/validation-summary.json\`"
-            echo "- \`P3/reports/validation-summary.md\`"
-            echo "- \`P3/reports/acceptance-report.json\`"
+            echo "Repository:"
+            git remote get-url origin
+
             echo
-            echo "## Integrity"
-            echo "- \`P3/MANIFEST.txt\`"
-            echo "- \`P3/SHA256SUMS.txt\`"
-            echo "- Generation: ${{ steps.integrity_generate.outcome }}"
-            echo "- Independent verification: ${{ steps.integrity_verify.outcome }}"
+            echo "Git branch:"
+            echo "${GITHUB_REF_NAME:-unknown}"
+
             echo
-            echo "## Benchmark"
-            echo "- CSV: \`P3/benchmarks/benchmark_results_v2.csv\`"
-            echo "- Current run: \`P3/results/raw/${P3_RUN_ID}/\`"
+            echo "Git commit:"
+            git rev-parse HEAD
+
             echo
-            echo "## Gate outcomes"
-            echo "| Gate | Result |"
+            echo "GitHub workflow:"
+            echo "${GITHUB_WORKFLOW:-unknown}"
+
+            echo
+            echo "GitHub run ID:"
+            echo "${GITHUB_RUN_ID:-unknown}"
+
+            echo
+            echo "GitHub run attempt:"
+            echo "${GITHUB_RUN_ATTEMPT:-unknown}"
+
+            echo
+            echo "Python:"
+            python --version
+
+            echo
+            echo "Pip:"
+            python -m pip --version
+
+            echo
+            echo "Pytest:"
+            python -m pytest --version
+
+            echo
+            echo "NumPy, SciPy and PennyLane:"
+            python -c "import numpy, scipy, pennylane; print('NumPy:', numpy.__version__); print('SciPy:', scipy.__version__); print('PennyLane:', pennylane.__version__)"
+
+            echo
+            echo "Operating system:"
+            uname -a
+
+            echo
+            echo "CPU:"
+            if command -v lscpu >/dev/null 2>&1; then
+              lscpu
+            else
+              echo "lscpu unavailable"
+            fi
+
+            echo
+            echo "Memory:"
+            if command -v free >/dev/null 2>&1; then
+              free -h
+            else
+              echo "free unavailable"
+            fi
+
+            echo
+            echo "P2 dependency specification:"
+            cat P2/requirements-p2.txt
+
+            echo
+            echo "Resolved Python dependencies:"
+            python -m pip freeze
+
+          } > "$ENV_FILE" 2>&1
+
+          test -s "$ENV_FILE"
+
+          echo "[PASS] P2 execution environment captured"
+          cat "$ENV_FILE"
+
+      # ========================================================
+      # P2 SOURCE COMPILATION
+      # ========================================================
+
+      - name: Compile P2 sources, tests and tools
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          python -m compileall -q \
+            P2/code \
+            P2/tests \
+            P2/tools \
+            P2/benchmarks
+
+      # ========================================================
+      # REQUIRED P2 FILES
+      # ========================================================
+
+      - name: Validate required P2 files
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          python - <<'PY'
+          from pathlib import Path
+          import sys
+
+          root = Path("P2")
+
+          required = [
+              "P2_AUDIT_REPORT.md",
+              "REPRODUCIBILITY.md",
+              "VALIDATION_ALIGNMENT.md",
+              "requirements-p2.txt",
+              "requirements-lock.txt",
+
+              "code/qflpn_reference.py",
+              "code/qflpn_transition_operator.py",
+              "code/run_qflpn_pennylane.py",
+
+              "reports/reference_config.json",
+
+              "tests/conftest.py",
+              "tests/qflpn_validation.py",
+              "tests/test_sha256sums.py",
+              "tests/test_benchmark.py",
+              "tests/test_reference_artifacts.py",
+
+              "tools/run_all_tests.py",
+              "tools/generate_manifest.py",
+              "tools/verify_sha256.py",
+              "tools/generate_sha256sums.py",
+              "tools/verify_sha256sums.py",
+              "tools/validate_reports.py",
+              "tools/generate_reference_artifacts.py",
+              "tools/write_benchmark_summary.py",
+
+              "benchmarks/benchmark_config.json",
+              "benchmarks/benchmark_runner.py",
+              "benchmarks/validate_benchmark.py",
+          ]
+
+          missing = [
+              item for item in required
+              if not (root / item).is_file()
+          ]
+
+          if missing:
+              print("MISSING REQUIRED P2 FILES:")
+              for item in missing:
+                  print("-", item)
+              sys.exit(1)
+
+          print("P2_REQUIRED_FILES_ACCEPTED")
+          PY
+
+      # ========================================================
+      # CANONICAL REFERENCE CONFIGURATION
+      # ========================================================
+
+      - name: Validate canonical P2 reference configuration
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          python - <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          path = Path("P2/reports/reference_config.json")
+
+          try:
+              config = json.loads(
+                  path.read_text(encoding="utf-8")
+              )
+          except Exception as exc:
+              print("Invalid reference configuration:", exc)
+              sys.exit(1)
+
+          if not isinstance(config, dict):
+              print("Reference configuration must be a JSON object")
+              sys.exit(1)
+
+          expected = {
+              "schema_version": 1,
+              "qubits": 4,
+              "hilbert_dimension": 16,
+              "basis_order": "big-endian",
+              "activation_vector": [0.85, 0.90, 0.45, 0.70],
+              "controlled_gate": "C3X",
+              "controlled_gate_basis_indices": [14, 15],
+              "operator_order": "U = C3X @ U_rot",
+              "entropy_unit": "bits",
+          }
+
+          for key, value in expected.items():
+              actual = config.get(key)
+
+              if type(actual) is not type(value) or actual != value:
+                  print(
+                      f"Configuration mismatch for {key}: "
+                      f"expected={value!r}, actual={actual!r}"
+                  )
+                  sys.exit(1)
+
+          print("P2_REFERENCE_CONFIGURATION_ACCEPTED")
+          PY
+
+      # ========================================================
+      # BENCHMARK CONFIGURATION
+      # ========================================================
+
+      - name: Validate P2 benchmark configuration
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          python - <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          path = Path("P2/benchmarks/benchmark_config.json")
+
+          try:
+              config = json.loads(
+                  path.read_text(encoding="utf-8")
+              )
+          except Exception as exc:
+              print("Invalid benchmark configuration:", exc)
+              sys.exit(1)
+
+          expected = {
+              "schema_version": 1,
+              "project": "QFLPN P2",
+              "qubits": 4,
+              "hilbert_dimension": 16,
+              "basis_order": "big-endian",
+              "operator_order": "U = C3X @ U_rot",
+              "activation_vector": [0.85, 0.90, 0.45, 0.70],
+              "warmups": 5,
+              "repetitions": 30,
+              "numerical_tolerance": 1e-12,
+              "timer": "time.perf_counter_ns",
+          }
+
+          if not isinstance(config, dict):
+              print("Benchmark configuration must be a JSON object")
+              sys.exit(1)
+
+          for key, value in expected.items():
+              actual = config.get(key)
+
+              if type(actual) is not type(value) or actual != value:
+                  print(
+                      f"Benchmark configuration mismatch for {key}: "
+                      f"expected={value!r}, actual={actual!r}"
+                  )
+                  sys.exit(1)
+
+          expected_operations = [
+              "rotation_operator",
+              "c3x_operator",
+              "transition_operator",
+              "state_evolution",
+              "density_matrix",
+              "reduced_density_q4",
+              "reduced_density_q123",
+              "pennylane_execution",
+          ]
+
+          if config.get("operations") != expected_operations:
+              print("Benchmark operation set does not match P2 contract")
+              sys.exit(1)
+
+          print("P2_BENCHMARK_CONFIGURATION_ACCEPTED")
+          PY
+
+      # ========================================================
+      # COMPLETE P2 TEST SUITE
+      # ========================================================
+
+      - name: Run complete P2 test suite
+        id: pytest
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          python P2/tools/run_all_tests.py -v
+
+      # ========================================================
+      # MATHEMATICAL VALIDATION
+      # ========================================================
+
+      - name: Run standalone P2 mathematical validation
+        id: p2_math_validation
+        shell: bash
+        env:
+          PYTHONPATH: ${{ github.workspace }}/P2/code
+        run: |
+          set -Eeuo pipefail
+
+          mkdir -p P2/reports
+
+          python P2/tests/qflpn_validation.py \
+            2>&1 | tee P2/reports/qflpn-validation.log
+
+      # ========================================================
+      # REFERENCE ARTIFACTS
+      # ========================================================
+
+      - name: Generate manuscript-aligned P2 reference artifacts
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          python P2/tools/generate_reference_artifacts.py
+
+      - name: Validate generated P2 reference artifacts
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          python -m pytest \
+            P2/tests/test_reference_artifacts.py \
+            -v
+
+      - name: Validate machine-readable P2 test evidence
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          python P2/tools/validate_reports.py
+
+      # ========================================================
+      # PERFORMANCE BENCHMARK
+      # ========================================================
+
+      # Performance evidence is supplementary.
+      # A benchmark execution failure does not invalidate
+      # the independent mathematical validation.
+
+      - name: Run P2 canonical numerical-operation benchmark
+        id: p2_benchmark
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+
+          python P2/benchmarks/benchmark_runner.py \
+            --config P2/benchmarks/benchmark_config.json \
+            --output P2/benchmarks
+
+          rc=$?
+
+          echo "benchmark_exit_code=$rc" >> "$GITHUB_OUTPUT"
+
+          if [ "$rc" -eq 0 ]; then
+            echo "[PASS] P2 benchmark completed"
+          else
+            echo "[WARNING] P2 benchmark failed; mathematical validation continues"
+          fi
+
+          exit "$rc"
+
+      - name: Validate all generated P2 benchmark evidence
+        id: p2_benchmark_validation
+        if: steps.p2_benchmark.outcome == 'success'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          python P2/benchmarks/validate_benchmark.py \
+            --results P2/benchmarks
+
+      - name: Publish P2 benchmark summary
+        if: always() && steps.p2_benchmark_validation.outcome == 'success'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          python P2/tools/write_benchmark_summary.py
+
+      # ========================================================
+      # CACHE CLEANUP BEFORE FINAL INTEGRITY GENERATION
+      # ========================================================
+
+      - name: Remove P2 benchmark bytecode cache
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          CACHE_DIR="P2/benchmarks/__pycache__"
+
+          if [ -L "$CACHE_DIR" ]; then
+            echo "[FAIL] Refusing to remove benchmark cache symlink"
+            exit 1
+          fi
+
+          if [ -d "$CACHE_DIR" ]; then
+            rm -rf -- "$CACHE_DIR"
+          fi
+
+          if [ -e "$CACHE_DIR" ]; then
+            echo "[FAIL] P2 benchmark cache still exists"
+            exit 1
+          fi
+
+          echo "[PASS] P2 benchmark cache absent"
+
+      # ========================================================
+      # P2 MANIFEST — GENERATE AND VERIFY
+      # ========================================================
+
+      - name: Generate P2 source manifest
+        id: p2_manifest_generate
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          python P2/tools/generate_manifest.py
+
+          test -s P2/MANIFEST.txt
+
+          echo "P2_MANIFEST_GENERATED"
+
+      - name: Verify P2 source manifest
+        id: p2_manifest_verify
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          test -s P2/MANIFEST.txt
+
+          python P2/tools/verify_sha256.py
+
+          echo "P2_MANIFEST_VERIFIED"
+
+      # ========================================================
+      # P2 SHA256SUMS — GENERATE AND VERIFY
+      # ========================================================
+
+      - name: Generate P2 SHA-256 inventory
+        id: p2_sha256_generate
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          python P2/tools/generate_sha256sums.py
+
+          test -s P2/SHA256SUMS.txt
+
+          echo "P2_SHA256SUMS_GENERATED"
+
+      - name: Verify complete P2 SHA-256 inventory
+        id: p2_sha256_verify
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          test -s P2/SHA256SUMS.txt
+
+          python P2/tools/verify_sha256sums.py
+
+          echo "P2_SHA256SUMS_VERIFIED"
+
+      # ========================================================
+      # AUTOMATIC FULL DISPLAY OF BOTH FINAL INTEGRITY FILES
+      # ========================================================
+
+      - name: Display complete P2 MANIFEST and SHA256SUMS
+        id: p2_display_integrity_pair
+        if: always()
+        shell: bash
+        env:
+          MANIFEST_GENERATE_OUTCOME: ${{ steps.p2_manifest_generate.outcome }}
+          MANIFEST_VERIFY_OUTCOME: ${{ steps.p2_manifest_verify.outcome }}
+          SHA256_GENERATE_OUTCOME: ${{ steps.p2_sha256_generate.outcome }}
+          SHA256_VERIFY_OUTCOME: ${{ steps.p2_sha256_verify.outcome }}
+        run: |
+          set -Eeuo pipefail
+
+          SUMMARY="${GITHUB_STEP_SUMMARY:?GITHUB_STEP_SUMMARY is not available}"
+
+          manifest_ok=true
+          sha256_ok=true
+
+          if [ ! -s P2/MANIFEST.txt ]; then
+            manifest_ok=false
+          fi
+
+          if [ ! -s P2/SHA256SUMS.txt ]; then
+            sha256_ok=false
+          fi
+
+          {
+            echo "## QFLPN P2 — FINAL INTEGRITY EVIDENCE"
+            echo
+            echo "| Integrity operation | Result |"
             echo "|---|---|"
-            echo "| Checkout | ${{ steps.checkout.outcome }} |"
-            echo "| Java setup | ${{ steps.java.outcome }} |"
-            echo "| Python setup | ${{ steps.python.outcome }} |"
-            echo "| Python dependencies | ${{ steps.python_dependencies.outcome }} |"
-            echo "| Initialization | ${{ steps.initialize.outcome }} |"
-            echo "| Environment | ${{ steps.environment.outcome }} |"
-            echo "| Preflight | ${{ steps.preflight.outcome }} |"
-            echo "| Python compilation | ${{ steps.py_compile.outcome }} |"
-            echo "| Root Maven | ${{ steps.root_maven.outcome }} |"
-            echo "| P3 Python tests | ${{ steps.pytest.outcome }} |"
-            echo "| P3 Maven and benchmark | ${{ steps.benchmark.outcome }} |"
-            echo "| Benchmark evidence | ${{ steps.benchmark_evidence.outcome }} |"
-            echo "| Benchmark summary | ${{ steps.benchmark_summary.outcome }} |"
-            echo "| Reports | ${{ steps.aggregate_reports.outcome }} |"
-            echo "| Report inventory | ${{ steps.report_inventory.outcome }} |"
-            echo "| MANIFEST/SHA generation | ${{ steps.integrity_generate.outcome }} |"
-            echo "| Independent integrity verification | ${{ steps.integrity_verify.outcome }} |"
-            echo "| Results display | ${{ steps.display_results.outcome }} |"
-            echo "| Evidence staging | ${{ steps.stage_evidence.outcome }} |"
-            echo "| Evidence upload | ${{ steps.upload_p3_evidence.outcome }} |"
-            echo "| Final gate | ${{ steps.final_gate.outcome }} |"
-            echo "| Final verdict upload | ${{ steps.upload_final_verdict.outcome }} |"
+            echo "| MANIFEST generation | ${MANIFEST_GENERATE_OUTCOME} |"
+            echo "| MANIFEST verification | ${MANIFEST_VERIFY_OUTCOME} |"
+            echo "| SHA256SUMS generation | ${SHA256_GENERATE_OUTCOME} |"
+            echo "| SHA256SUMS verification | ${SHA256_VERIFY_OUTCOME} |"
             echo
-            echo "The final acceptance status is determined by the p3_validation job."
+
+            echo "### P2/MANIFEST.txt"
+            echo
+
+            if [ "$manifest_ok" = true ]; then
+              echo '```text'
+              cat P2/MANIFEST.txt
+              echo
+              echo '```'
+            else
+              echo "**ERROR: P2/MANIFEST.txt is missing or empty.**"
+            fi
+
+            echo
+            echo "### P2/SHA256SUMS.txt"
+            echo
+
+            if [ "$sha256_ok" = true ]; then
+              echo '```text'
+              cat P2/SHA256SUMS.txt
+              echo
+              echo '```'
+            else
+              echo "**ERROR: P2/SHA256SUMS.txt is missing or empty.**"
+            fi
+
+            echo
+            echo "### Final integrity verdict"
+            echo
+
+            if [ "$manifest_ok" = true ] && [ "$sha256_ok" = true ]; then
+              echo "Both final integrity files are present and their complete contents have been appended to this GitHub Actions job summary."
+            else
+              echo "**P2_INTEGRITY_PAIR_INCOMPLETE**"
+            fi
+
+          } >> "$SUMMARY"
+
+          echo "P2_MANIFEST_AND_SHA256SUMS_DISPLAY_ATTEMPTED"
+
+          if [ "$manifest_ok" != true ] || [ "$sha256_ok" != true ]; then
+            echo "::error::P2 integrity pair is incomplete."
+            exit 1
+          fi
+
+          if [ "$MANIFEST_GENERATE_OUTCOME" != "success" ] || \
+             [ "$MANIFEST_VERIFY_OUTCOME" != "success" ] || \
+             [ "$SHA256_GENERATE_OUTCOME" != "success" ] || \
+             [ "$SHA256_VERIFY_OUTCOME" != "success" ]; then
+            echo "::error::At least one P2 integrity generation or verification step failed."
+            exit 1
+          fi
+
+          echo "P2_FINAL_INTEGRITY_PAIR_DISPLAYED_AND_VERIFIED"
+
+      # ========================================================
+      # COMPLETE P2 VALIDATION SUMMARY
+      # ========================================================
+
+      - name: Publish P2 validation summary
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          {
+            echo "## QFLPN P2 — Canonical Validation"
+            echo
+            echo "| Validation stage | Outcome |"
+            echo "|---|---|"
+            echo "| Audit Python compilation | see compilation step |"
+            echo "| Numeric audit unit tests | ${{ steps.audit_unit_tests.outcome }} |"
+            echo "| Numeric audit integration tests | ${{ steps.audit_integration_tests.outcome }} |"
+            echo "| Complete P2 pytest suite | ${{ steps.pytest.outcome }} |"
+            echo "| Standalone mathematical validation | ${{ steps.p2_math_validation.outcome }} |"
+            echo "| Benchmark execution | ${{ steps.p2_benchmark.outcome }} |"
+            echo "| Benchmark evidence validation | ${{ steps.p2_benchmark_validation.outcome }} |"
+            echo "| MANIFEST generation | ${{ steps.p2_manifest_generate.outcome }} |"
+            echo "| MANIFEST verification | ${{ steps.p2_manifest_verify.outcome }} |"
+            echo "| SHA256SUMS generation | ${{ steps.p2_sha256_generate.outcome }} |"
+            echo "| SHA256SUMS verification | ${{ steps.p2_sha256_verify.outcome }} |"
+            echo "| Full integrity pair display | ${{ steps.p2_display_integrity_pair.outcome }} |"
+            echo
+            echo "The complete contents of P2/MANIFEST.txt and P2/SHA256SUMS.txt are published in the dedicated integrity section above."
+            echo
+            echo "Benchmark results are supplementary performance evidence."
+            echo "The mathematical validation verdict is determined by the required mathematical, software and integrity checks."
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # ========================================================
+      # UPLOAD VALIDATION EVIDENCE
+      # ========================================================
+
+      - name: Upload P2 validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: P2-canonical-validation-evidence
+          if-no-files-found: warn
+          retention-days: 90
+          path: |
+            P2/reports/
+            P2/benchmarks/
+            P2/MANIFEST.txt
+            P2/SHA256SUMS.txt
+            audit-unit-tests.log
+            audit-integration-tests.log
+
+      # ========================================================
+      # COMMIT GENERATED EVIDENCE
+      # ========================================================
+
+      - name: Commit generated P2 evidence
+        if: success() && github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add \
+            P2/reports/ \
+            P2/benchmarks/ \
+            P2/MANIFEST.txt \
+            P2/SHA256SUMS.txt
+
+          if git diff --cached --quiet; then
+            echo "No generated P2 evidence changes to commit."
+            exit 0
+          fi
+
+          git commit \
+            -m "P2 automated validation and benchmark evidence [skip ci]"
+
+          git push \
+            origin \
+            "HEAD:refs/heads/${GITHUB_REF_NAME}"
