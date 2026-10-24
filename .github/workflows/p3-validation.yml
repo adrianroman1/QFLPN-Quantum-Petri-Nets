@@ -1,4 +1,4 @@
-name: P3 Audit Validation
+name: P3 Validation — Full Evidence and Integrity Chain
 
 on:
   workflow_dispatch:
@@ -23,103 +23,128 @@ on:
       - ".github/workflows/p3-validation.yml"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: p3-validation-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  P3_RUN_ID: p3-${{ github.run_id }}-${{ github.run_attempt }}
+  P3_N: "1000000"
+  P3_WARMUP: "5"
+  P3_ITERATIONS: "10"
+  P3_THRESHOLD: "4096"
+  P3_PARALLELISM: "2"
+
 jobs:
-  validate:
-    name: P3 Audit, Tests and Reproducibility
+  p3_validation:
+    name: p3_validation — complete P3 validation
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     steps:
-      - name: Checkout repository
+      # --------------------------------------------------
+      # 1. CHECKOUT AND ENVIRONMENT
+      # --------------------------------------------------
+
+      - name: Checkout exact commit
+        id: checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          ref: ${{ github.sha }}
+          fetch-depth: 1
 
-      - name: Set up Java
+      - name: Set up Java 21
+        id: java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "21"
           cache: maven
 
-      - name: Set up Python
+      - name: Set up Python 3.12
+        id: python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Capture P3 execution environment
+      - name: Install Python test dependency
+        id: python_dependencies
+        run: |
+          python -m pip install --disable-pip-version-check pytest
+
+      - name: Create run-scoped directories and environment report
+        id: environment
         shell: bash
         run: |
           set -Eeuo pipefail
+
           mkdir -p P3/reports
+          mkdir -p "P3/results/raw/${P3_RUN_ID}"
 
           {
-            echo "QFLPN P3 EXECUTION ENVIRONMENT"
+            echo "QFLPN P3 VALIDATION ENVIRONMENT"
+            echo "RUN_ID=${P3_RUN_ID}"
+            echo "COMMIT=${GITHUB_SHA}"
+            echo "REF=${GITHUB_REF}"
+            echo "EVENT=${GITHUB_EVENT_NAME}"
+            echo "RUN=${GITHUB_RUN_ID}"
+            echo "ATTEMPT=${GITHUB_RUN_ATTEMPT}"
+            echo "UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
             echo
-            echo "UTC timestamp:"
-            date -u +%Y-%m-%dT%H:%M:%SZ
-            echo
-            echo "Git commit:"
-            git rev-parse HEAD
-            echo
-            echo "Git branch:"
-            echo "${GITHUB_REF_NAME:-unknown}"
-            echo
-            echo "GitHub run ID:"
-            echo "${GITHUB_RUN_ID:-unknown}"
-            echo
-            echo "Java:"
             java -version 2>&1
             echo
-            echo "Maven:"
             mvn -version
             echo
-            echo "Python:"
             python --version
             echo
-            echo "Operating system:"
             uname -a
             echo
-            echo "CPU:"
             lscpu
             echo
-            echo "Memory:"
             free -h
           } > P3/reports/environment.txt
 
           test -s P3/reports/environment.txt
 
-      - name: Validate required P3 files
+      # --------------------------------------------------
+      # 2. PREFLIGHT
+      # --------------------------------------------------
+
+      - name: Preflight — verify required project files
+        id: preflight
         shell: bash
         run: |
           set -Eeuo pipefail
 
-          required=(
+          required_files=(
             "pom.xml"
             "P3/pom.xml"
             "P3/results/run_benchmark.sh"
             "P3/results/validate_benchmark.py"
+            "P3/results/test_validate_benchmark.py"
             "P3/results/generate_benchmark_summary.py"
             "P3/tools/generate_integrity.py"
             "P3/tools/verify_integrity.py"
+            "P3/benchmarks/benchmark_results_v2.csv"
           )
 
-          for file in "${required[@]}"; do
-            if [[ ! -f "$file" ]]; then
-              echo "[FAIL] Missing required file: $file"
+          for file in "${required_files[@]}"; do
+            if [[ ! -s "$file" ]]; then
+              echo "::error::Missing or empty required file: $file"
               exit 1
             fi
+            echo "[PASS] $file"
           done
 
-          echo "[PASS] Required P3 files found"
+      # --------------------------------------------------
+      # 3. PYTHON COMPILATION
+      # --------------------------------------------------
 
-      - name: Compile Python validation tools
+      - name: Compile Python validation and integrity tools
+        id: py_compile
+        continue-on-error: true
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -130,24 +155,53 @@ jobs:
             P3/tools/generate_integrity.py \
             P3/tools/verify_integrity.py
 
-          echo "[PASS] Python compilation"
+      # --------------------------------------------------
+      # 4. MAVEN TESTS
+      # --------------------------------------------------
 
       - name: Run root Maven tests
-        shell: bash
+        id: root_maven
+        continue-on-error: true
         run: |
-          set -Eeuo pipefail
-          mvn -B test
+          mvn --batch-mode --no-transfer-progress test
 
-      - name: Run complete P3 Maven tests
-        shell: bash
+      - name: Run P3 Maven tests
+        id: p3_maven
+        continue-on-error: true
         run: |
-          set -Eeuo pipefail
-          mvn -B -f P3/pom.xml test
+          mvn --batch-mode --no-transfer-progress \
+            -f P3/pom.xml test
 
-      - name: Run P3 benchmark and numerical validation
-        id: p3_benchmark
+      # --------------------------------------------------
+      # 5. PYTHON TESTS
+      # --------------------------------------------------
+
+      - name: Run P3 Python validator tests
+        id: pytest
         continue-on-error: true
         shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          python -m pytest -q \
+            P3/results/test_validate_benchmark.py \
+            2>&1 | tee P3/reports/pytest-report.txt
+
+      # --------------------------------------------------
+      # 6. BENCHMARK — UNIQUE RUN_ID
+      # --------------------------------------------------
+
+      - name: Execute P3 benchmark
+        id: benchmark
+        continue-on-error: true
+        shell: bash
+        env:
+          RUN_ID: ${{ env.P3_RUN_ID }}
+          N: ${{ env.P3_N }}
+          WARMUP: ${{ env.P3_WARMUP }}
+          ITERATIONS: ${{ env.P3_ITERATIONS }}
+          THRESHOLD: ${{ env.P3_THRESHOLD }}
+          PARALLELISM: ${{ env.P3_PARALLELISM }}
         run: |
           set -Eeuo pipefail
 
@@ -156,122 +210,468 @@ jobs:
           bash P3/results/run_benchmark.sh \
             2>&1 | tee P3/reports/benchmark-execution.log
 
-      - name: Validate P3 benchmark evidence
-        id: p3_benchmark_validation
-        if: steps.p3_benchmark.outcome == 'success'
+      # --------------------------------------------------
+      # 7. EXACT-RUN EVIDENCE
+      # --------------------------------------------------
+
+      - name: Verify exact benchmark RUN_ID evidence
+        id: benchmark_evidence
+        if: always()
+        continue-on-error: true
         shell: bash
         run: |
           set -Eeuo pipefail
 
-          REPORT="$(find P3/results/raw \
-            -type f \
-            -name validation-report.json \
-            -printf '%T@ %p\n' \
-            | sort -nr \
-            | head -n 1 \
-            | cut -d' ' -f2-)"
+          RUN_DIR="P3/results/raw/${P3_RUN_ID}"
 
-          if [[ -z "$REPORT" || ! -s "$REPORT" ]]; then
-            echo "[FAIL] No benchmark validation report found"
-            exit 1
-          fi
+          required_reports=(
+            "benchmark-report.json"
+            "benchmark-report.md"
+            "benchmark-report.txt"
+            "validation-report.json"
+            "SHA256SUMS.txt"
+          )
 
-          echo "Validation report: $REPORT"
+          for report in "${required_reports[@]}"; do
+            if [[ ! -s "${RUN_DIR}/${report}" ]]; then
+              echo "::error::Missing benchmark evidence: ${RUN_DIR}/${report}"
+              exit 1
+            fi
+            echo "[PASS] ${RUN_DIR}/${report}"
+          done
 
-      - name: Generate P3 benchmark summary
-        if: steps.p3_benchmark_validation.outcome == 'success'
+          python - "${RUN_DIR}" "${P3_RUN_ID}" <<'PY'
+          import csv
+          import json
+          import sys
+          from pathlib import Path
+
+          run_dir = Path(sys.argv[1])
+          expected_run_id = sys.argv[2]
+
+          def contains_run_id(value):
+              if isinstance(value, dict):
+                  return any(
+                      contains_run_id(k) or contains_run_id(v)
+                      for k, v in value.items()
+                  )
+              if isinstance(value, list):
+                  return any(contains_run_id(v) for v in value)
+              return isinstance(value, str) and value == expected_run_id
+
+          json_files = [
+              run_dir / "benchmark-report.json",
+              run_dir / "validation-report.json",
+          ]
+
+          for path in json_files:
+              data = json.loads(path.read_text(encoding="utf-8"))
+              if not contains_run_id(data):
+                  raise SystemExit(
+                      f"RUN_ID not found in exact form in {path}"
+                  )
+
+          print("[PASS] JSON reports contain the expected RUN_ID.")
+          PY
+
+          (
+            cd P3
+            sha256sum --check \
+              "results/raw/${P3_RUN_ID}/SHA256SUMS.txt"
+          )
+
+          echo "[PASS] Local benchmark SHA256 verification."
+
+      # --------------------------------------------------
+      # 8. BENCHMARK SUMMARY
+      # --------------------------------------------------
+
+      - name: Generate benchmark summary
+        id: benchmark_summary
+        if: always() && steps.benchmark_evidence.outcome == 'success'
+        continue-on-error: true
         shell: bash
         run: |
           set -Eeuo pipefail
-
-          REPORT="$(find P3/results/raw \
-            -type f \
-            -name validation-report.json \
-            -printf '%T@ %p\n' \
-            | sort -nr \
-            | head -n 1 \
-            | cut -d' ' -f2-)"
-
-          RUN_ID="$(python -c \
-            'import json,sys; print(json.load(open(sys.argv[1]))["latest_record"]["run_id"])' \
-            "$REPORT")"
 
           python3 P3/results/generate_benchmark_summary.py \
             --csv P3/benchmarks/benchmark_results_v2.csv \
-            --report "$REPORT" \
-            --run-id "$RUN_ID"
+            --report "P3/results/raw/${P3_RUN_ID}/validation-report.json" \
+            --run-id "${P3_RUN_ID}" \
+            --output P3/reports/benchmark-summary.md
 
-      - name: Generate P3 manifest and SHA-256 inventory
+          test -s P3/reports/benchmark-summary.md
+
+      # --------------------------------------------------
+      # 9. AGGREGATED REPORTS
+      # --------------------------------------------------
+
+      - name: Generate validation and acceptance reports
+        id: aggregate_reports
         if: always()
         shell: bash
+        env:
+          PREFLIGHT_OUTCOME: ${{ steps.preflight.outcome }}
+          PY_COMPILE_OUTCOME: ${{ steps.py_compile.outcome }}
+          ROOT_MAVEN_OUTCOME: ${{ steps.root_maven.outcome }}
+          P3_MAVEN_OUTCOME: ${{ steps.p3_maven.outcome }}
+          PYTEST_OUTCOME: ${{ steps.pytest.outcome }}
+          BENCHMARK_OUTCOME: ${{ steps.benchmark.outcome }}
+          EVIDENCE_OUTCOME: ${{ steps.benchmark_evidence.outcome }}
+          SUMMARY_OUTCOME: ${{ steps.benchmark_summary.outcome }}
         run: |
           set -Eeuo pipefail
 
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          reports = Path("P3/reports")
+          reports.mkdir(parents=True, exist_ok=True)
+
+          gates = {
+              "preflight": os.environ["PREFLIGHT_OUTCOME"],
+              "python_compile": os.environ["PY_COMPILE_OUTCOME"],
+              "root_maven": os.environ["ROOT_MAVEN_OUTCOME"],
+              "p3_maven": os.environ["P3_MAVEN_OUTCOME"],
+              "pytest": os.environ["PYTEST_OUTCOME"],
+              "benchmark_execution": os.environ["BENCHMARK_OUTCOME"],
+              "exact_run_evidence": os.environ["EVIDENCE_OUTCOME"],
+              "benchmark_summary": os.environ["SUMMARY_OUTCOME"],
+          }
+
+          passed = all(value == "success" for value in gates.values())
+
+          summary = {
+              "schema": "qflpn-p3-validation-summary-v1",
+              "run_id": os.environ["P3_RUN_ID"],
+              "commit": os.environ["GITHUB_SHA"],
+              "event": os.environ["GITHUB_EVENT_NAME"],
+              "gates": gates,
+              "pre_integrity_gates": "PASS" if passed else "FAIL",
+              "final_integrity": "PENDING",
+              "acceptance": "PENDING_FINAL_INTEGRITY",
+          }
+
+          (reports / "validation-summary.json").write_text(
+              json.dumps(summary, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+
+          lines = [
+              "# QFLPN P3 — p3_validation",
+              "",
+              f"- Run ID: `{summary['run_id']}`",
+              f"- Commit: `{summary['commit']}`",
+              f"- Pre-integrity gates: **{summary['pre_integrity_gates']}**",
+              "",
+              "| Mandatory gate | Outcome |",
+              "|---|---|",
+          ]
+
+          lines.extend(
+              f"| {name} | {value.upper()} |"
+              for name, value in gates.items()
+          )
+
+          lines.extend([
+              "",
+              "Performance classification is separate from numerical correctness.",
+              "A numerical validation PASS does not itself establish a performance improvement.",
+              "",
+          ])
+
+          (reports / "validation-summary.md").write_text(
+              "\n".join(lines),
+              encoding="utf-8",
+          )
+
+          acceptance = {
+              "schema": "qflpn-p3-acceptance-v1",
+              "run_id": summary["run_id"],
+              "commit": summary["commit"],
+              "status": "PENDING_FINAL_INTEGRITY",
+              "mandatory_gates_passed": passed,
+              "gates": gates,
+          }
+
+          (reports / "acceptance-report.json").write_text(
+              json.dumps(acceptance, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      # --------------------------------------------------
+      # 10. FIRST INTEGRITY GENERATION AND VERIFICATION
+      # --------------------------------------------------
+
+      - name: Generate P3 MANIFEST.txt and SHA256SUMS.txt
+        id: integrity_generate
+        if: always()
+        continue-on-error: true
+        run: |
           python3 P3/tools/generate_integrity.py --write
 
       - name: Independently verify P3 integrity
+        id: integrity_verify
         if: always()
+        continue-on-error: true
+        run: |
+          python3 P3/tools/verify_integrity.py
+
+      # --------------------------------------------------
+      # 11. FINAL REPORT UPDATE
+      # --------------------------------------------------
+
+      - name: Finalize acceptance report before final integrity
+        id: integrity_finalize
+        if: always()
+        continue-on-error: true
+        shell: bash
+        env:
+          PREFLIGHT_OUTCOME: ${{ steps.preflight.outcome }}
+          PY_COMPILE_OUTCOME: ${{ steps.py_compile.outcome }}
+          ROOT_MAVEN_OUTCOME: ${{ steps.root_maven.outcome }}
+          P3_MAVEN_OUTCOME: ${{ steps.p3_maven.outcome }}
+          PYTEST_OUTCOME: ${{ steps.pytest.outcome }}
+          BENCHMARK_OUTCOME: ${{ steps.benchmark.outcome }}
+          EVIDENCE_OUTCOME: ${{ steps.benchmark_evidence.outcome }}
+          SUMMARY_OUTCOME: ${{ steps.benchmark_summary.outcome }}
+          INTEGRITY_GENERATE_OUTCOME: ${{ steps.integrity_generate.outcome }}
+          INTEGRITY_VERIFY_OUTCOME: ${{ steps.integrity_verify.outcome }}
+        run: |
+          set -Eeuo pipefail
+
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          reports = Path("P3/reports")
+
+          gates = {
+              "preflight": os.environ["PREFLIGHT_OUTCOME"],
+              "python_compile": os.environ["PY_COMPILE_OUTCOME"],
+              "root_maven": os.environ["ROOT_MAVEN_OUTCOME"],
+              "p3_maven": os.environ["P3_MAVEN_OUTCOME"],
+              "pytest": os.environ["PYTEST_OUTCOME"],
+              "benchmark_execution": os.environ["BENCHMARK_OUTCOME"],
+              "exact_run_evidence": os.environ["EVIDENCE_OUTCOME"],
+              "benchmark_summary": os.environ["SUMMARY_OUTCOME"],
+              "integrity_generation": os.environ["INTEGRITY_GENERATE_OUTCOME"],
+              "independent_integrity_verification": os.environ["INTEGRITY_VERIFY_OUTCOME"],
+          }
+
+          passed = all(value == "success" for value in gates.values())
+
+          acceptance_path = reports / "acceptance-report.json"
+          acceptance = json.loads(
+              acceptance_path.read_text(encoding="utf-8")
+          )
+
+          acceptance.update({
+              "status": "PASS_PENDING_FINAL_RECHECK" if passed else "FAIL",
+              "gates": gates,
+          })
+
+          acceptance_path.write_text(
+              json.dumps(acceptance, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+
+          summary_path = reports / "validation-summary.json"
+          summary = json.loads(
+              summary_path.read_text(encoding="utf-8")
+          )
+
+          summary.update({
+              "gates": gates,
+              "pre_integrity_gates": "PASS" if passed else "FAIL",
+              "final_integrity": "RECHECK_PENDING",
+              "acceptance": acceptance["status"],
+          })
+
+          summary_path.write_text(
+              json.dumps(summary, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+
+          lines = [
+              "# QFLPN P3 — p3_validation",
+              "",
+              f"- Run ID: `{os.environ['P3_RUN_ID']}`",
+              f"- Commit: `{os.environ['GITHUB_SHA']}`",
+              f"- Acceptance before final recheck: **{acceptance['status']}**",
+              "",
+              "| Mandatory gate | Outcome |",
+              "|---|---|",
+          ]
+
+          lines.extend(
+              f"| {name} | {value.upper()} |"
+              for name, value in gates.items()
+          )
+
+          lines.extend([
+              "",
+              "The final MANIFEST.txt and SHA256SUMS.txt are generated after this report.",
+              "",
+          ])
+
+          (reports / "validation-summary.md").write_text(
+              "\n".join(lines),
+              encoding="utf-8",
+          )
+          PY
+
+      # --------------------------------------------------
+      # 12. FINAL MANIFEST AND CHECKSUM GENERATION
+      # --------------------------------------------------
+
+      - name: Regenerate final MANIFEST.txt and SHA256SUMS.txt
+        id: final_integrity_generate
+        if: always()
+        continue-on-error: true
+        run: |
+          python3 P3/tools/generate_integrity.py --write
+
+      # --------------------------------------------------
+      # 13. FINAL INDEPENDENT VERIFICATION
+      # --------------------------------------------------
+
+      - name: Final independent integrity verification
+        id: final_integrity_verify
+        if: always()
+        continue-on-error: true
         shell: bash
         run: |
           set -Eeuo pipefail
 
           python3 P3/tools/verify_integrity.py
 
-      - name: Publish P3 validation summary
+          python3 P3/tools/generate_integrity.py --check
+
+          test -s P3/MANIFEST.txt
+          test -s P3/SHA256SUMS.txt
+
+          echo "[PASS] Final MANIFEST.txt exists."
+          echo "[PASS] Final SHA256SUMS.txt exists."
+          echo "[PASS] Independent verification and reproducibility check completed."
+
+      # --------------------------------------------------
+      # 14. FINAL p3_validation GATE
+      # --------------------------------------------------
+
+      - name: Enforce final p3_validation acceptance gate
+        id: final_gate
+        if: always()
+        shell: bash
+        env:
+          PREFLIGHT_OUTCOME: ${{ steps.preflight.outcome }}
+          PY_COMPILE_OUTCOME: ${{ steps.py_compile.outcome }}
+          ROOT_MAVEN_OUTCOME: ${{ steps.root_maven.outcome }}
+          P3_MAVEN_OUTCOME: ${{ steps.p3_maven.outcome }}
+          PYTEST_OUTCOME: ${{ steps.pytest.outcome }}
+          BENCHMARK_OUTCOME: ${{ steps.benchmark.outcome }}
+          EVIDENCE_OUTCOME: ${{ steps.benchmark_evidence.outcome }}
+          SUMMARY_OUTCOME: ${{ steps.benchmark_summary.outcome }}
+          INTEGRITY_GENERATE_OUTCOME: ${{ steps.integrity_generate.outcome }}
+          INTEGRITY_VERIFY_OUTCOME: ${{ steps.integrity_verify.outcome }}
+          INTEGRITY_FINALIZE_OUTCOME: ${{ steps.integrity_finalize.outcome }}
+          FINAL_GENERATE_OUTCOME: ${{ steps.final_integrity_generate.outcome }}
+          FINAL_VERIFY_OUTCOME: ${{ steps.final_integrity_verify.outcome }}
+        run: |
+          set -Eeuo pipefail
+
+          python - <<'PY'
+          import json
+          import os
+          import sys
+
+          names = [
+              "PREFLIGHT_OUTCOME",
+              "PY_COMPILE_OUTCOME",
+              "ROOT_MAVEN_OUTCOME",
+              "P3_MAVEN_OUTCOME",
+              "PYTEST_OUTCOME",
+              "BENCHMARK_OUTCOME",
+              "EVIDENCE_OUTCOME",
+              "SUMMARY_OUTCOME",
+              "INTEGRITY_GENERATE_OUTCOME",
+              "INTEGRITY_VERIFY_OUTCOME",
+              "INTEGRITY_FINALIZE_OUTCOME",
+              "FINAL_GENERATE_OUTCOME",
+              "FINAL_VERIFY_OUTCOME",
+          ]
+
+          failures = {
+              name: os.environ.get(name, "missing")
+              for name in names
+              if os.environ.get(name) != "success"
+          }
+
+          print("========================================")
+          print("P3 FINAL VALIDATION")
+          print("========================================")
+          print("RUN_ID:", os.environ["P3_RUN_ID"])
+          print("COMMIT:", os.environ["GITHUB_SHA"])
+
+          for name in names:
+              print(f"{name}: {os.environ.get(name, 'missing')}")
+
+          if failures:
+              print("[FAIL] p3_validation")
+              print(json.dumps(failures, indent=2))
+              sys.exit(1)
+
+          print("[PASS] p3_validation")
+          print("[PASS] All mandatory gates succeeded.")
+          print("[PASS] MANIFEST.txt and SHA256SUMS.txt were regenerated and verified.")
+          PY
+
+      # --------------------------------------------------
+      # 15. GITHUB STEP SUMMARY
+      # --------------------------------------------------
+
+      - name: Publish p3_validation result
         if: always()
         shell: bash
         run: |
           {
-            echo "## QFLPN P3 — Audit Validation"
+            echo "## P3 — p3_validation"
             echo
-            echo "| Validation stage | Outcome |"
-            echo "|---|---|"
-            echo "| Root Maven tests | ${{ job.status }} |"
-            echo "| P3 benchmark execution | ${{ steps.p3_benchmark.outcome }} |"
-            echo "| P3 benchmark evidence | ${{ steps.p3_benchmark_validation.outcome }} |"
+            echo "- Run ID: \`${P3_RUN_ID}\`"
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Final gate: \`${{ steps.final_gate.outcome }}\`"
+            echo "- Final integrity generation: \`${{ steps.final_integrity_generate.outcome }}\`"
+            echo "- Final integrity verification: \`${{ steps.final_integrity_verify.outcome }}\`"
             echo
-            echo "Commit: ${GITHUB_SHA}"
-            echo "Workflow run: ${GITHUB_RUN_ID}"
+            echo "Evidence directory:"
+            echo "\`P3/results/raw/${P3_RUN_ID}/\`"
             echo
-            echo "Benchmark performance is reported separately from numerical correctness."
+            echo "Reports directory:"
+            echo "\`P3/reports/\`"
+            echo
+            echo "Global integrity:"
+            echo "- \`P3/MANIFEST.txt\`"
+            echo "- \`P3/SHA256SUMS.txt\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload P3 validation evidence
+      # --------------------------------------------------
+      # 16. UPLOAD EVIDENCE EVEN ON FAILURE
+      # --------------------------------------------------
+
+      - name: Upload complete P3 validation evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: P3-audit-validation-evidence
+          name: P3-validation-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: warn
           retention-days: 90
           path: |
             P3/reports/
-            P3/results/
-            P3/benchmarks/
+            P3/results/raw/${{ env.P3_RUN_ID }}/
+            P3/benchmarks/benchmark_results_v2.csv
             P3/MANIFEST.txt
             P3/SHA256SUMS.txt
-
-      - name: Commit generated P3 integrity evidence
-        if: success() && github.event_name != 'pull_request'
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-
-          git config user.name "github-actions[bot]"
-          git config user.email \
-            "41898282+github-actions[bot]@users.noreply.github.com"
-
-          git add \
-            P3/MANIFEST.txt \
-            P3/SHA256SUMS.txt
-
-          if git diff --cached --quiet; then
-            echo "No P3 integrity changes to commit."
-            exit 0
-          fi
-
-          git commit \
-            -m "P3 automated integrity evidence [skip ci]"
-
-          git push \
-            origin \
-            "HEAD:refs/heads/${GITHUB_REF_NAME}"
