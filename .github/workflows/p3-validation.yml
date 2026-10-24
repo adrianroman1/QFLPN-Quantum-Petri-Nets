@@ -173,9 +173,11 @@ jobs:
 
               "P3/tools/compute_checksums.py",
               "P3/tools/verify_final_package.py",
+              "P3/tools/write_github_summary.py",
 
               "P3/tests/test_compute_checksums.py",
               "P3/tests/test_verify_final_package.py",
+              "P3/tests/test_write_github_summary.py",
           ]
 
           missing = [
@@ -216,8 +218,10 @@ jobs:
             P3/results/generate_benchmark_summary.py \
             P3/tools/compute_checksums.py \
             P3/tools/verify_final_package.py \
+            P3/tools/write_github_summary.py \
             P3/tests/test_compute_checksums.py \
-            P3/tests/test_verify_final_package.py
+            P3/tests/test_verify_final_package.py \
+            P3/tests/test_write_github_summary.py
 
           python -m compileall -q \
             P3/results \
@@ -276,6 +280,7 @@ jobs:
             P3/results/test_validate_benchmark.py \
             P3/tests/test_compute_checksums.py \
             P3/tests/test_verify_final_package.py \
+            P3/tests/test_write_github_summary.py \
             -v \
             --tb=short \
             2>&1 | tee P3/reports/python-validation-tests.log
@@ -533,10 +538,10 @@ jobs:
 
       # ========================================================
       # 11. AUTOMATIC DISCOVERY AND FULL DISPLAY
-      #     ALL P3 .MD, .CSV AND .TXT FILES
+      #     EXCLUDING SEPARATELY PUBLISHED INTEGRITY FILES
       # ========================================================
 
-      - name: Discover and display ALL P3 MD CSV TXT files
+      - name: Discover and display P3 MD CSV TXT files without duplicates
         id: p3_display_all_text
         if: always()
         shell: bash
@@ -552,28 +557,31 @@ jobs:
 
           extensions = {".md", ".csv", ".txt"}
 
+          manifest = root / "MANIFEST.txt"
+          checksums = root / "SHA256SUMS.txt"
+
+          for path in (manifest, checksums):
+              if not path.is_file() or path.is_symlink():
+                  raise SystemExit(
+                      f"P3_REQUIRED_INTEGRITY_FILE_MISSING: {path.name}"
+                  )
+
+          excluded = {
+              "MANIFEST.txt",
+              "SHA256SUMS.txt",
+          }
+
           files = sorted(
               (
                   path for path in root.rglob("*")
                   if path.is_file()
                   and not path.is_symlink()
                   and path.suffix.lower() in extensions
+                  and path.name not in excluded
                   and "target" not in path.relative_to(root).parts
               ),
               key=lambda path: path.relative_to(root).as_posix().lower()
           )
-
-          relative_names = {
-              path.relative_to(root).as_posix()
-              for path in files
-          }
-
-          required = {
-              "MANIFEST.txt",
-              "SHA256SUMS.txt",
-          }
-
-          missing = sorted(required - relative_names)
 
           output = [
               "# QFLPN P3 — COMPLETE AUTOMATIC TEXT FILE PUBLICATION",
@@ -582,15 +590,9 @@ jobs:
               "",
               "Extensions: `.md`, `.csv`, `.txt`",
               "",
+              "MANIFEST.txt and SHA256SUMS.txt are published separately above.",
+              "",
           ]
-
-          if missing:
-              output.extend([
-                  "**ERROR: Missing required integrity files: "
-                  + ", ".join(missing)
-                  + "**",
-                  "",
-              ])
 
           read_errors = []
 
@@ -632,15 +634,14 @@ jobs:
           rendered = "\n".join(output)
           encoded = rendered.encode("utf-8")
 
-          # Never silently truncate the complete publication.
           if len(encoded) > 950_000:
               with summary.open("a", encoding="utf-8") as stream:
                   stream.write(
                       "# P3 COMPLETE TEXT DISPLAY FAILED\n\n"
                       f"Discovered files: {len(files)}\n\n"
                       f"Required display size: {len(encoded)} bytes\n\n"
-                      "The complete source files remain in the uploaded "
-                      "workflow artifact. The summary was not truncated.\n"
+                      "The complete source files remain in the workflow "
+                      "artifact. The summary was not truncated.\n"
                   )
 
               raise SystemExit(
@@ -654,16 +655,13 @@ jobs:
           print(f"P3_TEXT_FILES_DISCOVERED={len(files)}")
           print(f"P3_TEXT_DISPLAY_BYTES={len(encoded)}")
 
-          if missing:
-              raise SystemExit("P3_INTEGRITY_FILES_NOT_DISPLAYED")
-
           if read_errors:
               raise SystemExit(
                   "P3_TEXT_FILE_READ_ERRORS: " + "; ".join(read_errors)
               )
 
-          print("P3_MANIFEST_AND_SHA256SUMS_INCLUDED")
-          print("P3_ALL_MD_CSV_TXT_FILES_DISPLAYED")
+          print("P3_MANIFEST_AND_SHA256SUMS_PUBLISHED_SEPARATELY")
+          print("P3_ALL_OTHER_MD_CSV_TXT_FILES_DISPLAYED")
           PY
 
       # ========================================================
@@ -709,6 +707,7 @@ jobs:
           set -Eeuo pipefail
 
           OUTCOMES_JSON="$RUNNER_TEMP/p3-ci-outcomes.json"
+          VERDICT_JSON="$RUNNER_TEMP/p3-final-verdict.json"
 
           export OUTCOMES_JSON
 
@@ -750,6 +749,7 @@ jobs:
           print(json.dumps(outcomes, indent=2))
           PY
 
+          set +e
           python3 P3/tools/verify_final_package.py \
             --root . \
             --run-id "$RUN_ID" \
@@ -759,9 +759,26 @@ jobs:
             --iterations "$ITERATIONS" \
             --threshold "$THRESHOLD" \
             --parallelism "$PARALLELISM" \
-            | tee "$RUNNER_TEMP/p3-final-verdict.json"
+            | tee "$VERDICT_JSON"
 
-          echo
-          echo "P3_ACCEPTED"
+          verifier_status=${PIPESTATUS[0]}
+          set -e
+
+          if [ ! -s "$VERDICT_JSON" ]; then
+            echo "P3_FINAL_VERDICT_JSON_MISSING" >&2
+            exit 1
+          fi
+
+          python P3/tools/write_github_summary.py \
+            --root . \
+            --verdict-json "$VERDICT_JSON" \
+            --run-id "$RUN_ID"
+
+          if [ "$verifier_status" -ne 0 ]; then
+            echo "P3_FINAL_VERDICT_REJECTED"
+            exit "$verifier_status"
+          fi
+
+          echo "P3_FINAL_VERDICT_ACCEPTED"
           echo "**P3_FINAL_VERDICT: P3_ACCEPTED**" \
             >> "$GITHUB_STEP_SUMMARY"
