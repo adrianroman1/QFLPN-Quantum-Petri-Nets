@@ -128,7 +128,7 @@ public final class SparseMatrixCSR {
                 continue;
             }
 
-            int[] order = new int[count];
+            Integer[] order = new Integer[count];
             for (int i = 0; i < count; i++) {
                 order[i] = rowStart + i;
             }
@@ -149,10 +149,6 @@ public final class SparseMatrixCSR {
                 compactColumns[writeIndex + rowWrite] = currentColumn;
                 compactValues[writeIndex + rowWrite] = currentValue;
                 rowWrite++;
-            }
-
-            for (int i = 0; i < rowWrite; i++) {
-                compactColumns[writeIndex + i] = compactColumns[writeIndex + i];
             }
 
             writeIndex += rowWrite;
