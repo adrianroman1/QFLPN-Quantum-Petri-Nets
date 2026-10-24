@@ -141,7 +141,6 @@ jobs:
           } > P3/reports/environment.txt 2>&1
 
           test -s P3/reports/environment.txt
-
           echo "P3_ENVIRONMENT_CAPTURED"
 
       # ========================================================
@@ -172,14 +171,11 @@ jobs:
               "P3/results/test_validate_benchmark.py",
               "P3/results/generate_benchmark_summary.py",
 
-              "P3/tools/generate_integrity.py",
-              "P3/tools/verify_integrity.py",
+              "P3/tools/compute_checksums.py",
+              "P3/tools/verify_final_package.py",
 
-              "P3/tests/test_generate_integrity.py",
-              "P3/tests/test_verify_integrity.py",
-
-              "P3/MANIFEST.txt",
-              "P3/SHA256SUMS.txt",
+              "P3/tests/test_compute_checksums.py",
+              "P3/tests/test_verify_final_package.py",
           ]
 
           missing = [
@@ -196,14 +192,12 @@ jobs:
           print("P3_REQUIRED_FILES_ACCEPTED")
           PY
 
-      - name: Validate P3 benchmark runner permissions
+      - name: Validate P3 benchmark runner syntax
         shell: bash
         run: |
           set -Eeuo pipefail
-
           test -f P3/results/run_benchmark.sh
           bash -n P3/results/run_benchmark.sh
-
           echo "P3_BENCHMARK_RUNNER_SYNTAX_ACCEPTED"
 
       # ========================================================
@@ -220,10 +214,10 @@ jobs:
             P3/results/validate_benchmark.py \
             P3/results/test_validate_benchmark.py \
             P3/results/generate_benchmark_summary.py \
-            P3/tools/generate_integrity.py \
-            P3/tools/verify_integrity.py \
-            P3/tests/test_generate_integrity.py \
-            P3/tests/test_verify_integrity.py
+            P3/tools/compute_checksums.py \
+            P3/tools/verify_final_package.py \
+            P3/tests/test_compute_checksums.py \
+            P3/tests/test_verify_final_package.py
 
           python -m compileall -q \
             P3/results \
@@ -248,29 +242,29 @@ jobs:
             --tb=short \
             2>&1 | tee P3/reports/benchmark-validator-tests.log
 
-      - name: Run P3 manifest generator tests
+      - name: Run P3 P1-style checksum generator tests
         id: p3_manifest_tests
         shell: bash
         run: |
           set -Eeuo pipefail
 
           python -m pytest \
-            P3/tests/test_generate_integrity.py \
+            P3/tests/test_compute_checksums.py \
             -v \
             --tb=short \
             2>&1 | tee P3/reports/manifest-generator-tests.log
 
-      - name: Run P3 independent integrity verifier tests
-        id: p3_integrity_tests
+      - name: Run P3 final package verifier tests
+        id: p3_final_package_tests
         shell: bash
         run: |
           set -Eeuo pipefail
 
           python -m pytest \
-            P3/tests/test_verify_integrity.py \
+            P3/tests/test_verify_final_package.py \
             -v \
             --tb=short \
-            2>&1 | tee P3/reports/integrity-verifier-tests.log
+            2>&1 | tee P3/reports/final-package-verifier-tests.log
 
       - name: Run complete P3 Python validation test suite
         id: p3_python_tests
@@ -280,8 +274,8 @@ jobs:
 
           python -m pytest \
             P3/results/test_validate_benchmark.py \
-            P3/tests/test_generate_integrity.py \
-            P3/tests/test_verify_integrity.py \
+            P3/tests/test_compute_checksums.py \
+            P3/tests/test_verify_final_package.py \
             -v \
             --tb=short \
             2>&1 | tee P3/reports/python-validation-tests.log
@@ -302,19 +296,6 @@ jobs:
       # ========================================================
       # 6. P3 JAVA TESTS AND BENCHMARK
       # ========================================================
-
-      # run_benchmark.sh is the authoritative P3 runner.
-      # Its verified interface:
-      # N, WARMUP, ITERATIONS, THRESHOLD,
-      # PARALLELISM and RUN_ID are environment variables.
-      #
-      # It performs:
-      # - P3 Maven clean test;
-      # - Java BenchmarkRunner execution;
-      # - exactly-one-new-record CSV check;
-      # - strict V2 CSV validation;
-      # - run-specific report existence checks;
-      # - run-specific SHA256SUMS.txt generation.
 
       - name: Run complete P3 Maven, CSR benchmark and V2 validation
         id: p3_benchmark
@@ -379,84 +360,45 @@ jobs:
           echo "P3_BENCHMARK_SUMMARY_GENERATED"
 
       # ========================================================
-      # 8. FINAL GLOBAL P3 INTEGRITY GENERATION
+      # 8. GLOBAL P3 INTEGRITY GENERATION
       # ========================================================
 
-      # The two global integrity files are generated only after
-      # source validation, Python tests, Maven tests and benchmark
-      # report generation have had their opportunity to complete.
-      #
-      # The P3 generator includes MANIFEST.txt in SHA256SUMS.txt.
-      # Do not replace this with the P2 integrity implementation.
-
-      - name: Generate final P3 MANIFEST and SHA256SUMS
+      - name: Generate P1-style P3 MANIFEST and SHA256SUMS
         id: p3_integrity_generate
         if: always()
         shell: bash
         run: |
           set -Eeuo pipefail
 
-          python3 P3/tools/generate_integrity.py --write
+          python3 P3/tools/compute_checksums.py
 
           test -s P3/MANIFEST.txt
           test -s P3/SHA256SUMS.txt
 
-          echo "P3_MANIFEST_AND_SHA256SUMS_GENERATED"
+          echo "P3_P1_STYLE_MANIFEST_AND_SHA256SUMS_GENERATED"
 
       # ========================================================
-      # 9. INDEPENDENT INTEGRITY VERIFICATION
-      # ========================================================
-
-      - name: Independently verify P3 MANIFEST and SHA256SUMS
-        id: p3_integrity_verify
-        if: always()
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-
-          test -s P3/MANIFEST.txt
-          test -s P3/SHA256SUMS.txt
-
-          python3 P3/tools/verify_integrity.py
-
-          echo "P3_INDEPENDENT_INTEGRITY_VERIFICATION_ACCEPTED"
-
-      - name: Verify P3 integrity reproducibility without modifying files
-        id: p3_integrity_reproducibility
-        if: always()
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-
-          python3 P3/tools/generate_integrity.py --check
-
-          echo "P3_INTEGRITY_REPRODUCIBILITY_ACCEPTED"
-
-      # ========================================================
-      # 10.1. INDIVIDUAL MANIFEST PUBLICATION
+      # 9. INDIVIDUAL MANIFEST PUBLICATION
       # ========================================================
 
       - name: Verify and publish complete P3 MANIFEST.txt
         id: p3_display_manifest
         if: always()
         shell: bash
-        env:
-          GENERATE_OUTCOME: ${{ steps.p3_integrity_generate.outcome }}
-          VERIFY_OUTCOME: ${{ steps.p3_integrity_verify.outcome }}
-          CHECK_OUTCOME: ${{ steps.p3_integrity_reproducibility.outcome }}
         run: |
           set -Eeuo pipefail
 
           python - <<'PY'
           from pathlib import Path
           import os
-          import re
 
           path = Path("P3/MANIFEST.txt")
+
           if not path.is_file() or path.is_symlink():
               raise SystemExit("P3_MANIFEST_MISSING_OR_UNSAFE")
 
           raw = path.read_bytes()
+
           try:
               content = raw.decode("utf-8")
           except UnicodeError as exc:
@@ -465,46 +407,35 @@ jobs:
           if not content.endswith("\n"):
               raise SystemExit("P3_MANIFEST_MISSING_FINAL_NEWLINE")
 
-          lines = content.splitlines()
-          expected_header = [
-              "# QFLPN P3 generated manifest",
-              "# Format: one repository-relative POSIX path per line",
-          ]
-          if len(lines) < 3 or lines[:2] != expected_header:
-              raise SystemExit("P3_MANIFEST_HEADER_INVALID")
+          entries = content.splitlines()
 
-          match = re.fullmatch(r"# File count: (0|[1-9][0-9]*)", lines[2])
-          if not match:
-              raise SystemExit("P3_MANIFEST_FILE_COUNT_DECLARATION_INVALID")
+          if not entries or any(not entry for entry in entries):
+              raise SystemExit("P3_MANIFEST_EMPTY_OR_BLANK_ENTRY")
 
-          entries = lines[3:]
-          if len(entries) != int(match.group(1)):
-              raise SystemExit("P3_MANIFEST_FILE_COUNT_MISMATCH")
-          if any(not entry for entry in entries):
-              raise SystemExit("P3_MANIFEST_CONTAINS_EMPTY_ENTRY")
           if entries != sorted(entries):
               raise SystemExit("P3_MANIFEST_ENTRIES_NOT_SORTED")
+
           if len(entries) != len(set(entries)):
               raise SystemExit("P3_MANIFEST_ENTRIES_NOT_UNIQUE")
 
           for entry in entries:
               candidate = Path(entry)
+
               if (
                   candidate.is_absolute()
                   or "\\" in entry
                   or ".." in candidate.parts
-                  or entry.startswith("./")
+                  or not entry.startswith("P3/")
                   or entry.strip() != entry
-                  or entry in {"MANIFEST.txt", "SHA256SUMS.txt"}
+                  or candidate.name in {"MANIFEST.txt", "SHA256SUMS.txt"}
               ):
                   raise SystemExit(f"P3_MANIFEST_UNSAFE_ENTRY: {entry}")
 
           summary = Path(os.environ["GITHUB_STEP_SUMMARY"])
+
           with summary.open("a", encoding="utf-8") as stream:
-              stream.write("# P3 — MANIFEST.txt (individual complete publication)\n\n")
-              stream.write(f"- Generator: {os.environ.get('GENERATE_OUTCOME')}\n")
-              stream.write(f"- Independent verifier: {os.environ.get('VERIFY_OUTCOME')}\n")
-              stream.write(f"- Reproducibility check: {os.environ.get('CHECK_OUTCOME')}\n")
+              stream.write("# P3 — MANIFEST.txt (complete publication)\n\n")
+              stream.write("- Format: P1-compatible, paths only\n")
               stream.write(f"- Entries: {len(entries)}\n")
               stream.write(f"- Published bytes: {len(raw)}\n\n")
               stream.write("~~~text\n")
@@ -513,14 +444,13 @@ jobs:
 
           print("P3_MANIFEST_VALIDATED_AND_PUBLISHED")
           print(f"P3_MANIFEST_ENTRIES={len(entries)}")
-          print(f"P3_MANIFEST_BYTES={len(raw)}")
           PY
 
       # ========================================================
-      # 10.2. INDIVIDUAL SHA256SUMS PUBLICATION
+      # 10. INDIVIDUAL SHA256SUMS PUBLICATION
       # ========================================================
 
-      - name: Verify MANIFEST hash and publish complete P3 SHA256SUMS.txt
+      - name: Verify and publish complete P3 SHA256SUMS.txt
         id: p3_display_sha256
         if: always()
         shell: bash
@@ -529,20 +459,16 @@ jobs:
 
           python - <<'PY'
           from pathlib import Path
-          import hashlib
           import os
           import re
 
-          checksum_path = Path("P3/SHA256SUMS.txt")
-          manifest_path = Path("P3/MANIFEST.txt")
-          for path, label in (
-              (checksum_path, "SHA256SUMS"),
-              (manifest_path, "MANIFEST"),
-          ):
-              if not path.is_file() or path.is_symlink() or path.stat().st_size == 0:
-                  raise SystemExit(f"P3_{label}_MISSING_OR_UNSAFE")
+          path = Path("P3/SHA256SUMS.txt")
 
-          raw = checksum_path.read_bytes()
+          if not path.is_file() or path.is_symlink():
+              raise SystemExit("P3_SHA256SUMS_MISSING_OR_UNSAFE")
+
+          raw = path.read_bytes()
+
           try:
               content = raw.decode("ascii")
           except UnicodeError as exc:
@@ -552,82 +478,74 @@ jobs:
               raise SystemExit("P3_SHA256SUMS_MISSING_FINAL_NEWLINE")
 
           entries = {}
+
           for number, line in enumerate(content.splitlines(), start=1):
               match = re.fullmatch(r"([0-9a-f]{64})  ([^\r\n]+)", line)
+
               if not match:
-                  raise SystemExit(f"P3_SHA256SUMS_INVALID_LINE_{number}")
+                  raise SystemExit(
+                      f"P3_SHA256SUMS_INVALID_LINE_{number}"
+                  )
+
               digest, name = match.groups()
               candidate = Path(name)
+
               if (
                   candidate.is_absolute()
                   or "\\" in name
                   or ".." in candidate.parts
-                  or name.startswith("./")
+                  or not name.startswith("P3/")
                   or name.strip() != name
+                  or candidate.name in {"MANIFEST.txt", "SHA256SUMS.txt"}
               ):
-                  raise SystemExit(f"P3_SHA256SUMS_UNSAFE_PATH_LINE_{number}")
+                  raise SystemExit(
+                      f"P3_SHA256SUMS_UNSAFE_PATH_LINE_{number}"
+                  )
+
               if name in entries:
-                  raise SystemExit(f"P3_SHA256SUMS_DUPLICATE_PATH: {name}")
+                  raise SystemExit(
+                      f"P3_SHA256SUMS_DUPLICATE_PATH: {name}"
+                  )
+
               entries[name] = digest
+
+          if not entries:
+              raise SystemExit("P3_SHA256SUMS_EMPTY")
 
           if list(entries) != sorted(entries):
               raise SystemExit("P3_SHA256SUMS_ENTRIES_NOT_SORTED")
 
-          actual_manifest_hash = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
-          if entries.get("MANIFEST.txt") != actual_manifest_hash:
-              raise SystemExit("P3_MANIFEST_SHA256_MISMATCH")
-
           summary = Path(os.environ["GITHUB_STEP_SUMMARY"])
+
           with summary.open("a", encoding="utf-8") as stream:
-              stream.write("# P3 — SHA256SUMS.txt (individual complete publication)\n\n")
-              stream.write(f"- Generator: {os.environ.get('GENERATE_OUTCOME')}\n")
-              stream.write(f"- Independent verifier: {os.environ.get('VERIFY_OUTCOME')}\n")
-              stream.write(f"- Reproducibility check: {os.environ.get('CHECK_OUTCOME')}\n")
-              stream.write(f"- MANIFEST.txt SHA-256: {actual_manifest_hash} — MATCH\n")
+              stream.write("# P3 — SHA256SUMS.txt (complete publication)\n\n")
+              stream.write("- Format: GNU SHA-256, P1-compatible\n")
+              stream.write("- MANIFEST.txt is not self-included\n")
               stream.write(f"- Checksum entries: {len(entries)}\n")
               stream.write(f"- Published bytes: {len(raw)}\n\n")
               stream.write("~~~text\n")
               stream.write(content)
               stream.write("~~~\n\n")
 
-          print("P3_SHA256SUMS_FORMAT_AND_MANIFEST_HASH_ACCEPTED")
-          print("P3_SHA256SUMS_VALIDATED_AND_PUBLISHED")
+          print("P3_SHA256SUMS_FORMAT_VALIDATED_AND_PUBLISHED")
           print(f"P3_SHA256SUMS_ENTRIES={len(entries)}")
-          print(f"P3_SHA256SUMS_BYTES={len(raw)}")
           PY
 
       # ========================================================
-      # 10. AUTOMATIC DISCOVERY AND FULL DISPLAY
+      # 11. AUTOMATIC DISCOVERY AND FULL DISPLAY
       #     ALL P3 .MD, .CSV AND .TXT FILES
       # ========================================================
-
-      # This step discovers files recursively.
-      # No manual filename list is used.
-      #
-      # It includes:
-      # P3/MANIFEST.txt
-      # P3/SHA256SUMS.txt
-      # every P3/**/*.md
-      # every P3/**/*.csv
-      # every P3/**/*.txt
-      #
-      # It does not silently truncate file contents.
 
       - name: Discover and display ALL P3 MD CSV TXT files
         id: p3_display_all_text
         if: always()
         shell: bash
-        env:
-          GENERATE_OUTCOME: ${{ steps.p3_integrity_generate.outcome }}
-          VERIFY_OUTCOME: ${{ steps.p3_integrity_verify.outcome }}
-          REPRODUCIBILITY_OUTCOME: ${{ steps.p3_integrity_reproducibility.outcome }}
         run: |
           set -Eeuo pipefail
 
           python - <<'PY'
           from pathlib import Path
           import os
-          import sys
 
           root = Path("P3").resolve()
           summary = Path(os.environ["GITHUB_STEP_SUMMARY"])
@@ -640,6 +558,7 @@ jobs:
                   if path.is_file()
                   and not path.is_symlink()
                   and path.suffix.lower() in extensions
+                  and "target" not in path.relative_to(root).parts
               ),
               key=lambda path: path.relative_to(root).as_posix().lower()
           )
@@ -663,21 +582,17 @@ jobs:
               "",
               "Extensions: `.md`, `.csv`, `.txt`",
               "",
-              "| Integrity operation | Outcome |",
-              "|---|---|",
-              f"| Generate MANIFEST and SHA256SUMS | {os.environ.get('GENERATE_OUTCOME')} |",
-              f"| Independent integrity verification | {os.environ.get('VERIFY_OUTCOME')} |",
-              f"| Reproducibility check | {os.environ.get('REPRODUCIBILITY_OUTCOME')} |",
-              "",
           ]
 
           if missing:
-              output.append(
+              output.extend([
                   "**ERROR: Missing required integrity files: "
                   + ", ".join(missing)
-                  + "**"
-              )
-              output.append("")
+                  + "**",
+                  "",
+              ])
+
+          read_errors = []
 
           for path in files:
               relative = path.relative_to(root).as_posix()
@@ -685,6 +600,7 @@ jobs:
               try:
                   content = path.read_text(encoding="utf-8")
               except (OSError, UnicodeError) as exc:
+                  read_errors.append(f"{relative}: {exc}")
                   output.extend([
                       f"## FILE: `P3/{relative}`",
                       "",
@@ -699,8 +615,9 @@ jobs:
                       for line in content.splitlines()
                       if line and set(line.strip()) == {"`"}
                   ),
-                  default=0
+                  default=0,
               )
+
               fence = "`" * max(3, longest + 1)
 
               output.extend([
@@ -713,20 +630,19 @@ jobs:
               ])
 
           rendered = "\n".join(output)
-
-          # GitHub Actions job summaries have a size limit.
-          # Fail explicitly rather than silently truncate.
           encoded = rendered.encode("utf-8")
 
+          # Never silently truncate the complete publication.
           if len(encoded) > 950_000:
               with summary.open("a", encoding="utf-8") as stream:
                   stream.write(
                       "# P3 COMPLETE TEXT DISPLAY FAILED\n\n"
-                      f"Discovered {len(files)} files.\n\n"
-                      f"Required display size: {len(encoded)} bytes.\n\n"
-                      "The complete contents are retained in the workflow "
-                      "artifact. The job summary was not silently truncated.\n"
+                      f"Discovered files: {len(files)}\n\n"
+                      f"Required display size: {len(encoded)} bytes\n\n"
+                      "The complete source files remain in the uploaded "
+                      "workflow artifact. The summary was not truncated.\n"
                   )
+
               raise SystemExit(
                   "P3_TEXT_DISPLAY_EXCEEDS_GITHUB_SUMMARY_LIMIT"
               )
@@ -741,124 +657,111 @@ jobs:
           if missing:
               raise SystemExit("P3_INTEGRITY_FILES_NOT_DISPLAYED")
 
+          if read_errors:
+              raise SystemExit(
+                  "P3_TEXT_FILE_READ_ERRORS: " + "; ".join(read_errors)
+              )
+
           print("P3_MANIFEST_AND_SHA256SUMS_INCLUDED")
           print("P3_ALL_MD_CSV_TXT_FILES_DISPLAYED")
           PY
-
-      # ========================================================
-      # 11. FINAL VALIDATION VERDICT
-      # ========================================================
-
-      - name: Publish P3 final validation verdict
-        id: p3_final_verdict
-        if: always()
-        shell: bash
-        env:
-          REQUIRED: ${{ steps.p3_required_files.outcome }}
-          ENVIRONMENT: ${{ steps.p3_environment.outcome }}
-          PYTHON_COMPILE: ${{ steps.p3_python_compile.outcome }}
-          BENCHMARK_TESTS: ${{ steps.p3_benchmark_tests.outcome }}
-          MANIFEST_TESTS: ${{ steps.p3_manifest_tests.outcome }}
-          INTEGRITY_TESTS: ${{ steps.p3_integrity_tests.outcome }}
-          PYTHON_TESTS: ${{ steps.p3_python_tests.outcome }}
-          ROOT_MAVEN: ${{ steps.p3_root_maven.outcome }}
-          BENCHMARK: ${{ steps.p3_benchmark.outcome }}
-          BENCHMARK_SUMMARY: ${{ steps.p3_benchmark_summary.outcome }}
-          INTEGRITY_GENERATE: ${{ steps.p3_integrity_generate.outcome }}
-          INTEGRITY_VERIFY: ${{ steps.p3_integrity_verify.outcome }}
-          INTEGRITY_CHECK: ${{ steps.p3_integrity_reproducibility.outcome }}
-          MANIFEST_DISPLAY: ${{ steps.p3_display_manifest.outcome }}
-          SHA256_DISPLAY: ${{ steps.p3_display_sha256.outcome }}
-          TEXT_DISPLAY: ${{ steps.p3_display_all_text.outcome }}
-        run: |
-          set -Eeuo pipefail
-
-          {
-            echo
-            echo "# P3 — FINAL VALIDATION VERDICT"
-            echo
-            echo "| Mandatory stage | Outcome |"
-            echo "|---|---|"
-            echo "| Required P3 files | $REQUIRED |"
-            echo "| Environment capture | $ENVIRONMENT |"
-            echo "| Python compilation | $PYTHON_COMPILE |"
-            echo "| Benchmark validator tests | $BENCHMARK_TESTS |"
-            echo "| Manifest generator tests | $MANIFEST_TESTS |"
-            echo "| Independent integrity tests | $INTEGRITY_TESTS |"
-            echo "| Complete Python tests | $PYTHON_TESTS |"
-            echo "| Root Maven tests | $ROOT_MAVEN |"
-            echo "| P3 Maven and benchmark | $BENCHMARK |"
-            echo "| CSV/JSON benchmark summary | $BENCHMARK_SUMMARY |"
-            echo "| Generate MANIFEST and SHA256SUMS | $INTEGRITY_GENERATE |"
-            echo "| Independent integrity verification | $INTEGRITY_VERIFY |"
-            echo "| Integrity reproducibility | $INTEGRITY_CHECK |"
-            echo "| Individual MANIFEST verification and publication | $MANIFEST_DISPLAY |"
-            echo "| Individual SHA256SUMS format/hash verification and publication | $SHA256_DISPLAY |"
-            echo "| Full MD/CSV/TXT publication | $TEXT_DISPLAY |"
-            echo
-          } >> "$GITHUB_STEP_SUMMARY"
-
-          failed=0
-
-          for outcome in \
-            "$REQUIRED" \
-            "$ENVIRONMENT" \
-            "$PYTHON_COMPILE" \
-            "$BENCHMARK_TESTS" \
-            "$MANIFEST_TESTS" \
-            "$INTEGRITY_TESTS" \
-            "$PYTHON_TESTS" \
-            "$ROOT_MAVEN" \
-            "$BENCHMARK" \
-            "$BENCHMARK_SUMMARY" \
-            "$INTEGRITY_GENERATE" \
-            "$INTEGRITY_VERIFY" \
-            "$INTEGRITY_CHECK" \
-            "$MANIFEST_DISPLAY" \
-            "$SHA256_DISPLAY" \
-            "$TEXT_DISPLAY"
-          do
-            if [ "$outcome" != "success" ]; then
-              failed=1
-            fi
-          done
-
-          if [ "$failed" -ne 0 ]; then
-            echo "**P3_FINAL_VERDICT: REJECTED — at least one mandatory validation stage failed.**" \
-              >> "$GITHUB_STEP_SUMMARY"
-            echo "P3_FINAL_VALIDATION_REJECTED"
-            exit 1
-          fi
-
-          echo "**P3_FINAL_VERDICT: ALL CONFIGURED VALIDATION GATES PASSED.**" \
-            >> "$GITHUB_STEP_SUMMARY"
-
-          echo "P3_FINAL_VALIDATION_GATES_PASSED"
 
       # ========================================================
       # 12. PUBLISH COMPLETE VALIDATION ARTIFACTS
       # ========================================================
 
       - name: Upload complete P3 validation evidence
+        id: p3_artifact_upload
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: P3-complete-validation-${{ github.run_id }}-${{ github.run_attempt }}
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 90
           path: |
-            P3/MANIFEST.txt
-            P3/SHA256SUMS.txt
-            P3/ACCEPTANCE_CHECKLIST.md
-            P3/ACCEPTANCE_REPORT.md
-            P3/INTEGRITY.md
-            P3/P3_AUDIT_REPORT.md
-            P3/VALIDATION_ALIGNMENT.md
-            P3/VALIDATION_PROTOCOL.md
-            P3/reports/
-            P3/benchmarks/
-            P3/results/
-            P3/tools/
-            P3/tests/
-            P3/target/surefire-reports/
-            target/surefire-reports/
+            P3/
+
+      # ========================================================
+      # 13. FINAL INDEPENDENT PACKAGE VERIFICATION
+      # ========================================================
+
+      - name: Independently verify complete P3 package and publish verdict
+        id: p3_final_verdict
+        if: always()
+        shell: bash
+        env:
+          P3_ENVIRONMENT: ${{ steps.p3_environment.outcome }}
+          P3_REQUIRED_FILES: ${{ steps.p3_required_files.outcome }}
+          P3_PYTHON_COMPILE: ${{ steps.p3_python_compile.outcome }}
+          P3_BENCHMARK_TESTS: ${{ steps.p3_benchmark_tests.outcome }}
+          P3_MANIFEST_TESTS: ${{ steps.p3_manifest_tests.outcome }}
+          P3_FINAL_PACKAGE_TESTS: ${{ steps.p3_final_package_tests.outcome }}
+          P3_PYTHON_TESTS: ${{ steps.p3_python_tests.outcome }}
+          P3_ROOT_MAVEN: ${{ steps.p3_root_maven.outcome }}
+          P3_BENCHMARK: ${{ steps.p3_benchmark.outcome }}
+          P3_BENCHMARK_SUMMARY: ${{ steps.p3_benchmark_summary.outcome }}
+          P3_INTEGRITY_GENERATE: ${{ steps.p3_integrity_generate.outcome }}
+          P3_DISPLAY_MANIFEST: ${{ steps.p3_display_manifest.outcome }}
+          P3_DISPLAY_SHA256: ${{ steps.p3_display_sha256.outcome }}
+          P3_DISPLAY_ALL_TEXT: ${{ steps.p3_display_all_text.outcome }}
+          P3_ARTIFACT_UPLOAD: ${{ steps.p3_artifact_upload.outcome }}
+        run: |
+          set -Eeuo pipefail
+
+          OUTCOMES_JSON="$RUNNER_TEMP/p3-ci-outcomes.json"
+
+          export OUTCOMES_JSON
+
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          mapping = {
+              "p3_environment": "P3_ENVIRONMENT",
+              "p3_required_files": "P3_REQUIRED_FILES",
+              "p3_python_compile": "P3_PYTHON_COMPILE",
+              "p3_benchmark_tests": "P3_BENCHMARK_TESTS",
+              "p3_manifest_tests": "P3_MANIFEST_TESTS",
+              "p3_final_package_tests": "P3_FINAL_PACKAGE_TESTS",
+              "p3_python_tests": "P3_PYTHON_TESTS",
+              "p3_root_maven": "P3_ROOT_MAVEN",
+              "p3_benchmark": "P3_BENCHMARK",
+              "p3_benchmark_summary": "P3_BENCHMARK_SUMMARY",
+              "p3_integrity_generate": "P3_INTEGRITY_GENERATE",
+              "p3_display_manifest": "P3_DISPLAY_MANIFEST",
+              "p3_display_sha256": "P3_DISPLAY_SHA256",
+              "p3_display_all_text": "P3_DISPLAY_ALL_TEXT",
+              "p3_artifact_upload": "P3_ARTIFACT_UPLOAD",
+          }
+
+          outcomes = {
+              stage: os.environ.get(variable, "")
+              for stage, variable in mapping.items()
+          }
+
+          path = Path(os.environ["OUTCOMES_JSON"])
+          path.write_text(
+              json.dumps(outcomes, indent=2) + "\n",
+              encoding="utf-8",
+          )
+
+          print("P3_CI_OUTCOMES_CAPTURED")
+          print(json.dumps(outcomes, indent=2))
+          PY
+
+          python3 P3/tools/verify_final_package.py \
+            --root . \
+            --run-id "$RUN_ID" \
+            --outcomes-json "$OUTCOMES_JSON" \
+            --expected-n "$N" \
+            --warmup "$WARMUP" \
+            --iterations "$ITERATIONS" \
+            --threshold "$THRESHOLD" \
+            --parallelism "$PARALLELISM" \
+            | tee "$RUNNER_TEMP/p3-final-verdict.json"
+
+          echo
+          echo "P3_ACCEPTED"
+          echo "**P3_FINAL_VERDICT: P3_ACCEPTED**" \
+            >> "$GITHUB_STEP_SUMMARY"
