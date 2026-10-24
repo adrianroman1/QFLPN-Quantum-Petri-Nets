@@ -166,14 +166,18 @@ jobs:
               "P3/P3_AUDIT_REPORT.md",
               "P3/VALIDATION_ALIGNMENT.md",
               "P3/VALIDATION_PROTOCOL.md",
+
               "P3/results/run_benchmark.sh",
               "P3/results/validate_benchmark.py",
               "P3/results/test_validate_benchmark.py",
               "P3/results/generate_benchmark_summary.py",
+
               "P3/tools/generate_integrity.py",
               "P3/tools/verify_integrity.py",
+
               "P3/tests/test_generate_integrity.py",
               "P3/tests/test_verify_integrity.py",
+
               "P3/MANIFEST.txt",
               "P3/SHA256SUMS.txt",
           ]
@@ -299,6 +303,19 @@ jobs:
       # 6. P3 JAVA TESTS AND BENCHMARK
       # ========================================================
 
+      # run_benchmark.sh is the authoritative P3 runner.
+      # Its verified interface:
+      # N, WARMUP, ITERATIONS, THRESHOLD,
+      # PARALLELISM and RUN_ID are environment variables.
+      #
+      # It performs:
+      # - P3 Maven clean test;
+      # - Java BenchmarkRunner execution;
+      # - exactly-one-new-record CSV check;
+      # - strict V2 CSV validation;
+      # - run-specific report existence checks;
+      # - run-specific SHA256SUMS.txt generation.
+
       - name: Run complete P3 Maven, CSR benchmark and V2 validation
         id: p3_benchmark
         shell: bash
@@ -365,6 +382,13 @@ jobs:
       # 8. FINAL GLOBAL P3 INTEGRITY GENERATION
       # ========================================================
 
+      # The two global integrity files are generated only after
+      # source validation, Python tests, Maven tests and benchmark
+      # report generation have had their opportunity to complete.
+      #
+      # The P3 generator includes MANIFEST.txt in SHA256SUMS.txt.
+      # Do not replace this with the P2 integrity implementation.
+
       - name: Generate final P3 MANIFEST and SHA256SUMS
         id: p3_integrity_generate
         if: always()
@@ -409,7 +433,7 @@ jobs:
           echo "P3_INTEGRITY_REPRODUCIBILITY_ACCEPTED"
 
       # ========================================================
-      # 10.1. MANDATORY INDIVIDUAL MANIFEST PUBLICATION
+      # 10.1. INDIVIDUAL MANIFEST PUBLICATION
       # ========================================================
 
       - name: Verify and publish complete P3 MANIFEST.txt
@@ -423,167 +447,117 @@ jobs:
         run: |
           set -Eeuo pipefail
 
-          FILE="P3/MANIFEST.txt"
-
-          test -f "$FILE"
-          test ! -L "$FILE"
-          test -s "$FILE"
-
-          python3 - "$FILE" <<'PY'
+          python - <<'PY'
           from pathlib import Path
           import os
           import re
-          import sys
 
-          path = Path(sys.argv[1])
+          path = Path("P3/MANIFEST.txt")
+          if not path.is_file() or path.is_symlink():
+              raise SystemExit("P3_MANIFEST_MISSING_OR_UNSAFE")
+
           raw = path.read_bytes()
-          content = raw.decode("utf-8")
+          try:
+              content = raw.decode("utf-8")
+          except UnicodeError as exc:
+              raise SystemExit(f"P3_MANIFEST_NOT_UTF8: {exc}")
 
           if not content.endswith("\n"):
               raise SystemExit("P3_MANIFEST_MISSING_FINAL_NEWLINE")
 
           lines = content.splitlines()
+          expected_header = [
+              "# QFLPN P3 generated manifest",
+              "# Format: one repository-relative POSIX path per line",
+          ]
+          if len(lines) < 3 or lines[:2] != expected_header:
+              raise SystemExit("P3_MANIFEST_HEADER_INVALID")
 
-          if len(lines) < 3:
-              raise SystemExit("P3_MANIFEST_TOO_SHORT")
-
-          if lines[0] != "# QFLPN P3 generated manifest":
-              raise SystemExit("P3_MANIFEST_INVALID_HEADER")
-
-          if lines[1] != "# Format: one repository-relative POSIX path per line":
-              raise SystemExit("P3_MANIFEST_INVALID_FORMAT_DECLARATION")
-
-          match = re.fullmatch(
-              r"# File count: (0|[1-9][0-9]*)",
-              lines[2]
-          )
-
+          match = re.fullmatch(r"# File count: (0|[1-9][0-9]*)", lines[2])
           if not match:
-              raise SystemExit("P3_MANIFEST_INVALID_FILE_COUNT")
+              raise SystemExit("P3_MANIFEST_FILE_COUNT_DECLARATION_INVALID")
 
           entries = lines[3:]
-
           if len(entries) != int(match.group(1)):
               raise SystemExit("P3_MANIFEST_FILE_COUNT_MISMATCH")
-
-          if any(not item for item in entries):
-              raise SystemExit("P3_MANIFEST_CONTAINS_BLANK_ENTRY")
-
+          if any(not entry for entry in entries):
+              raise SystemExit("P3_MANIFEST_CONTAINS_EMPTY_ENTRY")
           if entries != sorted(entries):
               raise SystemExit("P3_MANIFEST_ENTRIES_NOT_SORTED")
-
           if len(entries) != len(set(entries)):
               raise SystemExit("P3_MANIFEST_ENTRIES_NOT_UNIQUE")
 
-          for item in entries:
-              candidate = Path(item)
-
+          for entry in entries:
+              candidate = Path(entry)
               if (
                   candidate.is_absolute()
-                  or "\\" in item
+                  or "\\" in entry
                   or ".." in candidate.parts
-                  or item.startswith("./")
-                  or item.strip() != item
-                  or item in {"MANIFEST.txt", "SHA256SUMS.txt"}
+                  or entry.startswith("./")
+                  or entry.strip() != entry
+                  or entry in {"MANIFEST.txt", "SHA256SUMS.txt"}
               ):
-                  raise SystemExit(
-                      f"P3_MANIFEST_UNSAFE_PATH: {item}"
-                  )
+                  raise SystemExit(f"P3_MANIFEST_UNSAFE_ENTRY: {entry}")
 
           summary = Path(os.environ["GITHUB_STEP_SUMMARY"])
-
           with summary.open("a", encoding="utf-8") as stream:
-              stream.write(
-                  "# P3 — MANIFEST.txt "
-                  "(complete, individual evidence)\n\n"
-              )
-              stream.write(
-                  f"- Generator outcome: "
-                  f"{os.environ.get('GENERATE_OUTCOME')}\n"
-              )
-              stream.write(
-                  f"- Independent verifier outcome: "
-                  f"{os.environ.get('VERIFY_OUTCOME')}\n"
-              )
-              stream.write(
-                  f"- Reproducibility outcome: "
-                  f"{os.environ.get('CHECK_OUTCOME')}\n"
-              )
-              stream.write(f"- Bytes published: {len(raw)}\n\n")
-              stream.write("```text\n")
+              stream.write("# P3 — MANIFEST.txt (individual complete publication)\n\n")
+              stream.write(f"- Generator: {os.environ.get('GENERATE_OUTCOME')}\n")
+              stream.write(f"- Independent verifier: {os.environ.get('VERIFY_OUTCOME')}\n")
+              stream.write(f"- Reproducibility check: {os.environ.get('CHECK_OUTCOME')}\n")
+              stream.write(f"- Entries: {len(entries)}\n")
+              stream.write(f"- Published bytes: {len(raw)}\n\n")
+              stream.write("~~~text\n")
               stream.write(content)
-              stream.write("```\n")
+              stream.write("~~~\n\n")
 
-          print("P3_MANIFEST_INDIVIDUAL_PUBLICATION_ACCEPTED")
+          print("P3_MANIFEST_VALIDATED_AND_PUBLISHED")
+          print(f"P3_MANIFEST_ENTRIES={len(entries)}")
           print(f"P3_MANIFEST_BYTES={len(raw)}")
           PY
 
       # ========================================================
-      # 10.2. MANDATORY INDIVIDUAL SHA256 PUBLICATION
+      # 10.2. INDIVIDUAL SHA256SUMS PUBLICATION
       # ========================================================
 
-      - name: Verify MANIFEST SHA-256 and publish complete P3 SHA256SUMS.txt
+      - name: Verify MANIFEST hash and publish complete P3 SHA256SUMS.txt
         id: p3_display_sha256
         if: always()
         shell: bash
-        env:
-          GENERATE_OUTCOME: ${{ steps.p3_integrity_generate.outcome }}
-          VERIFY_OUTCOME: ${{ steps.p3_integrity_verify.outcome }}
-          CHECK_OUTCOME: ${{ steps.p3_integrity_reproducibility.outcome }}
         run: |
           set -Eeuo pipefail
 
-          FILE="P3/SHA256SUMS.txt"
-          MANIFEST="P3/MANIFEST.txt"
-
-          test -f "$FILE"
-          test ! -L "$FILE"
-          test -s "$FILE"
-
-          test -f "$MANIFEST"
-          test ! -L "$MANIFEST"
-          test -s "$MANIFEST"
-
-          python3 - "$FILE" "$MANIFEST" <<'PY'
+          python - <<'PY'
           from pathlib import Path
           import hashlib
           import os
           import re
-          import sys
 
-          checksum_path = Path(sys.argv[1])
-          manifest_path = Path(sys.argv[2])
+          checksum_path = Path("P3/SHA256SUMS.txt")
+          manifest_path = Path("P3/MANIFEST.txt")
+          for path, label in (
+              (checksum_path, "SHA256SUMS"),
+              (manifest_path, "MANIFEST"),
+          ):
+              if not path.is_file() or path.is_symlink() or path.stat().st_size == 0:
+                  raise SystemExit(f"P3_{label}_MISSING_OR_UNSAFE")
 
           raw = checksum_path.read_bytes()
-          content = raw.decode("ascii")
+          try:
+              content = raw.decode("ascii")
+          except UnicodeError as exc:
+              raise SystemExit(f"P3_SHA256SUMS_NOT_ASCII: {exc}")
 
           if not content.endswith("\n"):
-              raise SystemExit(
-                  "P3_SHA256SUMS_MISSING_FINAL_NEWLINE"
-              )
+              raise SystemExit("P3_SHA256SUMS_MISSING_FINAL_NEWLINE")
 
-          lines = content.splitlines()
-
-          if not lines:
-              raise SystemExit("P3_SHA256SUMS_EMPTY")
-
-          entries = []
-          names = set()
-
-          for number, line in enumerate(lines, start=1):
-              match = re.fullmatch(
-                  r"([0-9a-f]{64})  ([^\r\n]+)",
-                  line
-              )
-
+          entries = {}
+          for number, line in enumerate(content.splitlines(), start=1):
+              match = re.fullmatch(r"([0-9a-f]{64})  ([^\r\n]+)", line)
               if not match:
-                  raise SystemExit(
-                      f"P3_SHA256SUMS_INVALID_LINE_{number}"
-                  )
-
+                  raise SystemExit(f"P3_SHA256SUMS_INVALID_LINE_{number}")
               digest, name = match.groups()
               candidate = Path(name)
-
               if (
                   candidate.is_absolute()
                   or "\\" in name
@@ -591,95 +565,55 @@ jobs:
                   or name.startswith("./")
                   or name.strip() != name
               ):
-                  raise SystemExit(
-                      f"P3_SHA256SUMS_UNSAFE_PATH_{number}"
-                  )
+                  raise SystemExit(f"P3_SHA256SUMS_UNSAFE_PATH_LINE_{number}")
+              if name in entries:
+                  raise SystemExit(f"P3_SHA256SUMS_DUPLICATE_PATH: {name}")
+              entries[name] = digest
 
-              if name in names:
-                  raise SystemExit(
-                      f"P3_SHA256SUMS_DUPLICATE_PATH_{number}"
-                  )
+          if list(entries) != sorted(entries):
+              raise SystemExit("P3_SHA256SUMS_ENTRIES_NOT_SORTED")
 
-              names.add(name)
-              entries.append((name, digest))
-
-          ordered_names = [
-              name for name, digest in entries
-          ]
-
-          if ordered_names != sorted(ordered_names):
-              raise SystemExit(
-                  "P3_SHA256SUMS_ENTRIES_NOT_SORTED"
-              )
-
-          manifest_entries = [
-              digest
-              for name, digest in entries
-              if name == "MANIFEST.txt"
-          ]
-
-          if len(manifest_entries) != 1:
-              raise SystemExit(
-                  "P3_SHA256SUMS_MUST_CONTAIN_EXACTLY_ONE_MANIFEST_HASH"
-              )
-
-          actual_manifest_hash = hashlib.sha256(
-              manifest_path.read_bytes()
-          ).hexdigest()
-
-          if manifest_entries[0] != actual_manifest_hash:
-              raise SystemExit(
-                  "P3_MANIFEST_SHA256_MISMATCH"
-              )
+          actual_manifest_hash = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+          if entries.get("MANIFEST.txt") != actual_manifest_hash:
+              raise SystemExit("P3_MANIFEST_SHA256_MISMATCH")
 
           summary = Path(os.environ["GITHUB_STEP_SUMMARY"])
-
           with summary.open("a", encoding="utf-8") as stream:
-              stream.write(
-                  "# P3 — SHA256SUMS.txt "
-                  "(complete, individual evidence)\n\n"
-              )
-              stream.write(
-                  f"- Generator outcome: "
-                  f"{os.environ.get('GENERATE_OUTCOME')}\n"
-              )
-              stream.write(
-                  f"- Independent verifier outcome: "
-                  f"{os.environ.get('VERIFY_OUTCOME')}\n"
-              )
-              stream.write(
-                  f"- Reproducibility outcome: "
-                  f"{os.environ.get('CHECK_OUTCOME')}\n"
-              )
-              stream.write(
-                  f"- MANIFEST.txt SHA-256: "
-                  f"`{actual_manifest_hash}` — MATCH\n"
-              )
-              stream.write(
-                  f"- Checksum entries: {len(entries)}\n"
-              )
-              stream.write(
-                  f"- Bytes published: {len(raw)}\n\n"
-              )
-              stream.write("```text\n")
+              stream.write("# P3 — SHA256SUMS.txt (individual complete publication)\n\n")
+              stream.write(f"- Generator: {os.environ.get('GENERATE_OUTCOME')}\n")
+              stream.write(f"- Independent verifier: {os.environ.get('VERIFY_OUTCOME')}\n")
+              stream.write(f"- Reproducibility check: {os.environ.get('CHECK_OUTCOME')}\n")
+              stream.write(f"- MANIFEST.txt SHA-256: {actual_manifest_hash} — MATCH\n")
+              stream.write(f"- Checksum entries: {len(entries)}\n")
+              stream.write(f"- Published bytes: {len(raw)}\n\n")
+              stream.write("~~~text\n")
               stream.write(content)
-              stream.write("```\n")
+              stream.write("~~~\n\n")
 
-          print(
-              "P3_SHA256SUMS_FORMAT_AND_MANIFEST_HASH_ACCEPTED"
-          )
-          print(
-              "P3_SHA256SUMS_INDIVIDUAL_PUBLICATION_ACCEPTED"
-          )
+          print("P3_SHA256SUMS_FORMAT_AND_MANIFEST_HASH_ACCEPTED")
+          print("P3_SHA256SUMS_VALIDATED_AND_PUBLISHED")
+          print(f"P3_SHA256SUMS_ENTRIES={len(entries)}")
           print(f"P3_SHA256SUMS_BYTES={len(raw)}")
           PY
 
       # ========================================================
       # 10. AUTOMATIC DISCOVERY AND FULL DISPLAY
-      #     ALL P3 .MD, .CSX AND .TXT FILES
+      #     ALL P3 .MD, .CSV AND .TXT FILES
       # ========================================================
 
-      - name: Discover and display ALL P3 MD CSX TXT files
+      # This step discovers files recursively.
+      # No manual filename list is used.
+      #
+      # It includes:
+      # P3/MANIFEST.txt
+      # P3/SHA256SUMS.txt
+      # every P3/**/*.md
+      # every P3/**/*.csv
+      # every P3/**/*.txt
+      #
+      # It does not silently truncate file contents.
+
+      - name: Discover and display ALL P3 MD CSV TXT files
         id: p3_display_all_text
         if: always()
         shell: bash
@@ -698,7 +632,7 @@ jobs:
           root = Path("P3").resolve()
           summary = Path(os.environ["GITHUB_STEP_SUMMARY"])
 
-          extensions = {".md", ".csx", ".txt"}
+          extensions = {".md", ".csv", ".txt"}
 
           files = sorted(
               (
@@ -727,7 +661,7 @@ jobs:
               "",
               f"Discovered files: **{len(files)}**",
               "",
-              "Extensions: `.md`, `.csx`, `.txt`",
+              "Extensions: `.md`, `.csv`, `.txt`",
               "",
               "| Integrity operation | Outcome |",
               "|---|---|",
@@ -767,7 +701,6 @@ jobs:
                   ),
                   default=0
               )
-
               fence = "`" * max(3, longest + 1)
 
               output.extend([
@@ -780,6 +713,9 @@ jobs:
               ])
 
           rendered = "\n".join(output)
+
+          # GitHub Actions job summaries have a size limit.
+          # Fail explicitly rather than silently truncate.
           encoded = rendered.encode("utf-8")
 
           if len(encoded) > 950_000:
@@ -791,7 +727,6 @@ jobs:
                       "The complete contents are retained in the workflow "
                       "artifact. The job summary was not silently truncated.\n"
                   )
-
               raise SystemExit(
                   "P3_TEXT_DISPLAY_EXCEEDS_GITHUB_SUMMARY_LIMIT"
               )
@@ -804,12 +739,10 @@ jobs:
           print(f"P3_TEXT_DISPLAY_BYTES={len(encoded)}")
 
           if missing:
-              raise SystemExit(
-                  "P3_INTEGRITY_FILES_NOT_DISPLAYED"
-              )
+              raise SystemExit("P3_INTEGRITY_FILES_NOT_DISPLAYED")
 
           print("P3_MANIFEST_AND_SHA256SUMS_INCLUDED")
-          print("P3_ALL_MD_CSX_TXT_FILES_DISPLAYED")
+          print("P3_ALL_MD_CSV_TXT_FILES_DISPLAYED")
           PY
 
       # ========================================================
@@ -861,7 +794,7 @@ jobs:
             echo "| Integrity reproducibility | $INTEGRITY_CHECK |"
             echo "| Individual MANIFEST verification and publication | $MANIFEST_DISPLAY |"
             echo "| Individual SHA256SUMS format/hash verification and publication | $SHA256_DISPLAY |"
-            echo "| Full MD/CSX/TXT publication | $TEXT_DISPLAY |"
+            echo "| Full MD/CSV/TXT publication | $TEXT_DISPLAY |"
             echo
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -893,7 +826,6 @@ jobs:
           if [ "$failed" -ne 0 ]; then
             echo "**P3_FINAL_VERDICT: REJECTED — at least one mandatory validation stage failed.**" \
               >> "$GITHUB_STEP_SUMMARY"
-
             echo "P3_FINAL_VALIDATION_REJECTED"
             exit 1
           fi
