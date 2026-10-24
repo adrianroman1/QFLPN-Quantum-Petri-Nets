@@ -1,87 +1,277 @@
 name: P3 Audit Validation
 
 on:
+  workflow_dispatch:
+
   push:
     branches:
       - main
-      - fix/**
+      - "fix/**"
+    paths:
+      - "P3/**"
+      - "src/**"
+      - "pom.xml"
+      - ".github/workflows/p3-validation.yml"
+
   pull_request:
     branches:
       - main
+    paths:
+      - "P3/**"
+      - "src/**"
+      - "pom.xml"
+      - ".github/workflows/p3-validation.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: p3-validation-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   validate:
+    name: P3 Audit, Tests and Reproducibility
     runs-on: ubuntu-latest
+    timeout-minutes: 45
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: "21"
+          cache: maven
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
+
+      - name: Capture P3 execution environment
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p P3/reports
+
+          {
+            echo "QFLPN P3 EXECUTION ENVIRONMENT"
+            echo
+            echo "UTC timestamp:"
+            date -u +%Y-%m-%dT%H:%M:%SZ
+            echo
+            echo "Git commit:"
+            git rev-parse HEAD
+            echo
+            echo "Git branch:"
+            echo "${GITHUB_REF_NAME:-unknown}"
+            echo
+            echo "GitHub run ID:"
+            echo "${GITHUB_RUN_ID:-unknown}"
+            echo
+            echo "Java:"
+            java -version 2>&1
+            echo
+            echo "Maven:"
+            mvn -version
+            echo
+            echo "Python:"
+            python --version
+            echo
+            echo "Operating system:"
+            uname -a
+            echo
+            echo "CPU:"
+            lscpu
+            echo
+            echo "Memory:"
+            free -h
+          } > P3/reports/environment.txt
+
+          test -s P3/reports/environment.txt
+
+      - name: Validate required P3 files
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          required=(
+            "pom.xml"
+            "P3/pom.xml"
+            "P3/results/run_benchmark.sh"
+            "P3/results/validate_benchmark.py"
+            "P3/results/generate_benchmark_summary.py"
+            "P3/tools/generate_integrity.py"
+            "P3/tools/verify_integrity.py"
+          )
+
+          for file in "${required[@]}"; do
+            if [[ ! -f "$file" ]]; then
+              echo "[FAIL] Missing required file: $file"
+              exit 1
+            fi
+          done
+
+          echo "[PASS] Required P3 files found"
+
+      - name: Compile Python validation tools
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          python -m py_compile \
+            P3/results/validate_benchmark.py \
+            P3/results/generate_benchmark_summary.py \
+            P3/tools/generate_integrity.py \
+            P3/tools/verify_integrity.py
+
+          echo "[PASS] Python compilation"
 
       - name: Run root Maven tests
-        run: mvn -B test
-
-      - name: Run P3 Maven tests
+        shell: bash
         run: |
-          if [ -f "P3/pom.xml" ]; then
-            mvn -B -f P3/pom.xml test
-          else
-            echo "No P3 pom.xml found; skipping."
-          fi
+          set -Eeuo pipefail
+          mvn -B test
 
-      - name: Run benchmark script
+      - name: Run complete P3 Maven tests
+        shell: bash
         run: |
-          if [ -f "P3/results/run_benchmark.sh" ]; then
-            chmod +x P3/results/run_benchmark.sh
-            bash P3/results/run_benchmark.sh
-          else
-            echo "Benchmark script not found; skipping."
-          fi
+          set -Eeuo pipefail
+          mvn -B -f P3/pom.xml test
 
-      - name: Validate benchmark outputs
+      - name: Run P3 benchmark and numerical validation
+        id: p3_benchmark
+        continue-on-error: true
+        shell: bash
         run: |
-          if [ -f "P3/results/validate_benchmark.py" ]; then
-            python3 P3/results/validate_benchmark.py
-          else
-            echo "Validator not found; skipping."
-          fi
+          set -Eeuo pipefail
 
-      - name: Generate benchmark summary
+          chmod +x P3/results/run_benchmark.sh
+
+          bash P3/results/run_benchmark.sh \
+            2>&1 | tee P3/reports/benchmark-execution.log
+
+      - name: Validate P3 benchmark evidence
+        id: p3_benchmark_validation
+        if: steps.p3_benchmark.outcome == 'success'
+        shell: bash
         run: |
-          if [ -f "P3/results/generate_benchmark_summary.py" ]; then
-            python3 P3/results/generate_benchmark_summary.py
-          else
-            echo "Summary generator not found; skipping."
+          set -Eeuo pipefail
+
+          REPORT="$(find P3/results/raw \
+            -type f \
+            -name validation-report.json \
+            -printf '%T@ %p\n' \
+            | sort -nr \
+            | head -n 1 \
+            | cut -d' ' -f2-)"
+
+          if [[ -z "$REPORT" || ! -s "$REPORT" ]]; then
+            echo "[FAIL] No benchmark validation report found"
+            exit 1
           fi
 
-      - name: Run integrity checks
+          echo "Validation report: $REPORT"
+
+      - name: Generate P3 benchmark summary
+        if: steps.p3_benchmark_validation.outcome == 'success'
+        shell: bash
         run: |
-          if [ -f "P3/tools/generate_integrity.py" ]; then
-            python3 P3/tools/generate_integrity.py
-          fi
-          if [ -f "P3/tools/verify_integrity.py" ]; then
-            python3 P3/tools/verify_integrity.py
-          fi
+          set -Eeuo pipefail
 
-      - name: Upload validation artifacts
+          REPORT="$(find P3/results/raw \
+            -type f \
+            -name validation-report.json \
+            -printf '%T@ %p\n' \
+            | sort -nr \
+            | head -n 1 \
+            | cut -d' ' -f2-)"
+
+          RUN_ID="$(python -c \
+            'import json,sys; print(json.load(open(sys.argv[1]))["latest_record"]["run_id"])' \
+            "$REPORT")"
+
+          python3 P3/results/generate_benchmark_summary.py \
+            --csv P3/benchmarks/benchmark_results_v2.csv \
+            --report "$REPORT" \
+            --run-id "$RUN_ID"
+
+      - name: Generate P3 manifest and SHA-256 inventory
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          python3 P3/tools/generate_integrity.py --write
+
+      - name: Independently verify P3 integrity
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          python3 P3/tools/verify_integrity.py
+
+      - name: Publish P3 validation summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## QFLPN P3 — Audit Validation"
+            echo
+            echo "| Validation stage | Outcome |"
+            echo "|---|---|"
+            echo "| Root Maven tests | ${{ job.status }} |"
+            echo "| P3 benchmark execution | ${{ steps.p3_benchmark.outcome }} |"
+            echo "| P3 benchmark evidence | ${{ steps.p3_benchmark_validation.outcome }} |"
+            echo
+            echo "Commit: ${GITHUB_SHA}"
+            echo "Workflow run: ${GITHUB_RUN_ID}"
+            echo
+            echo "Benchmark performance is reported separately from numerical correctness."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload P3 validation evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: p3-validation-artifacts
-          path: |
-            P3/results/**
-            P3/tools/**
-            **/MANIFEST.txt
-            **/SHA256SUMS.txt
-            **/*.json
-            **/*.csv
+          name: P3-audit-validation-evidence
           if-no-files-found: warn
+          retention-days: 90
+          path: |
+            P3/reports/
+            P3/results/
+            P3/benchmarks/
+            P3/MANIFEST.txt
+            P3/SHA256SUMS.txt
+
+      - name: Commit generated P3 integrity evidence
+        if: success() && github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add \
+            P3/MANIFEST.txt \
+            P3/SHA256SUMS.txt
+
+          if git diff --cached --quiet; then
+            echo "No P3 integrity changes to commit."
+            exit 0
+          fi
+
+          git commit \
+            -m "P3 automated integrity evidence [skip ci]"
+
+          git push \
+            origin \
+            "HEAD:refs/heads/${GITHUB_REF_NAME}"
