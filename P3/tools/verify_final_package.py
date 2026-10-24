@@ -368,7 +368,6 @@ def finite_number(value: Any, label: str) -> float:
     csv.DictReader returns strings for every CSV field. Reject booleans,
     empty strings, non-numeric strings, NaN and positive/negative infinity.
     """
-
     require(
         not isinstance(value, bool),
         f"{label} must be numeric",
@@ -453,7 +452,7 @@ def verify_benchmark(
         "canonical benchmark validator is missing",
     )
 
-    # Re-run the authoritative validator against the complete CSV.
+    # Load the authoritative production validator.
     import importlib.util
 
     spec = importlib.util.spec_from_file_location(
@@ -470,7 +469,46 @@ def verify_benchmark(
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
 
-    result = module.validate(csv_path, expected=expected)
+    # Identify the requested RUN_ID from the canonical CSV before
+    # resolving its run-specific report directory. This produces a useful
+    # RUN_ID failure instead of incorrectly reporting a missing report.
+    try:
+        with csv_path.open(
+            "r",
+            encoding="utf-8-sig",
+            newline="",
+        ) as stream:
+            reader = csv.DictReader(stream, strict=True)
+            fieldnames = reader.fieldnames
+            csv_rows = list(reader)
+
+        if fieldnames is not None and "run_id" in fieldnames:
+            available_run_ids = [
+                row.get("run_id")
+                for row in csv_rows
+                if row.get("run_id") not in (None, "")
+            ]
+
+            require(
+                run_id in available_run_ids,
+                "RUN_ID does not exist in canonical benchmark CSV: "
+                f"{run_id}; available RUN_ID values: "
+                f"{sorted(set(available_run_ids))}",
+            )
+    except (OSError, UnicodeError, csv.Error) as exc:
+        raise VerificationError(
+            f"cannot read canonical benchmark CSV: {exc}"
+        ) from exc
+
+    # The production validator raises its own ValidationError (a
+    # ValueError subclass). Convert it to VerificationError so the
+    # independent package verifier always has one fail-closed error type.
+    try:
+        result = module.validate(csv_path, expected=expected)
+    except Exception as exc:
+        raise VerificationError(
+            f"authoritative benchmark validation failed: {exc}"
+        ) from exc
 
     require(
         result.get("schema") == "qflpn-benchmark-v2",
@@ -732,24 +770,24 @@ def verify_package(
         f"repository root does not exist: {root}",
     )
 
-    # Validate RUN_ID and benchmark evidence before global integrity.
-    # This ensures a malformed benchmark cannot mask a more relevant
-    # RUN_ID, CSV, report, or run-specific checksum error.
+    # Check CI outcomes first. When an earlier workflow stage fails,
+    # downstream stages may be skipped and benchmark artifacts may not
+    # exist. Reporting the failed mandatory stage is more accurate than
+    # misdiagnosing the resulting missing CSV/report as the root cause.
+    outcomes = verify_ci_outcomes(outcomes_path)
+
+    # With the mandatory CI chain successful, validate benchmark evidence
+    # and then the complete package and its independently reconstructed
+    # global integrity inventory.
     benchmark = verify_benchmark(
         root,
         run_id,
         expected,
     )
 
-    # Required package files and global integrity are checked only after
-    # benchmark evidence has been validated.
     verify_required_files(root)
 
     integrity = verify_global_integrity(root)
-
-    # CI outcomes are checked last so malformed outcomes are not masked
-    # by unrelated benchmark or global-integrity failures.
-    outcomes = verify_ci_outcomes(outcomes_path)
 
     return {
         "verdict": "P3_ACCEPTED",
