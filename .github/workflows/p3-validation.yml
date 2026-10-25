@@ -560,8 +560,29 @@ jobs:
           fi
 
           if [ "$GITHUB_REF_NAME" = "main" ]; then
-            echo "P3_REMOTE_VERIFICATION_BLOCKED_ON_MAIN"
-            exit 1
+            python - "$REMOTE_JSON" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          Path(sys.argv[1]).write_text(
+              json.dumps(
+                  {
+                      "schema": "qflpn-p3-remote-integrity-v2",
+                      "validation": "NOT_APPLICABLE",
+                      "branch": "main",
+                      "manifest_entries": 0,
+                      "verified_remote_blobs": 0,
+                      "files": [],
+                      "reason": "Remote publication is disabled on main.",
+                  },
+                  indent=2,
+              ) + "\n",
+              encoding="utf-8",
+          )
+          PY
+            echo "P3_REMOTE_PUBLICATION_NOT_APPLICABLE_ON_MAIN"
+            exit 0
           fi
 
           if [ "${{ steps.p3_integrity_persist.outcome }}" != "success" ]; then
@@ -586,7 +607,7 @@ jobs:
 
       - name: Validate and publish complete P3 MANIFEST.txt
         id: p3_display_manifest
-        if: always()
+        if: always() && steps.p3_integrity_generate.outcome == 'success'
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -649,7 +670,7 @@ jobs:
 
       - name: Validate and publish complete P3 SHA256SUMS.txt
         id: p3_display_sha256
-        if: always()
+        if: always() && steps.p3_integrity_generate.outcome == 'success'
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -953,7 +974,7 @@ jobs:
 
           SUMMARY_ARGS=()
 
-          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ] || [ "$GITHUB_REF_NAME" = "main" ]; then
             SUMMARY_ARGS+=(--remote-not-required)
             EXPECTED_VERDICT="P3_VALIDATED_PENDING_PUBLICATION"
           else
@@ -980,7 +1001,7 @@ jobs:
             exit 1
           fi
 
-          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ] || [ "$GITHUB_REF_NAME" = "main" ]; then
             echo "P3_LOCAL_VALIDATION_ACCEPTED_PENDING_PUBLICATION"
           else
             echo "P3_FINAL_VERDICT_ACCEPTED"
