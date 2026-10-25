@@ -430,7 +430,6 @@ jobs:
                   "P3_EVIDENCE_CONSISTENCY_ITEM_NOT_PASS"
               )
 
-          print("P3_CSV_JSON_CROSS_VALIDATION_ACCEPTED")
           print("P3_EVIDENCE_CONSISTENCY_ACCEPTED")
           PY
 
@@ -447,16 +446,11 @@ jobs:
 
           echo "P3_GLOBAL_INTEGRITY_GENERATION_STARTED"
 
-          # Generate the complete inventory on every workflow run.
-          # Includes CSV, TXT, MD and all other eligible regular files
-          # under P3/, regardless of previous test or benchmark outcomes.
           python P3/tools/compute_checksums.py
 
           test -s P3/MANIFEST.txt
           test -s P3/SHA256SUMS.txt
 
-          # Independently reconstruct the filesystem inventory and verify
-          # every SHA-256 digest against the actual file contents.
           python - <<'PY'
           import importlib.util
           from pathlib import Path
@@ -516,17 +510,14 @@ jobs:
           echo "P3_GLOBAL_INTEGRITY_GENERATED"
 
       # --------------------------------------------------------
-      # 9. PERSIST GENERATED EVIDENCE ON REMEDIATION BRANCHES
+      # 9. AUTOMATIC PERSISTENCE — MAIN AND REMEDIATION BRANCHES
       # --------------------------------------------------------
 
-      - name: Persist benchmark evidence and integrity on remediation branch
+      - name: Persist generated P3 evidence and integrity inventory
         id: p3_integrity_persist
         if: >-
           always() &&
           github.event_name != 'pull_request' &&
-          github.ref_name != 'main' &&
-          steps.p3_benchmark.outcome == 'success' &&
-          steps.p3_benchmark_summary.outcome == 'success' &&
           steps.p3_integrity_generate.outcome == 'success'
         shell: bash
         run: |
@@ -537,42 +528,35 @@ jobs:
             exit 1
           fi
 
-          RAW="P3/results/raw/$RUN_ID"
-
-          test -s P3/benchmarks/benchmark_results_v2.csv
-          test -s P3/reports/environment.json
-          test -s P3/reports/environment.txt
-          test -s P3/reports/benchmark-report.md
-          test -s P3/reports/validation-report.json
-          test -s P3/reports/evidence-consistency.json
-          test -s "$RAW/validation-report.json"
-          test -s P3/MANIFEST.txt
-          test -s P3/SHA256SUMS.txt
-
           git config user.name "github-actions[bot]"
           git config user.email \
             "41898282+github-actions[bot]@users.noreply.github.com"
 
+          # Stage generated P3 evidence and the global inventory.
+          # Source files already committed on the branch remain untouched.
           git add -A -- \
-            P3/benchmarks/benchmark_results_v2.csv \
-            P3/reports \
-            "P3/results/raw/$RUN_ID" \
+            P3/benchmarks/ \
+            P3/reports/ \
+            P3/results/raw/ \
             P3/MANIFEST.txt \
             P3/SHA256SUMS.txt
 
           if git diff --cached --quiet; then
-            echo "P3_EVIDENCE_ALREADY_CURRENT"
+            echo "No generated P3 evidence changes to commit."
           else
             git commit \
-              -m "[skip ci] chore(p3): persist benchmark evidence and integrity"
+              -m "[skip ci] P3 automated validation and integrity evidence"
 
-            git push origin "HEAD:${GITHUB_REF_NAME}"
+            git push \
+              origin \
+              "HEAD:refs/heads/${GITHUB_REF_NAME}"
           fi
 
           echo "P3_EVIDENCE_AND_INTEGRITY_PERSISTED"
+          echo "P3_PERSISTED_BRANCH=${GITHUB_REF_NAME}"
 
       # --------------------------------------------------------
-      # 10. VERIFY REMOTE MANIFEST AND EVERY REMOTE BLOB
+      # 10. REMOTE MANIFEST AND SHA256 VERIFICATION
       # --------------------------------------------------------
 
       - name: Verify every remote P3 manifest path and SHA-256
@@ -601,7 +585,7 @@ jobs:
                       "files": [],
                       "reason": (
                           "Pull requests are read-only; remote publication "
-                          "is checked after push."
+                          "is checked after the branch is pushed."
                       ),
                   },
                   indent=2,
@@ -613,47 +597,75 @@ jobs:
             exit 0
           fi
 
-          if [ "$GITHUB_REF_NAME" = "main" ]; then
-            python - "$REMOTE_JSON" <<'PY'
-          import json
-          import sys
-          from pathlib import Path
-
-          Path(sys.argv[1]).write_text(
-              json.dumps(
-                  {
-                      "schema": "qflpn-p3-remote-integrity-v2",
-                      "validation": "NOT_APPLICABLE",
-                      "branch": "main",
-                      "manifest_entries": 0,
-                      "verified_remote_blobs": 0,
-                      "files": [],
-                      "reason": "Remote publication is disabled on main.",
-                  },
-                  indent=2,
-              ) + "\n",
-              encoding="utf-8",
-          )
-          PY
-            echo "P3_REMOTE_PUBLICATION_NOT_APPLICABLE_ON_MAIN"
-            exit 0
-          fi
-
           if [ "${{ steps.p3_integrity_persist.outcome }}" != "success" ]; then
             echo "P3_REMOTE_VERIFICATION_BLOCKED: persistence did not succeed" >&2
             exit 1
           fi
 
-          python P3/tools/verify_remote_integrity.py \
-            --root . \
-            --remote origin \
-            --branch "$GITHUB_REF_NAME" \
-            --run-id "$RUN_ID" \
-            --source-commit "$SOURCE_COMMIT" \
-            --json-output "$REMOTE_JSON"
+          if [ "${{ steps.p3_benchmark.outcome }}" = "success" ] && \
+             [ "${{ steps.p3_benchmark_summary.outcome }}" = "success" ]; then
+
+            echo "P3_REMOTE_VERIFICATION_MODE=FULL_PROVENANCE"
+
+            python P3/tools/verify_remote_integrity.py \
+              --root . \
+              --remote origin \
+              --branch "$GITHUB_REF_NAME" \
+              --run-id "$RUN_ID" \
+              --source-commit "$SOURCE_COMMIT" \
+              --json-output "$REMOTE_JSON"
+
+          else
+            echo "P3_REMOTE_VERIFICATION_MODE=INTEGRITY_ONLY"
+
+            python P3/tools/verify_remote_integrity.py \
+              --root . \
+              --remote origin \
+              --branch "$GITHUB_REF_NAME" \
+              --run-id "$RUN_ID" \
+              --source-commit "$SOURCE_COMMIT" \
+              --integrity-only \
+              --json-output "$REMOTE_JSON"
+          fi
 
           test -s "$REMOTE_JSON"
-          echo "P3_REMOTE_ALL_MANIFEST_BLOBS_VERIFIED"
+
+          python - "$REMOTE_JSON" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+
+          if data.get("schema") != "qflpn-p3-remote-integrity-v2":
+              raise SystemExit("P3_REMOTE_SCHEMA_MISMATCH")
+
+          if data.get("validation") != "PASS":
+              raise SystemExit("P3_REMOTE_INTEGRITY_NOT_PASS")
+
+          count = data.get("manifest_entries")
+          verified = data.get("verified_remote_blobs")
+
+          if not isinstance(count, int) or count <= 0:
+              raise SystemExit("P3_REMOTE_MANIFEST_COUNT_INVALID")
+
+          if verified != count:
+              raise SystemExit("P3_REMOTE_BLOB_COUNT_MISMATCH")
+
+          if data.get("verification_mode") not in {
+              "FULL",
+              "INTEGRITY_ONLY",
+          }:
+              raise SystemExit("P3_REMOTE_VERIFICATION_MODE_INVALID")
+
+          print(f"P3_REMOTE_MANIFEST_ENTRIES={count}")
+          print(f"P3_REMOTE_BLOBS_VERIFIED={verified}")
+          print(
+              "P3_REMOTE_VERIFICATION_MODE="
+              + str(data["verification_mode"])
+          )
+          print("P3_REMOTE_ALL_MANIFEST_BLOBS_VERIFIED")
+          PY
 
       # --------------------------------------------------------
       # 11. VALIDATE AND PUBLISH COMPLETE MANIFEST
@@ -671,6 +683,7 @@ jobs:
           import os
 
           path = Path("P3/MANIFEST.txt")
+
           if not path.is_file() or path.is_symlink():
               raise SystemExit("P3_MANIFEST_MISSING_OR_UNSAFE")
 
@@ -681,29 +694,37 @@ jobs:
               raise SystemExit("P3_MANIFEST_MISSING_FINAL_NEWLINE")
 
           entries = content.splitlines()
+
           if not entries or any(not item for item in entries):
               raise SystemExit("P3_MANIFEST_EMPTY_OR_BLANK_ENTRY")
+
           if entries != sorted(entries):
               raise SystemExit("P3_MANIFEST_NOT_SORTED")
+
           if len(entries) != len(set(entries)):
               raise SystemExit("P3_MANIFEST_DUPLICATE_PATH")
 
           for entry in entries:
               candidate = Path(entry)
+
               if (
                   candidate.is_absolute()
                   or "\\" in entry
                   or ".." in candidate.parts
                   or not entry.startswith("P3/")
                   or entry.strip() != entry
-                  or candidate.name in {"MANIFEST.txt", "SHA256SUMS.txt"}
+                  or candidate.name in {
+                      "MANIFEST.txt",
+                      "SHA256SUMS.txt",
+                  }
               ):
                   raise SystemExit(
                       f"P3_MANIFEST_UNSAFE_ENTRY: {entry}"
                   )
 
           with Path(os.environ["GITHUB_STEP_SUMMARY"]).open(
-              "a", encoding="utf-8"
+              "a",
+              encoding="utf-8",
           ) as stream:
               stream.write(
                   "# P3 — MANIFEST.txt (complete publication)\n\n"
@@ -731,10 +752,12 @@ jobs:
 
           python - <<'PY'
           from pathlib import Path
+          import hashlib
           import os
           import re
 
           path = Path("P3/SHA256SUMS.txt")
+
           if not path.is_file() or path.is_symlink():
               raise SystemExit("P3_SHA256SUMS_MISSING_OR_UNSAFE")
 
@@ -745,11 +768,13 @@ jobs:
               raise SystemExit("P3_SHA256SUMS_MISSING_FINAL_NEWLINE")
 
           entries = {}
+
           for number, line in enumerate(content.splitlines(), start=1):
               match = re.fullmatch(
                   r"([0-9a-f]{64})  ([^\r\n]+)",
                   line,
               )
+
               if not match:
                   raise SystemExit(
                       f"P3_SHA256SUMS_INVALID_LINE_{number}"
@@ -764,7 +789,10 @@ jobs:
                   or ".." in candidate.parts
                   or not name.startswith("P3/")
                   or name.strip() != name
-                  or candidate.name in {"MANIFEST.txt", "SHA256SUMS.txt"}
+                  or candidate.name in {
+                      "MANIFEST.txt",
+                      "SHA256SUMS.txt",
+                  }
               ):
                   raise SystemExit(
                       f"P3_SHA256SUMS_UNSAFE_PATH: {name}"
@@ -779,13 +807,13 @@ jobs:
 
           if not entries:
               raise SystemExit("P3_SHA256SUMS_EMPTY")
+
           if list(entries) != sorted(entries):
               raise SystemExit("P3_SHA256SUMS_NOT_SORTED")
 
-          manifest_path = Path("P3/MANIFEST.txt")
-          manifest_entries = manifest_path.read_text(
-              encoding="utf-8"
-          ).splitlines()
+          manifest_entries = Path(
+              "P3/MANIFEST.txt"
+          ).read_text(encoding="utf-8").splitlines()
 
           if set(entries) != set(manifest_entries):
               raise SystemExit(
@@ -794,12 +822,12 @@ jobs:
 
           for name, expected_digest in entries.items():
               target = Path(name)
+
               if target.is_symlink() or not target.is_file():
                   raise SystemExit(
                       f"P3_SHA256SUMS_TARGET_MISSING: {name}"
                   )
 
-              import hashlib
               actual_digest = hashlib.sha256(
                   target.read_bytes()
               ).hexdigest()
@@ -810,7 +838,8 @@ jobs:
                   )
 
           with Path(os.environ["GITHUB_STEP_SUMMARY"]).open(
-              "a", encoding="utf-8"
+              "a",
+              encoding="utf-8",
           ) as stream:
               stream.write(
                   "# P3 — SHA256SUMS.txt (complete publication)\n\n"
@@ -845,6 +874,7 @@ jobs:
           summary = Path(os.environ["GITHUB_STEP_SUMMARY"])
           extensions = {".md", ".csv", ".txt"}
           excluded = {"MANIFEST.txt", "SHA256SUMS.txt"}
+
           files = sorted(
               (
                   path for path in root.rglob("*")
@@ -864,10 +894,12 @@ jobs:
               f"Discovered files: **{len(files)}**",
               "",
           ]
+
           errors = []
 
           for path in files:
               relative = path.relative_to(root).as_posix()
+
               try:
                   content = path.read_text(encoding="utf-8")
               except (OSError, UnicodeError) as exc:
@@ -884,6 +916,7 @@ jobs:
                   ),
                   default=0,
               )
+
               fence = "`" * max(3, longest + 1)
 
               output.extend([
@@ -1028,7 +1061,7 @@ jobs:
 
           SUMMARY_ARGS=()
 
-          if [ "$GITHUB_EVENT_NAME" = "pull_request" ] || [ "$GITHUB_REF_NAME" = "main" ]; then
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
             SUMMARY_ARGS+=(--remote-not-required)
             EXPECTED_VERDICT="P3_VALIDATED_PENDING_PUBLICATION"
           else
@@ -1055,7 +1088,7 @@ jobs:
             exit 1
           fi
 
-          if [ "$GITHUB_EVENT_NAME" = "pull_request" ] || [ "$GITHUB_REF_NAME" = "main" ]; then
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
             echo "P3_LOCAL_VALIDATION_ACCEPTED_PENDING_PUBLICATION"
           else
             echo "P3_FINAL_VERDICT_ACCEPTED"
