@@ -122,18 +122,15 @@ jobs:
               "P3/P3_AUDIT_REPORT.md",
               "P3/VALIDATION_ALIGNMENT.md",
               "P3/VALIDATION_PROTOCOL.md",
-
               "P3/results/run_benchmark.sh",
               "P3/results/validate_benchmark.py",
               "P3/results/test_validate_benchmark.py",
               "P3/results/generate_benchmark_summary.py",
-
               "P3/tools/record_environment.py",
               "P3/tools/compute_checksums.py",
               "P3/tools/verify_final_package.py",
               "P3/tools/verify_remote_integrity.py",
               "P3/tools/write_github_summary.py",
-
               "P3/tests/test_record_environment.py",
               "P3/tests/test_verify_remote_integrity.py",
               "P3/tests/test_generate_benchmark_summary.py",
@@ -429,7 +426,10 @@ jobs:
                   "manifest_entries": 0,
                   "verified_remote_blobs": 0,
                   "files": [],
-                  "reason": "Pull requests are read-only; remote publication is checked after push."
+                  "reason": (
+                      "Pull requests are read-only; remote publication "
+                      "is checked after push."
+                  )
               }, indent=2) + "\n",
               encoding="utf-8",
           )
@@ -580,11 +580,11 @@ jobs:
           PY
 
       # --------------------------------------------------------
-      # 13. PRESERVE AUTOMATIC .MD / .CSV / .TXT DISCOVERY
+      # 13A. AUTOMATIC MARKDOWN DISPLAY
       # --------------------------------------------------------
 
-      - name: Discover and display all P3 Markdown CSV and TXT files
-        id: p3_display_all_text
+      - name: Discover and display all P3 Markdown files
+        id: p3_display_markdown
         if: always()
         shell: bash
         run: |
@@ -593,18 +593,19 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           import os
+          import re
 
           root = Path("P3").resolve()
           summary = Path(os.environ["GITHUB_STEP_SUMMARY"])
-          extensions = {".md", ".csv", ".txt"}
-
+          extension = ".md"
           excluded = {"MANIFEST.txt", "SHA256SUMS.txt"}
+
           files = sorted(
               (
                   path for path in root.rglob("*")
                   if path.is_file()
                   and not path.is_symlink()
-                  and path.suffix.lower() in extensions
+                  and path.suffix.lower() == extension
                   and path.name not in excluded
                   and "target" not in path.relative_to(root).parts
               ),
@@ -612,16 +613,11 @@ jobs:
           )
 
           output = [
-              "# QFLPN P3 — COMPLETE AUTOMATIC TEXT FILE PUBLICATION",
+              "# QFLPN P3 — AUTOMATIC MARKDOWN PUBLICATION",
               "",
-              f"Discovered files: **{len(files)}**",
-              "",
-              "Extensions: `.md`, `.csv`, `.txt`",
-              "",
-              "`MANIFEST.txt` and `SHA256SUMS.txt` are published separately.",
+              f"Discovered Markdown files: **{len(files)}**",
               "",
           ]
-
           errors = []
 
           for path in files:
@@ -634,9 +630,9 @@ jobs:
 
               longest = max(
                   (
-                      len(line) - len(line.lstrip("`"))
+                      len(match.group(1))
                       for line in content.splitlines()
-                      if line and set(line.strip()) == {"`"}
+                      if (match := re.match(r"^\s*(`{3,})", line))
                   ),
                   default=0,
               )
@@ -655,23 +651,189 @@ jobs:
           encoded = rendered.encode("utf-8")
 
           if len(encoded) > 950_000:
-              with summary.open("a", encoding="utf-8") as stream:
-                  stream.write(
-                      "# P3 TEXT DISPLAY FAILED\n\n"
-                      f"Required bytes: {len(encoded)}\n"
-                      "The complete files remain in the uploaded artifact.\n"
-                  )
-              raise SystemExit("P3_TEXT_DISPLAY_EXCEEDS_SUMMARY_LIMIT")
+              summary.write_text(
+                  "# P3 MARKDOWN DISPLAY FAILED\n\n"
+                  f"Required bytes: {len(encoded)}\n"
+                  "The original files remain in the repository and artifact.\n",
+                  encoding="utf-8",
+              )
+              raise SystemExit("P3_MARKDOWN_DISPLAY_EXCEEDS_SUMMARY_LIMIT")
 
           with summary.open("a", encoding="utf-8") as stream:
               stream.write(rendered)
 
           if errors:
-              raise SystemExit("P3_TEXT_DISPLAY_READ_ERRORS: " + "; ".join(errors))
+              raise SystemExit(
+                  "P3_MARKDOWN_DISPLAY_READ_ERRORS: " + "; ".join(errors)
+              )
 
-          print(f"P3_TEXT_FILES_DISCOVERED={len(files)}")
-          print(f"P3_TEXT_DISPLAY_BYTES={len(encoded)}")
-          print("P3_AUTOMATIC_TEXT_DISCOVERY_ACCEPTED")
+          print(f"P3_MARKDOWN_FILES_DISCOVERED={len(files)}")
+          print(f"P3_MARKDOWN_DISPLAY_BYTES={len(encoded)}")
+          print("P3_MARKDOWN_AUTOMATIC_DISPLAY_ACCEPTED")
+          PY
+
+      # --------------------------------------------------------
+      # 13B. AUTOMATIC CSV DISPLAY
+      # --------------------------------------------------------
+
+      - name: Discover and display all P3 CSV files
+        id: p3_display_csv
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          python - <<'PY'
+          from pathlib import Path
+          import os
+
+          root = Path("P3").resolve()
+          summary = Path(os.environ["GITHUB_STEP_SUMMARY"])
+          extension = ".csv"
+          excluded = {"MANIFEST.txt", "SHA256SUMS.txt"}
+
+          files = sorted(
+              (
+                  path for path in root.rglob("*")
+                  if path.is_file()
+                  and not path.is_symlink()
+                  and path.suffix.lower() == extension
+                  and path.name not in excluded
+                  and "target" not in path.relative_to(root).parts
+              ),
+              key=lambda path: path.relative_to(root).as_posix().lower(),
+          )
+
+          output = [
+              "# QFLPN P3 — AUTOMATIC CSV PUBLICATION",
+              "",
+              f"Discovered CSV files: **{len(files)}**",
+              "",
+          ]
+          errors = []
+
+          for path in files:
+              relative = path.relative_to(root).as_posix()
+              try:
+                  content = path.read_text(encoding="utf-8")
+              except (OSError, UnicodeError) as exc:
+                  errors.append(f"{relative}: {exc}")
+                  continue
+
+              output.extend([
+                  f"## FILE: `P3/{relative}`",
+                  "",
+                  "```csv",
+                  content,
+                  "```",
+                  "",
+              ])
+
+          rendered = "\n".join(output)
+          encoded = rendered.encode("utf-8")
+
+          if len(encoded) > 950_000:
+              with summary.open("a", encoding="utf-8") as stream:
+                  stream.write(
+                      "# P3 CSV DISPLAY FAILED\n\n"
+                      f"Required bytes: {len(encoded)}\n"
+                      "The original files remain in the repository and artifact.\n"
+                  )
+              raise SystemExit("P3_CSV_DISPLAY_EXCEEDS_SUMMARY_LIMIT")
+
+          with summary.open("a", encoding="utf-8") as stream:
+              stream.write(rendered)
+
+          if errors:
+              raise SystemExit(
+                  "P3_CSV_DISPLAY_READ_ERRORS: " + "; ".join(errors)
+              )
+
+          print(f"P3_CSV_FILES_DISCOVERED={len(files)}")
+          print(f"P3_CSV_DISPLAY_BYTES={len(encoded)}")
+          print("P3_CSV_AUTOMATIC_DISPLAY_ACCEPTED")
+          PY
+
+      # --------------------------------------------------------
+      # 13C. AUTOMATIC TXT DISPLAY
+      # --------------------------------------------------------
+
+      - name: Discover and display all P3 TXT files
+        id: p3_display_txt
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          python - <<'PY'
+          from pathlib import Path
+          import os
+
+          root = Path("P3").resolve()
+          summary = Path(os.environ["GITHUB_STEP_SUMMARY"])
+          extension = ".txt"
+          excluded = {"MANIFEST.txt", "SHA256SUMS.txt"}
+
+          files = sorted(
+              (
+                  path for path in root.rglob("*")
+                  if path.is_file()
+                  and not path.is_symlink()
+                  and path.suffix.lower() == extension
+                  and path.name not in excluded
+                  and "target" not in path.relative_to(root).parts
+              ),
+              key=lambda path: path.relative_to(root).as_posix().lower(),
+          )
+
+          output = [
+              "# QFLPN P3 — AUTOMATIC TXT PUBLICATION",
+              "",
+              f"Discovered TXT files: **{len(files)}**",
+              "",
+          ]
+          errors = []
+
+          for path in files:
+              relative = path.relative_to(root).as_posix()
+              try:
+                  content = path.read_text(encoding="utf-8")
+              except (OSError, UnicodeError) as exc:
+                  errors.append(f"{relative}: {exc}")
+                  continue
+
+              output.extend([
+                  f"## FILE: `P3/{relative}`",
+                  "",
+                  "```text",
+                  content,
+                  "```",
+                  "",
+              ])
+
+          rendered = "\n".join(output)
+          encoded = rendered.encode("utf-8")
+
+          if len(encoded) > 950_000:
+              with summary.open("a", encoding="utf-8") as stream:
+                  stream.write(
+                      "# P3 TXT DISPLAY FAILED\n\n"
+                      f"Required bytes: {len(encoded)}\n"
+                      "The original files remain in the repository and artifact.\n"
+                  )
+              raise SystemExit("P3_TXT_DISPLAY_EXCEEDS_SUMMARY_LIMIT")
+
+          with summary.open("a", encoding="utf-8") as stream:
+              stream.write(rendered)
+
+          if errors:
+              raise SystemExit(
+                  "P3_TXT_DISPLAY_READ_ERRORS: " + "; ".join(errors)
+              )
+
+          print(f"P3_TXT_FILES_DISCOVERED={len(files)}")
+          print(f"P3_TXT_DISPLAY_BYTES={len(encoded)}")
+          print("P3_TXT_AUTOMATIC_DISPLAY_ACCEPTED")
           PY
 
       # --------------------------------------------------------
@@ -711,7 +873,7 @@ jobs:
           P3_INTEGRITY_GENERATE: ${{ steps.p3_integrity_generate.outcome }}
           P3_DISPLAY_MANIFEST: ${{ steps.p3_display_manifest.outcome }}
           P3_DISPLAY_SHA256: ${{ steps.p3_display_sha256.outcome }}
-          P3_DISPLAY_ALL_TEXT: ${{ steps.p3_display_all_text.outcome }}
+          P3_DISPLAY_ALL_TEXT: ${{ steps.p3_display_markdown.outcome == 'success' && steps.p3_display_csv.outcome == 'success' && steps.p3_display_txt.outcome == 'success' && 'success' || 'failure' }}
           P3_ARTIFACT_UPLOAD: ${{ steps.p3_artifact_upload.outcome }}
         run: |
           set -Eeuo pipefail
@@ -783,21 +945,37 @@ jobs:
               > "$REMOTE_VERDICT"
           fi
 
+          SUMMARY_ARGS=()
+
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            SUMMARY_ARGS+=(--remote-not-required)
+            EXPECTED_VERDICT="P3_VALIDATED_PENDING_PUBLICATION"
+          else
+            EXPECTED_VERDICT="P3_ACCEPTED"
+          fi
+
           python P3/tools/write_github_summary.py \
             --root . \
             --verdict-json "$LOCAL_VERDICT" \
             --remote-integrity-json "$REMOTE_VERDICT" \
             --run-id "$RUN_ID" \
-            --branch "$GITHUB_REF_NAME"
+            --branch "$GITHUB_REF_NAME" \
+            "${SUMMARY_ARGS[@]}"
 
           if [ "$LOCAL_STATUS" -ne 0 ]; then
             echo "P3_FINAL_LOCAL_VERIFICATION_REJECTED"
             exit "$LOCAL_STATUS"
           fi
 
-          if ! grep -Fq -- "- Final verdict: **P3_ACCEPTED**" "$GITHUB_STEP_SUMMARY"; then
+          if ! grep -Fq -- \
+            "- Final verdict: **$EXPECTED_VERDICT**" \
+            "$GITHUB_STEP_SUMMARY"; then
             echo "P3_FINAL_VERDICT_REJECTED"
             exit 1
           fi
 
-          echo "P3_FINAL_VERDICT_ACCEPTED"
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            echo "P3_LOCAL_VALIDATION_ACCEPTED_PENDING_PUBLICATION"
+          else
+            echo "P3_FINAL_VERDICT_ACCEPTED"
+          fi
