@@ -185,8 +185,6 @@ def test_remote_publication_commit_is_not_source_commit(
 
     result = verify(work)
 
-    # The source revision and the later publication commit have
-    # different meanings and must not be conflated.
     assert result["commit"] != SOURCE_COMMIT
     assert result["source_commit"] == SOURCE_COMMIT
 
