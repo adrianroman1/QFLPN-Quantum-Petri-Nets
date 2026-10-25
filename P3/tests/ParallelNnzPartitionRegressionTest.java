@@ -21,7 +21,7 @@ class ParallelNnzPartitionRegressionTest {
                         6, 7, 0, 1, 2
                 },
                 new int[] {
-                        0, 8, 8, 8, 8, 8, 8, 8, 11
+                        0, 8, 8, 8, 8, 8, 8, 11
                 },
                 7,
                 8);
