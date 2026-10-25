@@ -55,6 +55,22 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
+      - name: Capture exact P3 source commit
+        id: p3_source_commit
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          SOURCE_COMMIT="$(git rev-parse HEAD)"
+
+          if ! [[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "P3_SOURCE_COMMIT_INVALID: $SOURCE_COMMIT" >&2
+            exit 1
+          fi
+
+          echo "SOURCE_COMMIT=$SOURCE_COMMIT" >> "$GITHUB_ENV"
+          echo "P3_SOURCE_COMMIT=$SOURCE_COMMIT"
+
       - name: Set up Java 21
         uses: actions/setup-java@v4
         with:
@@ -250,7 +266,7 @@ jobs:
         run: |
           set -Eeuo pipefail
 
-          export N WARMUP ITERATIONS THRESHOLD PARALLELISM RUN_ID
+          export N WARMUP ITERATIONS THRESHOLD PARALLELISM RUN_ID SOURCE_COMMIT
 
           bash P3/results/run_benchmark.sh \
             2>&1 | tee P3/reports/p3-benchmark-execution.log
@@ -265,13 +281,14 @@ jobs:
           test -s "$RAW/benchmark-report.json"
           test -s "$RAW/SHA256SUMS.txt"
 
-          python - "$RAW/validation-report.json" "$RUN_ID" <<'PY'
+          python - "$RAW/validation-report.json" "$RUN_ID" "$SOURCE_COMMIT" <<'PY'
           import json
           import sys
           from pathlib import Path
 
           path = Path(sys.argv[1])
           expected_run_id = sys.argv[2]
+          expected_source_commit = sys.argv[3]
           data = json.loads(path.read_text(encoding="utf-8"))
 
           if data.get("schema") != "qflpn-benchmark-v2":
@@ -284,6 +301,7 @@ jobs:
               raise SystemExit("Benchmark JSON RUN_ID mismatch")
 
           print("P3_BENCHMARK_JSON_RUN_ID_ACCEPTED")
+          print(f"P3_SOURCE_COMMIT={expected_source_commit}")
           PY
 
       # --------------------------------------------------------
@@ -447,6 +465,8 @@ jobs:
             --root . \
             --remote origin \
             --branch "$GITHUB_REF_NAME" \
+            --run-id "$RUN_ID" \
+            --source-commit "$SOURCE_COMMIT" \
             --json-output "$REMOTE_JSON"
 
           test -s "$REMOTE_JSON"
