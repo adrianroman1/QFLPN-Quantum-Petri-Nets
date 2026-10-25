@@ -157,9 +157,6 @@ def parse_checksums(raw: bytes) -> dict[str, str]:
 
     lines = content.splitlines()
 
-    # Detect an empty or whitespace-only inventory before parsing lines.
-    # This ensures b"\n" is reported as "no entries", not as a malformed
-    # checksum record.
     require(
         any(line.strip() for line in lines),
         "Remote SHA256SUMS.txt contains no entries",
