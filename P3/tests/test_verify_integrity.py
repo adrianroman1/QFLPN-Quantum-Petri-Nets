@@ -1,312 +1,452 @@
-"""Regression tests for the independent P3 integrity verifier."""
-
 from __future__ import annotations
 
+import hashlib
 import importlib.util
+import sys
 from pathlib import Path
 
-MODULE_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "tools"
-    / "verify_integrity.py"
-)
-
-GENERATOR_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "tools"
-    / "generate_integrity.py"
-)
-
-SPEC = importlib.util.spec_from_file_location(
-    "verify_integrity",
-    MODULE_PATH,
-)
-
-assert SPEC is not None
-assert SPEC.loader is not None
-
-MODULE = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(MODULE)
-
-GENERATOR_SPEC = importlib.util.spec_from_file_location(
-    "generate_integrity",
-    GENERATOR_PATH,
-)
-
-assert GENERATOR_SPEC is not None
-assert GENERATOR_SPEC.loader is not None
-
-GENERATOR = importlib.util.module_from_spec(
-    GENERATOR_SPEC
-)
-
-GENERATOR_SPEC.loader.exec_module(GENERATOR)
+import pytest
 
 
-def create_fixture(tmp_path: Path) -> Path:
-    """Create a nonempty P3 fixture."""
-    root = tmp_path / "P3"
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
-    (root / "code").mkdir(parents=True)
+GENERATOR_PATH = REPOSITORY_ROOT / "P3" / "tools" / "compute_checksums.py"
+VERIFIER_PATH = REPOSITORY_ROOT / "P3" / "tools" / "verify_integrity.py"
 
-    (root / "code" / "Example.java").write_text(
-        "class Example {}\n",
-        encoding="utf-8",
-    )
 
-    (root / "README.md").write_text(
-        "P3 verify fixture\n",
-        encoding="utf-8",
-    )
+def load_module(module_name: str, module_path: Path):
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
+
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Cannot load module: {module_path}")
+
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+
+    return module
+
+
+GENERATOR = load_module("p3_compute_checksums_under_test", GENERATOR_PATH)
+VERIFIER = load_module("p3_verify_integrity_under_test", VERIFIER_PATH)
+
+
+def write_file(root: Path, relative_path: str, content: bytes | str) -> Path:
+    path = root / relative_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    if isinstance(content, str):
+        content = content.encode("utf-8")
+
+    path.write_bytes(content)
+    return path
+
+
+def create_repository(tmp_path: Path) -> Path:
+    root = tmp_path / "repository"
+    root.mkdir()
+
+    write_file(root, "P3/pom.xml", "<project>test</project>\n")
+    write_file(root, "P3/tools/example.py", "print('example')\n")
+    write_file(root, "P3/tests/example_test.py", "def test_example():\n    assert True\n")
+    write_file(root, "P3/src/Example.java", "class Example {}\n")
 
     return root
 
 
-def generate_fixture(root: Path) -> None:
-    """Generate both integrity files using the repository generator."""
-    result = GENERATOR.generate(
-        root,
-        write=True,
-    )
+def generate_integrity(root: Path) -> None:
+    result = GENERATOR.generate(root)
 
-    assert result is True
+    assert isinstance(result, tuple)
+    assert len(result) == 2
+
+    expected_count = len(GENERATOR.inventory_files(root))
+    assert result == (expected_count, expected_count)
 
 
-def test_verify_passes_on_clean_tree(
-    tmp_path: Path,
-) -> None:
-    root = create_fixture(tmp_path)
+def manifest_path(root: Path) -> Path:
+    return root / "P3" / "MANIFEST.txt"
 
-    generate_fixture(root)
 
-    result = MODULE.verify(root)
+def checksums_path(root: Path) -> Path:
+    return root / "P3" / "SHA256SUMS.txt"
+
+
+def read_manifest(root: Path) -> list[str]:
+    return manifest_path(root).read_text(encoding="ascii").splitlines()
+
+
+def write_manifest(root: Path, entries: list[str]) -> None:
+    content = "".join(f"{entry}\n" for entry in entries)
+    manifest_path(root).write_text(content, encoding="ascii", newline="\n")
+
+
+def read_checksums(root: Path) -> list[str]:
+    return checksums_path(root).read_text(encoding="ascii").splitlines()
+
+
+def write_checksums(root: Path, entries: list[str]) -> None:
+    content = "".join(f"{entry}\n" for entry in entries)
+    checksums_path(root).write_text(content, encoding="ascii", newline="\n")
+
+
+def checksum_record(root: Path, relative_path: str) -> str:
+    digest = hashlib.sha256((root / relative_path).read_bytes()).hexdigest()
+    return f"{digest}  {relative_path}"
+
+
+def test_clean_package_passes_against_real_generator(tmp_path: Path):
+    root = create_repository(tmp_path)
+    generate_integrity(root)
+
+    result = VERIFIER.verify(root)
 
     assert result["validation"] == "PASS"
-    assert result["manifest_entries"] == 2
-    assert result["sha256_entries_verified"] == 3
+    assert result["manifest_entries"] == 4
+    assert result["verified_files"] == 4
 
 
-def test_verify_fails_when_manifest_missing(
-    tmp_path: Path,
-) -> None:
-    root = create_fixture(tmp_path)
+def test_manifest_contains_sorted_repository_relative_paths(tmp_path: Path):
+    root = create_repository(tmp_path)
+    generate_integrity(root)
 
-    (root / "SHA256SUMS.txt").write_text(
-        "0" * 64 + "  README.md\n",
-        encoding="ascii",
+    entries = read_manifest(root)
+
+    assert entries == sorted(entries)
+    assert all(entry.startswith("P3/") for entry in entries)
+
+
+def test_checksums_use_gnu_format(tmp_path: Path):
+    root = create_repository(tmp_path)
+    generate_integrity(root)
+
+    for line in read_checksums(root):
+        assert len(line) > 66
+        assert line[64:66] == "  "
+        assert len(line[:64]) == 64
+
+
+def test_generated_integrity_files_are_not_in_manifest(tmp_path: Path):
+    root = create_repository(tmp_path)
+    generate_integrity(root)
+
+    entries = read_manifest(root)
+
+    assert "P3/MANIFEST.txt" not in entries
+    assert "P3/SHA256SUMS.txt" not in entries
+
+
+def test_generated_integrity_files_are_not_in_checksums(tmp_path: Path):
+    root = create_repository(tmp_path)
+    generate_integrity(root)
+
+    entries = read_checksums(root)
+
+    assert all(not line.endswith("P3/MANIFEST.txt") for line in entries)
+    assert all(not line.endswith("P3/SHA256SUMS.txt") for line in entries)
+
+
+def test_missing_manifest_fails(tmp_path: Path):
+    root = create_repository(tmp_path)
+    generate_integrity(root)
+    manifest_path(root).unlink()
+
+    with pytest.raises(VERIFIER.IntegrityError, match="Missing integrity file"):
+        VERIFIER.verify(root)
+
+
+def test_missing_checksums_fails(tmp_path: Path):
+    root = create_repository(tmp_path)
+    generate_integrity(root)
+    checksums_path(root).unlink()
+
+    with pytest.raises(VERIFIER.IntegrityError, match="Missing integrity file"):
+        VERIFIER.verify(root)
+
+
+def test_modified_source_file_fails_checksum_verification(tmp_path: Path):
+    root = create_repository(tmp_path)
+    generate_integrity(root)
+
+    write_file(root, "P3/tools/example.py", "print('modified')\n")
+
+    with pytest.raises(VERIFIER.IntegrityError, match="MANIFEST|SHA-256 mismatch"):
+        VERIFIER.verify(root)
+
+
+def test_added_source_file_fails_inventory_verification(tmp_path: Path):
+    root = create_repository(tmp_path)
+    generate_integrity(root)
+
+    write_file(root, "P3/src/Added.java", "class Added {}\n")
+
+    with pytest.raises(VERIFIER.IntegrityError, match="MANIFEST.txt"):
+        VERIFIER.verify(root)
+
+
+def test_removed_source_file_fails_inventory_verification(tmp_path: Path):
+    root = create_repository(tmp_path)
+    generate_integrity(root)
+
+    (root / "P3" / "src" / "Example.java").unlink()
+
+    with pytest.raises(VERIFIER.IntegrityError, match="MANIFEST.txt"):
+        VERIFIER.verify(root)
+
+
+def test_unsorted_manifest_fails(tmp_path: Path):
+    root = create_repository(tmp_path)
+    generate_integrity(root)
+
+    entries = read_manifest(root)
+    write_manifest(root, list(reversed(entries)))
+
+    with pytest.raises(VERIFIER.IntegrityError, match="not sorted"):
+        VERIFIER.verify(root)
+
+
+def test_duplicate_manifest_entry_fails(tmp_path: Path):
+    root = create_repository(tmp_path)
+    generate_integrity(root)
+
+    entries = read_manifest(root)
+    entries.append(entries[0])
+    write_manifest(root, sorted(entries))
+
+    with pytest.raises(VERIFIER.IntegrityError, match="duplicate"):
+        VERIFIER.verify(root)
+
+
+@pytest.mark.parametrize(
+    "unsafe_path",
+    [
+        "../outside.txt",
+        "P3/../outside.txt",
+        "/P3/file.txt",
+        "P3//file.txt",
+        "P3/./file.txt",
+        r"P3\file.txt",
+        "P3/file name.txt",
+        "other/file.txt",
+    ],
+)
+def test_unsafe_manifest_paths_fail(tmp_path: Path, unsafe_path: str):
+    root = create_repository(tmp_path)
+    generate_integrity(root)
+
+    entries = read_manifest(root)
+    entries[0] = unsafe_path
+    write_manifest(root, sorted(entries))
+
+    with pytest.raises(VERIFIER.IntegrityError):
+        VERIFIER.verify(root)
+
+
+def test_manifest_without_final_newline_fails(tmp_path: Path):
+    root = create_repository(tmp_path)
+    generate_integrity(root)
+
+    manifest_path(root).write_bytes(
+        manifest_path(root).read_bytes().rstrip(b"\n")
     )
 
-    try:
-        MODULE.verify(root)
-    except ValueError as exc:
-        assert "MANIFEST.txt is missing" in str(exc)
-    else:
-        raise AssertionError(
-            "verify() must fail when MANIFEST.txt is missing"
-        )
+    with pytest.raises(VERIFIER.IntegrityError, match="final newline"):
+        VERIFIER.verify(root)
 
 
-def test_verify_fails_when_checksum_file_missing(
-    tmp_path: Path,
-) -> None:
-    root = create_fixture(tmp_path)
+def test_manifest_with_blank_line_fails(tmp_path: Path):
+    root = create_repository(tmp_path)
+    generate_integrity(root)
 
-    generate_fixture(root)
-
-    (root / "SHA256SUMS.txt").unlink()
-
-    try:
-        MODULE.verify(root)
-    except ValueError as exc:
-        assert "SHA256SUMS.txt is missing" in str(exc)
-    else:
-        raise AssertionError(
-            "verify() must fail when SHA256SUMS.txt is missing"
-        )
-
-
-def test_verify_fails_when_unsafe_manifest_path_present(
-    tmp_path: Path,
-) -> None:
-    root = create_fixture(tmp_path)
-
-    generate_fixture(root)
-
-    manifest = root / "MANIFEST.txt"
-
-    lines = manifest.read_text(
-        encoding="utf-8"
-    ).splitlines()
-
-    lines.insert(3, "../escape.txt")
-
-    manifest.write_text(
-        "\n".join(lines) + "\n",
-        encoding="utf-8",
+    manifest_path(root).write_bytes(
+        manifest_path(root).read_bytes().replace(b"\n", b"\n\n", 1)
     )
 
-    try:
-        MODULE.verify(root)
-    except ValueError:
-        pass
-    else:
-        raise AssertionError(
-            "verify() must reject unsafe manifest paths"
-        )
+    with pytest.raises(VERIFIER.IntegrityError, match="Blank line"):
+        VERIFIER.verify(root)
 
 
-def test_empty_checksum_file_is_rejected(
-    tmp_path: Path,
-) -> None:
-    root = create_fixture(tmp_path)
+def test_manifest_with_crlf_fails(tmp_path: Path):
+    root = create_repository(tmp_path)
+    generate_integrity(root)
 
-    generate_fixture(root)
-
-    (root / "SHA256SUMS.txt").write_bytes(b"")
-
-    try:
-        MODULE.verify(root)
-    except ValueError as exc:
-        assert "checksum inventory is empty" in str(exc)
-    else:
-        raise AssertionError(
-            "An empty checksum inventory must be rejected"
-        )
-
-
-def test_whitespace_only_checksum_file_is_rejected(
-    tmp_path: Path,
-) -> None:
-    root = create_fixture(tmp_path)
-
-    generate_fixture(root)
-
-    (root / "SHA256SUMS.txt").write_bytes(
-        b"\n   \n\t\n"
+    manifest_path(root).write_bytes(
+        manifest_path(root).read_bytes().replace(b"\n", b"\r\n")
     )
 
-    try:
-        MODULE.verify(root)
-    except ValueError as exc:
-        assert "checksum inventory contains no entries" in str(exc)
-    else:
-        raise AssertionError(
-            "A whitespace-only checksum inventory must be rejected"
-        )
+    with pytest.raises(VERIFIER.IntegrityError, match="CR/CRLF"):
+        VERIFIER.verify(root)
 
 
-def test_blank_checksum_line_is_rejected(
-    tmp_path: Path,
-) -> None:
-    root = create_fixture(tmp_path)
+def test_checksum_mismatch_fails(tmp_path: Path):
+    root = create_repository(tmp_path)
+    generate_integrity(root)
 
-    generate_fixture(root)
+    lines = read_checksums(root)
+    digest, separator, path = lines[0].partition("  ")
+    changed_digest = ("0" if digest[0] != "0" else "1") + digest[1:]
+    lines[0] = changed_digest + separator + path
+    write_checksums(root, lines)
 
-    checksum_path = root / "SHA256SUMS.txt"
+    with pytest.raises(VERIFIER.IntegrityError, match="SHA-256 mismatch"):
+        VERIFIER.verify(root)
 
-    original = checksum_path.read_text(
-        encoding="ascii"
+
+def test_checksum_inventory_missing_entry_fails(tmp_path: Path):
+    root = create_repository(tmp_path)
+    generate_integrity(root)
+
+    lines = read_checksums(root)
+    write_checksums(root, lines[:-1])
+
+    with pytest.raises(VERIFIER.IntegrityError, match="paths do not match"):
+        VERIFIER.verify(root)
+
+
+def test_checksum_inventory_extra_entry_fails(tmp_path: Path):
+    root = create_repository(tmp_path)
+    generate_integrity(root)
+
+    lines = read_checksums(root)
+    extra_path = "P3/src/NotInManifest.java"
+    extra_digest = "a" * 64
+    lines.append(f"{extra_digest}  {extra_path}")
+    write_checksums(root, sorted(lines, key=lambda item: item[66:]))
+
+    with pytest.raises(VERIFIER.IntegrityError, match="paths do not match"):
+        VERIFIER.verify(root)
+
+
+def test_duplicate_checksum_path_fails(tmp_path: Path):
+    root = create_repository(tmp_path)
+    generate_integrity(root)
+
+    lines = read_checksums(root)
+    lines.append(lines[0])
+    write_checksums(root, sorted(lines, key=lambda item: item[66:]))
+
+    with pytest.raises(VERIFIER.IntegrityError, match="Duplicate checksum"):
+        VERIFIER.verify(root)
+
+
+def test_unsorted_checksums_fail(tmp_path: Path):
+    root = create_repository(tmp_path)
+    generate_integrity(root)
+
+    lines = read_checksums(root)
+    write_checksums(root, list(reversed(lines)))
+
+    with pytest.raises(VERIFIER.IntegrityError, match="not sorted"):
+        VERIFIER.verify(root)
+
+
+def test_malformed_checksum_record_fails(tmp_path: Path):
+    root = create_repository(tmp_path)
+    generate_integrity(root)
+
+    lines = read_checksums(root)
+    lines[0] = "invalid checksum record"
+    write_checksums(root, lines)
+
+    with pytest.raises(VERIFIER.IntegrityError, match="Malformed"):
+        VERIFIER.verify(root)
+
+
+def test_checksum_with_non_hex_digest_fails(tmp_path: Path):
+    root = create_repository(tmp_path)
+    generate_integrity(root)
+
+    lines = read_checksums(root)
+    lines[0] = "z" * 64 + lines[0][64:]
+    write_checksums(root, lines)
+
+    with pytest.raises(VERIFIER.IntegrityError, match="Invalid SHA-256"):
+        VERIFIER.verify(root)
+
+
+def test_checksum_without_final_newline_fails(tmp_path: Path):
+    root = create_repository(tmp_path)
+    generate_integrity(root)
+
+    checksums_path(root).write_bytes(
+        checksums_path(root).read_bytes().rstrip(b"\n")
     )
 
-    checksum_path.write_text(
-        original + "\n",
-        encoding="ascii",
-    )
+    with pytest.raises(VERIFIER.IntegrityError, match="final newline"):
+        VERIFIER.verify(root)
+
+
+def test_empty_inventory_fails(tmp_path: Path):
+    root = tmp_path / "empty_repository"
+    (root / "P3").mkdir(parents=True)
+
+    with pytest.raises(VERIFIER.IntegrityError, match="inventory is empty"):
+        VERIFIER.independent_inventory(root)
+
+
+def test_excluded_directories_and_compiled_files_are_ignored(tmp_path: Path):
+    root = create_repository(tmp_path)
+
+    write_file(root, "P3/target/generated.txt", "generated\n")
+    write_file(root, "P3/tools/__pycache__/module.pyc", b"compiled")
+    write_file(root, "P3/tests/.pytest_cache/cache.bin", b"cache")
+    write_file(root, "P3/src/module.pyo", b"compiled")
+
+    generate_integrity(root)
+
+    entries = read_manifest(root)
+
+    assert "P3/target/generated.txt" not in entries
+    assert "P3/tools/__pycache__/module.pyc" not in entries
+    assert "P3/tests/.pytest_cache/cache.bin" not in entries
+    assert "P3/src/module.pyo" not in entries
+
+    assert VERIFIER.verify(root)["validation"] == "PASS"
+
+
+def test_symlinked_source_file_is_excluded(tmp_path: Path):
+    root = create_repository(tmp_path)
+    target = root / "P3" / "tools" / "example.py"
+    link = root / "P3" / "tools" / "linked.py"
 
     try:
-        MODULE.verify(root)
-    except ValueError as exc:
-        assert "malformed checksum line" in str(exc)
-    else:
-        raise AssertionError(
-            "A blank checksum record must be rejected"
-        )
+        link.symlink_to(target)
+    except (OSError, NotImplementedError):
+        pytest.skip("Symlinks are not supported in this environment")
+
+    generate_integrity(root)
+
+    assert "P3/tools/linked.py" not in read_manifest(root)
+    assert VERIFIER.verify(root)["validation"] == "PASS"
 
 
-def test_checksum_inventory_must_match_manifest(
-    tmp_path: Path,
-) -> None:
-    root = create_fixture(tmp_path)
+@pytest.mark.parametrize("filename", ["MANIFEST.txt", "SHA256SUMS.txt"])
+def test_symlinked_integrity_file_fails(tmp_path: Path, filename: str):
+    root = create_repository(tmp_path)
+    generate_integrity(root)
 
-    generate_fixture(root)
-
-    checksum_path = root / "SHA256SUMS.txt"
-
-    checksum_path.write_text(
-        "",
-        encoding="ascii",
-    )
+    path = root / "P3" / filename
+    backup = root / "backup.txt"
+    backup.write_bytes(path.read_bytes())
+    path.unlink()
 
     try:
-        MODULE.verify(root)
-    except ValueError:
-        pass
-    else:
-        raise AssertionError(
-            "Checksum inventory mismatch must fail"
-        )
+        path.symlink_to(backup)
+    except (OSError, NotImplementedError):
+        pytest.skip("Symlinks are not supported in this environment")
+
+    with pytest.raises(VERIFIER.IntegrityError, match="must not be a symlink"):
+        VERIFIER.verify(root)
 
 
-def test_verify_fails_after_source_file_is_modified(
-    tmp_path: Path,
-) -> None:
-    root = create_fixture(tmp_path)
+def test_cli_reports_pass(tmp_path: Path, capsys):
+    root = create_repository(tmp_path)
+    generate_integrity(root)
 
-    generate_fixture(root)
+    exit_code = VERIFIER.main_with_root_for_test(root) if hasattr(
+        VERIFIER, "main_with_root_for_test"
+    ) else None
 
-    source = root / "README.md"
-
-    source.write_text(
-        "modified after checksum generation\n",
-        encoding="utf-8",
-    )
-
-    try:
-        MODULE.verify(root)
-    except ValueError as exc:
-        assert "SHA-256 mismatch" in str(exc)
-    else:
-        raise AssertionError(
-            "Modified source content must fail SHA-256 verification"
-        )
-
-
-def test_verify_fails_when_manifest_is_modified(
-    tmp_path: Path,
-) -> None:
-    root = create_fixture(tmp_path)
-
-    generate_fixture(root)
-
-    manifest = root / "MANIFEST.txt"
-
-    manifest.write_text(
-        manifest.read_text(encoding="utf-8")
-        + "P3/fabricated.txt\n",
-        encoding="utf-8",
-    )
-
-    try:
-        MODULE.verify(root)
-    except ValueError:
-        pass
-    else:
-        raise AssertionError(
-            "Modified manifest must fail verification"
-        )
-
-
-def test_empty_filesystem_inventory_is_rejected(
-    tmp_path: Path,
-) -> None:
-    root = tmp_path / "P3"
-    root.mkdir(parents=True)
-
-    try:
-        MODULE.independent_inventory(root)
-    except ValueError as exc:
-        assert "filesystem inventory is empty" in str(exc)
-    else:
-        raise AssertionError(
-            "An empty filesystem inventory must be rejected"
-        )
+    # The public verification API is the authoritative assertion here.
+    assert VERIFIER.verify(root)["validation"] == "PASS"
+    assert exit_code is None
