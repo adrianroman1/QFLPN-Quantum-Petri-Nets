@@ -1,0 +1,244 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://qflpn.invalid/schemas/benchmark-v3-row.schema.json",
+  "title": "QFLPN P3 Benchmark V3 CSV row",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "timestamp",
+    "run_id",
+    "workflow_run_id",
+    "commit_sha",
+    "benchmark_id",
+    "workload_id",
+    "matrix_family",
+    "distribution",
+    "dimension",
+    "non_zero_count",
+    "nnz_min_per_row",
+    "nnz_avg_per_row",
+    "nnz_max_per_row",
+    "parallelism",
+    "threshold_rows",
+    "parallel_strategy",
+    "split_policy",
+    "warmup_iterations",
+    "measured_iterations",
+    "sequential_mean_ms",
+    "sequential_median_ms",
+    "sequential_stddev_ms",
+    "sequential_min_ms",
+    "sequential_max_ms",
+    "parallel_mean_ms",
+    "parallel_median_ms",
+    "parallel_stddev_ms",
+    "parallel_min_ms",
+    "parallel_max_ms",
+    "speedup",
+    "sequential_rows_per_second",
+    "parallel_rows_per_second",
+    "sequential_nnz_per_second",
+    "parallel_nnz_per_second",
+    "sequential_expected_error",
+    "parallel_expected_error",
+    "max_absolute_error",
+    "setup_time_ms",
+    "cpu",
+    "max_jvm_memory_bytes",
+    "free_jvm_heap_bytes",
+    "java_version",
+    "operating_system",
+    "status",
+    "verdict",
+    "notes"
+  ],
+  "properties": {
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9._-]+$"
+    },
+    "workflow_run_id": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[0-9]+$"
+    },
+    "commit_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "benchmark_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "workload_id": {
+      "enum": [
+        "UNIFORM_2",
+        "UNIFORM_20",
+        "UNIFORM_100",
+        "BANDED",
+        "BLOCK",
+        "POWERLAW"
+      ]
+    },
+    "matrix_family": {
+      "type": "string",
+      "minLength": 1
+    },
+    "distribution": {
+      "type": "string",
+      "minLength": 1
+    },
+    "dimension": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "non_zero_count": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "nnz_min_per_row": {
+      "type": "number",
+      "minimum": 0
+    },
+    "nnz_avg_per_row": {
+      "type": "number",
+      "minimum": 0
+    },
+    "nnz_max_per_row": {
+      "type": "number",
+      "minimum": 0
+    },
+    "parallelism": {
+      "enum": [1, 2, 4, 8]
+    },
+    "threshold_rows": {
+      "enum": [1024, 2048, 4096, 8192]
+    },
+    "parallel_strategy": {
+      "type": "string",
+      "minLength": 1
+    },
+    "split_policy": {
+      "type": "string",
+      "minLength": 1
+    },
+    "warmup_iterations": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "measured_iterations": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "sequential_mean_ms": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "sequential_median_ms": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "sequential_stddev_ms": {
+      "type": "number",
+      "minimum": 0
+    },
+    "sequential_min_ms": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "sequential_max_ms": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "parallel_mean_ms": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "parallel_median_ms": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "parallel_stddev_ms": {
+      "type": "number",
+      "minimum": 0
+    },
+    "parallel_min_ms": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "parallel_max_ms": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "speedup": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "sequential_rows_per_second": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "parallel_rows_per_second": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "sequential_nnz_per_second": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "parallel_nnz_per_second": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "sequential_expected_error": {
+      "type": "number",
+      "minimum": 0
+    },
+    "parallel_expected_error": {
+      "type": "number",
+      "minimum": 0
+    },
+    "max_absolute_error": {
+      "type": "number",
+      "minimum": 0
+    },
+    "setup_time_ms": {
+      "type": "number",
+      "minimum": 0
+    },
+    "cpu": {
+      "type": "string",
+      "minLength": 1
+    },
+    "max_jvm_memory_bytes": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "free_jvm_heap_bytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "java_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "operating_system": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "const": "PASS"
+    },
+    "verdict": {
+      "enum": ["REGRESSION", "NEUTRAL", "IMPROVEMENT"]
+    },
+    "notes": {
+      "type": "string"
+    }
+  }
+}
