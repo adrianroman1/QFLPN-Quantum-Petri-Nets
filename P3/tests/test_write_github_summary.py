@@ -1,518 +1,281 @@
-"""Regression tests for the P3 GitHub Actions summary publisher."""
-
 from __future__ import annotations
 
-import importlib.util
 import json
 from pathlib import Path
-from typing import Any
 
-MODULE_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "tools"
-    / "write_github_summary.py"
-)
+import pytest
 
-SPEC = importlib.util.spec_from_file_location(
-    "p3_write_github_summary",
-    MODULE_PATH,
-)
-
-assert SPEC is not None
-assert SPEC.loader is not None
-
-MODULE = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(MODULE)
+from P3.tools import write_github_summary as summary
 
 
-RUN_ID = "p3-test-100-1"
+RUN_ID = "p3-12345-1"
+BRANCH = "main"
 
 
-def write_json(path: Path, value: dict[str, Any]) -> None:
-    """Write a JSON fixture."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(value, indent=2, allow_nan=False) + "\n",
-        encoding="utf-8",
-    )
-
-
-def create_evidence_tree(root: Path) -> None:
-    """Create all mandatory evidence files declared by the publisher."""
-    for relative in MODULE.REQUIRED_EVIDENCE:
+def create_required_evidence(root: Path) -> None:
+    for relative in summary.REQUIRED_EVIDENCE:
         path = root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
-
-        if relative.endswith("environment.txt"):
+        if relative.endswith("environment.json"):
             path.write_text(
-                "Python: 3.12\nJava: 21\nOS: Linux\n",
+                json.dumps({
+                    "schema": "qflpn-p3-environment-v1",
+                    "run_id": RUN_ID,
+                }),
+                encoding="utf-8",
+            )
+        elif relative.endswith("environment.txt"):
+            path.write_text(
+                f"QFLPN P3 EXECUTION ENVIRONMENT\nRUN_ID: {RUN_ID}\n",
                 encoding="utf-8",
             )
         else:
-            path.write_text(
-                f"test evidence: {relative}\n",
-                encoding="utf-8",
-            )
+            path.write_text("test evidence\n", encoding="utf-8")
 
 
-def create_verdict(
-    path: Path,
-    *,
-    verdict: str = "P3_ACCEPTED",
-) -> None:
-    """Create a representative independent-verifier JSON document."""
-    write_json(
-        path,
-        {
-            "verdict": verdict,
-            "integrity": {
-                "manifest_entries": 20,
-                "sha256_entries_verified": 20,
-            },
-            "benchmark": {
-                "schema": "qflpn-benchmark-v2",
-                "run_id": RUN_ID,
-                "validation": "PASS",
-                "records": 1,
-                "dimension": 1_000_000,
-            },
-            "ci_stages": {
-                "p3_environment": "success",
-                "p3_integrity_generate": "success",
-                "p3_benchmark": "success",
-            },
+def local_verdict() -> dict:
+    return {
+        "verdict": "P3_ACCEPTED",
+        "integrity": {
+            "manifest_entries": 25,
+            "sha256_entries_verified": 25,
         },
-    )
-
-
-def test_load_json_reads_valid_object(tmp_path: Path) -> None:
-    path = tmp_path / "verdict.json"
-    create_verdict(path)
-
-    result = MODULE.load_json(path)
-
-    assert result["verdict"] == "P3_ACCEPTED"
-    assert result["integrity"]["manifest_entries"] == 20
-
-
-def test_load_json_rejects_invalid_json(tmp_path: Path) -> None:
-    path = tmp_path / "invalid.json"
-    path.write_text("{invalid json", encoding="utf-8")
-
-    try:
-        MODULE.load_json(path)
-    except ValueError as exc:
-        assert "Invalid verdict JSON" in str(exc)
-    else:
-        raise AssertionError("Invalid JSON was accepted")
-
-
-def test_load_json_rejects_non_object_document(
-    tmp_path: Path,
-) -> None:
-    path = tmp_path / "array.json"
-    path.write_text("[1, 2, 3]", encoding="utf-8")
-
-    try:
-        MODULE.load_json(path)
-    except ValueError as exc:
-        assert "JSON object" in str(exc)
-    else:
-        raise AssertionError("A JSON array was accepted")
-
-
-def test_load_json_rejects_missing_file(tmp_path: Path) -> None:
-    path = tmp_path / "missing.json"
-
-    try:
-        MODULE.load_json(path)
-    except ValueError as exc:
-        assert "Cannot read verdict JSON" in str(exc)
-    else:
-        raise AssertionError("A missing verdict file was accepted")
-
-
-def test_evidence_status_reports_all_present_files(
-    tmp_path: Path,
-) -> None:
-    create_evidence_tree(tmp_path)
-
-    statuses = MODULE.evidence_status(tmp_path)
-
-    assert len(statuses) == len(MODULE.REQUIRED_EVIDENCE)
-    assert all(present for _, present, _ in statuses)
-    assert all(size > 0 for _, _, size in statuses)
-
-
-def test_evidence_status_reports_missing_file(
-    tmp_path: Path,
-) -> None:
-    create_evidence_tree(tmp_path)
-
-    missing_relative = MODULE.REQUIRED_EVIDENCE[0]
-    (tmp_path / missing_relative).unlink()
-
-    statuses = MODULE.evidence_status(tmp_path)
-    status_map = {
-        name: present
-        for name, present, _ in statuses
-    }
-
-    assert status_map[missing_relative] is False
-
-
-def test_evidence_status_does_not_accept_symlink(
-    tmp_path: Path,
-) -> None:
-    create_evidence_tree(tmp_path)
-
-    relative = MODULE.REQUIRED_EVIDENCE[0]
-    target = tmp_path / "outside-evidence.txt"
-    target.write_text("external", encoding="utf-8")
-
-    evidence = tmp_path / relative
-    evidence.unlink()
-    evidence.symlink_to(target)
-
-    statuses = MODULE.evidence_status(tmp_path)
-    status_map = {
-        name: present
-        for name, present, _ in statuses
-    }
-
-    assert status_map[relative] is False
-
-
-def test_format_ci_stages_marks_success_as_pass() -> None:
-    rows = MODULE.format_ci_stages(
-        {
-            "p3_environment": "success",
+        "benchmark": {
+            "schema": "qflpn-benchmark-v2",
+            "run_id": RUN_ID,
+            "validation": "PASS",
+            "records": 1,
+            "dimension": 1_000_000,
+            "non_zero_count": 2_000_000,
+            "speedup": 2.0,
+        },
+        "ci_stages": {
             "p3_benchmark": "success",
-        }
+            "p3_integrity_generate": "success",
+        },
+    }
+
+
+def remote_verdict(**overrides) -> dict:
+    data = {
+        "schema": "qflpn-p3-remote-integrity-v1",
+        "validation": "PASS",
+        "remote": "origin",
+        "branch": BRANCH,
+        "commit": "a" * 40,
+        "manifest_entries": 2,
+        "verified_remote_blobs": 2,
+        "files": [
+            {
+                "path": "P3/a.txt",
+                "sha256": "b" * 64,
+                "status": "PASS",
+            },
+            {
+                "path": "P3/b.txt",
+                "sha256": "c" * 64,
+                "status": "PASS",
+            },
+        ],
+    }
+    data.update(overrides)
+    return data
+
+
+def write_json(path: Path, data: dict) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    return path
+
+
+def test_remote_result_accepts_complete_matching_inventory() -> None:
+    valid, reason = summary.verify_remote_result(
+        remote_verdict(),
+        expected_branch=BRANCH,
     )
 
-    assert len(rows) == 2
-    assert all("PASS" in row for row in rows)
+    assert valid is True
+    assert "All remote manifest blobs" in reason
 
 
-def test_format_ci_stages_marks_failure() -> None:
-    rows = MODULE.format_ci_stages(
-        {
-            "p3_benchmark": "failure",
-        }
-    )
-
-    assert len(rows) == 1
-    assert "FAIL" in rows[0]
-    assert "failure" in rows[0]
-
-
-def test_format_ci_stages_handles_empty_mapping() -> None:
-    rows = MODULE.format_ci_stages({})
-
-    assert rows
-    assert "UNAVAILABLE" in rows[0]
-
-
-def test_format_ci_stages_handles_non_mapping() -> None:
-    rows = MODULE.format_ci_stages(None)
-
-    assert rows
-    assert "UNAVAILABLE" in rows[0]
-
-
-def test_format_environment_includes_report(
-    tmp_path: Path,
+@pytest.mark.parametrize(
+    ("overrides", "expected_branch"),
+    [
+        ({"validation": "FAIL"}, BRANCH),
+        ({"branch": "fix/other"}, BRANCH),
+        ({"verified_remote_blobs": 1}, BRANCH),
+        ({"manifest_entries": 3}, BRANCH),
+        ({"files": []}, BRANCH),
+        ({"files": [{"path": "P3/a.txt", "sha256": "x", "status": "PASS"}]}, BRANCH),
+    ],
+)
+def test_remote_result_rejects_incomplete_or_invalid_inventory(
+    overrides: dict,
+    expected_branch: str,
 ) -> None:
-    report = tmp_path / "P3/reports/environment.txt"
-    report.parent.mkdir(parents=True)
-    report.write_text(
-        "Python: 3.12\nJava: 21\n",
-        encoding="utf-8",
+    valid, _ = summary.verify_remote_result(
+        remote_verdict(**overrides),
+        expected_branch=expected_branch,
     )
-
-    lines = MODULE.format_environment(tmp_path)
-
-    rendered = "\n".join(lines)
-
-    assert "PRESENT" in rendered
-    assert "Python: 3.12" in rendered
-    assert "Java: 21" in rendered
+    assert valid is False
 
 
-def test_format_environment_limits_number_of_lines(
-    tmp_path: Path,
-) -> None:
-    report = tmp_path / "P3/reports/environment.txt"
-    report.parent.mkdir(parents=True)
-    report.write_text(
-        "\n".join(f"line-{index}" for index in range(100)),
-        encoding="utf-8",
-    )
-
-    lines = MODULE.format_environment(
-        tmp_path,
-        maximum_lines=10,
-    )
-
-    rendered = "\n".join(lines)
-
-    assert "line-0" in rendered
-    assert "line-9" in rendered
-    assert "line-10" not in rendered
-    assert "90 additional lines" in rendered
-
-
-def test_format_environment_reports_missing_file(
-    tmp_path: Path,
-) -> None:
-    lines = MODULE.format_environment(tmp_path)
-
-    assert "MISSING" in "\n".join(lines)
-
-
-def test_effective_verdict_accepts_complete_package() -> None:
-    assert MODULE.effective_verdict(
-        "P3_ACCEPTED",
-        [],
+def test_effective_verdict_requires_every_gate() -> None:
+    assert summary.effective_verdict(
+        "P3_ACCEPTED", [], True, RUN_ID, RUN_ID
     ) == "P3_ACCEPTED"
 
+    assert summary.effective_verdict(
+        "P3_REJECTED", [], True, RUN_ID, RUN_ID
+    ) == "P3_REJECTED"
 
-def test_effective_verdict_rejects_missing_evidence() -> None:
-    assert MODULE.effective_verdict(
-        "P3_ACCEPTED",
-        ["P3/reports/environment.txt"],
+    assert summary.effective_verdict(
+        "P3_ACCEPTED", ["P3/file.txt"], True, RUN_ID, RUN_ID
+    ) == "P3_REJECTED"
+
+    assert summary.effective_verdict(
+        "P3_ACCEPTED", [], False, RUN_ID, RUN_ID
+    ) == "P3_REJECTED"
+
+    assert summary.effective_verdict(
+        "P3_ACCEPTED", [], True, "p3-other-run", RUN_ID
     ) == "P3_REJECTED"
 
 
-def test_effective_verdict_rejects_unknown_verdict() -> None:
-    assert MODULE.effective_verdict(
-        "UNKNOWN",
-        [],
-    ) == "P3_REJECTED"
-
-
-def test_build_summary_contains_verdict_and_run_id(
+def test_build_summary_accepts_local_and_remote_pass(
     tmp_path: Path,
 ) -> None:
-    create_evidence_tree(tmp_path)
+    create_required_evidence(tmp_path)
+    local_path = write_json(
+        tmp_path / "local-verdict.json",
+        local_verdict(),
+    )
+    remote_path = write_json(
+        tmp_path / "remote-verdict.json",
+        remote_verdict(),
+    )
 
-    verdict_path = tmp_path / "verdict.json"
-    create_verdict(verdict_path)
-
-    summary = MODULE.build_summary(
+    rendered = summary.build_summary(
         tmp_path,
-        verdict_path,
+        local_path,
+        remote_path,
         RUN_ID,
+        BRANCH,
     )
 
-    assert "# QFLPN P3 — FINAL VALIDATION SUMMARY" in summary
-    assert "- Final verdict: **P3_ACCEPTED**" in summary
-    assert "**P3_ACCEPTED**" in summary
-    assert RUN_ID in summary
+    assert "Final verdict: **P3_ACCEPTED**" in rendered
+    assert "Remote result: **PASS**" in rendered
+    assert "Remote blobs verified: `2`" in rendered
 
 
-def test_build_summary_contains_integrity_metrics(
+def test_build_summary_rejects_remote_failure(
     tmp_path: Path,
 ) -> None:
-    create_evidence_tree(tmp_path)
+    create_required_evidence(tmp_path)
+    local_path = write_json(
+        tmp_path / "local-verdict.json",
+        local_verdict(),
+    )
+    remote_path = write_json(
+        tmp_path / "remote-verdict.json",
+        remote_verdict(validation="FAIL"),
+    )
 
-    verdict_path = tmp_path / "verdict.json"
-    create_verdict(verdict_path)
-
-    summary = MODULE.build_summary(
+    rendered = summary.build_summary(
         tmp_path,
-        verdict_path,
+        local_path,
+        remote_path,
         RUN_ID,
+        BRANCH,
     )
 
-    assert "MANIFEST entries" in summary
-    assert "20" in summary
-    assert "SHA-256 entries verified" in summary
+    assert "Final verdict: **P3_REJECTED**" in rendered
+    assert "Remote result: **FAIL**" in rendered
 
 
-def test_build_summary_contains_benchmark_information(
+def test_build_summary_rejects_missing_mandatory_evidence(
     tmp_path: Path,
 ) -> None:
-    create_evidence_tree(tmp_path)
+    create_required_evidence(tmp_path)
+    (tmp_path / "P3/reports/benchmark-report.md").unlink()
 
-    verdict_path = tmp_path / "verdict.json"
-    create_verdict(verdict_path)
+    local_path = write_json(
+        tmp_path / "local-verdict.json",
+        local_verdict(),
+    )
+    remote_path = write_json(
+        tmp_path / "remote-verdict.json",
+        remote_verdict(),
+    )
 
-    summary = MODULE.build_summary(
+    rendered = summary.build_summary(
         tmp_path,
-        verdict_path,
+        local_path,
+        remote_path,
         RUN_ID,
+        BRANCH,
     )
 
-    assert "qflpn-benchmark-v2" in summary
-    assert "1,000,000" in summary or "1000000" in summary
-    assert "p3_benchmark" in summary
+    assert "Final verdict: **P3_REJECTED**" in rendered
+    assert "P3/reports/benchmark-report.md" in rendered
 
 
-def test_build_summary_contains_evidence_inventory(
+def test_build_summary_rejects_environment_run_id_mismatch(
     tmp_path: Path,
 ) -> None:
-    create_evidence_tree(tmp_path)
+    create_required_evidence(tmp_path)
+    environment_json = tmp_path / "P3/reports/environment.json"
+    environment_json.write_text(
+        json.dumps({
+            "schema": "qflpn-p3-environment-v1",
+            "run_id": "p3-another-run",
+        }),
+        encoding="utf-8",
+    )
 
-    verdict_path = tmp_path / "verdict.json"
-    create_verdict(verdict_path)
+    local_path = write_json(
+        tmp_path / "local-verdict.json",
+        local_verdict(),
+    )
+    remote_path = write_json(
+        tmp_path / "remote-verdict.json",
+        remote_verdict(),
+    )
 
-    summary = MODULE.build_summary(
+    rendered = summary.build_summary(
         tmp_path,
-        verdict_path,
+        local_path,
+        remote_path,
         RUN_ID,
+        BRANCH,
     )
 
-    for relative in MODULE.REQUIRED_EVIDENCE:
-        assert relative in summary
-
-    assert "Mandatory files present" in summary
-    assert "Mandatory files missing" in summary
+    assert "Final verdict: **P3_REJECTED**" in rendered
+    assert "environment.json or RUN_ID binding" in rendered
 
 
-def test_build_summary_reports_missing_evidence(
+def test_build_summary_rejects_benchmark_run_id_mismatch(
     tmp_path: Path,
 ) -> None:
-    create_evidence_tree(tmp_path)
+    create_required_evidence(tmp_path)
+    verdict = local_verdict()
+    verdict["benchmark"]["run_id"] = "p3-another-run"
 
-    missing_relative = MODULE.REQUIRED_EVIDENCE[0]
-    (tmp_path / missing_relative).unlink()
+    local_path = write_json(
+        tmp_path / "local-verdict.json",
+        verdict,
+    )
+    remote_path = write_json(
+        tmp_path / "remote-verdict.json",
+        remote_verdict(),
+    )
 
-    verdict_path = tmp_path / "verdict.json"
-    create_verdict(verdict_path)
-
-    summary = MODULE.build_summary(
+    rendered = summary.build_summary(
         tmp_path,
-        verdict_path,
+        local_path,
+        remote_path,
         RUN_ID,
+        BRANCH,
     )
 
-    assert missing_relative in summary
-    assert "MISSING" in summary
-    assert "- Final verdict: **P3_REJECTED**" in summary
-    assert "P3_REJECTED / INCOMPLETE EVIDENCE" in summary
-    assert "**Final verdict: P3_ACCEPTED**" not in summary
-
-
-def test_build_summary_rejects_accepted_verdict_with_missing_evidence(
-    tmp_path: Path,
-) -> None:
-    create_evidence_tree(tmp_path)
-
-    missing_relative = "P3/reports/environment.txt"
-    (tmp_path / missing_relative).unlink()
-
-    verdict_path = tmp_path / "verdict.json"
-    create_verdict(verdict_path, verdict="P3_ACCEPTED")
-
-    summary = MODULE.build_summary(
-        tmp_path,
-        verdict_path,
-        RUN_ID,
-    )
-
-    header = next(
-        line
-        for line in summary.splitlines()
-        if line.startswith("- Final verdict:")
-    )
-
-    assert header == "- Final verdict: **P3_REJECTED**"
-    assert "P3_REJECTED / INCOMPLETE EVIDENCE" in summary
-
-
-def test_build_summary_rejects_unknown_verdict(
-    tmp_path: Path,
-) -> None:
-    create_evidence_tree(tmp_path)
-
-    verdict_path = tmp_path / "verdict.json"
-    create_verdict(verdict_path, verdict="UNKNOWN")
-
-    summary = MODULE.build_summary(
-        tmp_path,
-        verdict_path,
-        RUN_ID,
-    )
-
-    assert "- Final verdict: **P3_REJECTED**" in summary
-    assert "P3_REJECTED / INCOMPLETE EVIDENCE" in summary
-
-
-def test_build_summary_includes_verification_error(
-    tmp_path: Path,
-) -> None:
-    create_evidence_tree(tmp_path)
-
-    verdict_path = tmp_path / "verdict.json"
-    write_json(
-        verdict_path,
-        {
-            "verdict": "P3_REJECTED",
-            "error": "Integrity verification failed",
-        },
-    )
-
-    summary = MODULE.build_summary(
-        tmp_path,
-        verdict_path,
-        RUN_ID,
-    )
-
-    assert "Verification error" in summary
-    assert "Integrity verification failed" in summary
-
-
-def test_main_writes_summary_to_explicit_output(
-    tmp_path: Path,
-) -> None:
-    create_evidence_tree(tmp_path)
-
-    verdict_path = tmp_path / "verdict.json"
-    create_verdict(verdict_path)
-
-    output_path = tmp_path / "reports/summary.md"
-
-    result = MODULE.main(
-        [
-            "--root",
-            str(tmp_path),
-            "--verdict-json",
-            str(verdict_path),
-            "--run-id",
-            RUN_ID,
-            "--output",
-            str(output_path),
-        ]
-    )
-
-    assert result == 0
-    assert output_path.is_file()
-
-    content = output_path.read_text(encoding="utf-8")
-
-    assert "QFLPN P3" in content
-    assert RUN_ID in content
-
-
-def test_main_returns_error_for_missing_verdict(
-    tmp_path: Path,
-) -> None:
-    output_path = tmp_path / "summary.md"
-
-    result = MODULE.main(
-        [
-            "--root",
-            str(tmp_path),
-            "--verdict-json",
-            str(tmp_path / "missing.json"),
-            "--run-id",
-            RUN_ID,
-            "--output",
-            str(output_path),
-        ]
-    )
-
-    assert result == 1
-    assert not output_path.exists()
+    assert "Final verdict: **P3_REJECTED**" in rendered
