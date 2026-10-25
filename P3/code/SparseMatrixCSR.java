@@ -34,7 +34,8 @@ public final class SparseMatrixCSR {
         Objects.requireNonNull(columnIndices, "columnIndices cannot be null");
         Objects.requireNonNull(rowPointers, "rowPointers cannot be null");
 
-        NormalizedCSR normalized = normalizeAndValidate(values, columnIndices, rowPointers, rows, columns);
+        NormalizedCSR normalized =
+                normalizeAndValidate(values, columnIndices, rowPointers, rows, columns);
 
         this.values = normalized.values();
         this.columnIndices = normalized.columns();
@@ -43,15 +44,20 @@ public final class SparseMatrixCSR {
         this.columns = columns;
     }
 
-    private record NormalizedCSR(int[] columns, double[] values, int[] rowPointers) {
+    private record NormalizedCSR(
+            int[] columns,
+            double[] values,
+            int[] rowPointers) {
     }
 
     private static void validateDimensions(int rows, int columns) {
         if (rows < 0) {
-            throw new IllegalArgumentException("Number of rows cannot be negative.");
+            throw new IllegalArgumentException(
+                    "Number of rows cannot be negative.");
         }
         if (columns < 0) {
-            throw new IllegalArgumentException("Number of columns cannot be negative.");
+            throw new IllegalArgumentException(
+                    "Number of columns cannot be negative.");
         }
     }
 
@@ -73,7 +79,8 @@ public final class SparseMatrixCSR {
         }
 
         if (rowPointers.length == 0 || rowPointers[0] != 0) {
-            throw new IllegalArgumentException("rowPointers[0] must be 0.");
+            throw new IllegalArgumentException(
+                    "rowPointers[0] must be 0.");
         }
 
         int previous = 0;
@@ -100,7 +107,8 @@ public final class SparseMatrixCSR {
             int column = columnIndices[i];
             if (column < 0 || column >= columns) {
                 throw new IllegalArgumentException(
-                        "Column index out of bounds at position " + i + ": " + column);
+                        "Column index out of bounds at position "
+                                + i + ": " + column);
             }
         }
 
@@ -115,9 +123,11 @@ public final class SparseMatrixCSR {
         int[] compactColumns = new int[values.length];
         double[] compactValues = new double[values.length];
         int[] compactRowPointers = new int[rows + 1];
+
         compactRowPointers[0] = 0;
 
         int writeIndex = 0;
+
         for (int row = 0; row < rows; row++) {
             int rowStart = rowPointers[row];
             int rowEnd = rowPointers[row + 1];
@@ -129,20 +139,39 @@ public final class SparseMatrixCSR {
             }
 
             Integer[] order = new Integer[count];
+
             for (int i = 0; i < count; i++) {
                 order[i] = rowStart + i;
             }
 
-            Arrays.sort(order, Comparator.comparingInt(index -> columnIndices[index]));
+            Arrays.sort(
+                    order,
+                    Comparator.comparingInt(index -> columnIndices[index]));
 
             int rowWrite = 0;
+
             for (int pos = 0; pos < order.length; pos++) {
                 int index = order[pos];
                 int currentColumn = columnIndices[index];
                 double currentValue = values[index];
 
-                if (rowWrite > 0 && compactColumns[writeIndex + rowWrite - 1] == currentColumn) {
-                    compactValues[writeIndex + rowWrite - 1] += currentValue;
+                if (rowWrite > 0
+                        && compactColumns[writeIndex + rowWrite - 1]
+                        == currentColumn) {
+
+                    int duplicatePosition = writeIndex + rowWrite - 1;
+
+                    double aggregatedValue =
+                            compactValues[duplicatePosition] + currentValue;
+
+                    if (!Double.isFinite(aggregatedValue)) {
+                        throw new IllegalArgumentException(
+                                "Duplicate CSR aggregation overflow at row "
+                                        + row + ", column " + currentColumn
+                                        + ": aggregated value is not finite.");
+                    }
+
+                    compactValues[duplicatePosition] = aggregatedValue;
                     continue;
                 }
 
@@ -156,17 +185,28 @@ public final class SparseMatrixCSR {
         }
 
         int finalNnz = compactRowPointers[rows];
-        int[] normalizedColumns = Arrays.copyOf(compactColumns, finalNnz);
-        double[] normalizedValues = Arrays.copyOf(compactValues, finalNnz);
-        int[] normalizedRowPointers = Arrays.copyOf(compactRowPointers, rows + 1);
 
-        return new NormalizedCSR(normalizedColumns, normalizedValues, normalizedRowPointers);
+        int[] normalizedColumns =
+                Arrays.copyOf(compactColumns, finalNnz);
+
+        double[] normalizedValues =
+                Arrays.copyOf(compactValues, finalNnz);
+
+        int[] normalizedRowPointers =
+                Arrays.copyOf(compactRowPointers, rows + 1);
+
+        return new NormalizedCSR(
+                normalizedColumns,
+                normalizedValues,
+                normalizedRowPointers);
     }
 
     public double[] multiply(double[] x) {
         validateInputVector(x);
+
         double[] y = new double[rows];
         multiplyInto(x, y);
+
         return y;
     }
 
@@ -174,15 +214,20 @@ public final class SparseMatrixCSR {
         validateInputVector(x);
         validateOutputVector(y);
 
-        double[] input = (x == y) ? Arrays.copyOf(x, x.length) : x;
+        double[] input = (x == y)
+                ? Arrays.copyOf(x, x.length)
+                : x;
 
         for (int row = 0; row < rows; row++) {
             double sum = 0.0;
+
             for (int index = rowPointers[row];
                  index < rowPointers[row + 1];
                  index++) {
+
                 sum += values[index] * input[columnIndices[index]];
             }
+
             y[row] = sum;
         }
     }
@@ -203,7 +248,9 @@ public final class SparseMatrixCSR {
         validateParallelConfiguration(threshold, parallelism);
 
         double[] y = new double[rows];
+
         multiplyParallelInto(x, y, threshold, parallelism);
+
         return y;
     }
 
@@ -218,6 +265,7 @@ public final class SparseMatrixCSR {
         validateParallelConfiguration(threshold, parallelism);
 
         ForkJoinPool pool = new ForkJoinPool(parallelism);
+
         try {
             multiplyParallelInto(x, y, threshold, pool);
         } finally {
@@ -233,27 +281,38 @@ public final class SparseMatrixCSR {
 
         validateInputVector(x);
         validateOutputVector(y);
-        Objects.requireNonNull(pool, "ForkJoinPool cannot be null.");
+
+        Objects.requireNonNull(
+                pool,
+                "ForkJoinPool cannot be null.");
 
         if (threshold <= 0) {
             throw new IllegalArgumentException(
                     "Parallel threshold must be greater than zero.");
         }
+
         if (pool.isShutdown()) {
-            throw new IllegalStateException("ForkJoinPool is already shut down.");
+            throw new IllegalStateException(
+                    "ForkJoinPool is already shut down.");
         }
 
-        double[] input = (x == y) ? Arrays.copyOf(x, x.length) : x;
-
-        pool.invoke(new MultiplyTask(
+        /*
+         * Lot 7:
+         * The factory reuses the matrix-owned CSR arrays without cloning
+         * or revalidating them. It creates exactly one input snapshot.
+         * This also preserves correctness when x == y.
+         */
+        MultiplyTask task = MultiplyTask.forValidatedCsr(
                 values,
                 columnIndices,
                 rowPointers,
-                input,
+                x,
                 y,
                 0,
                 rows,
-                threshold));
+                threshold);
+
+        pool.invoke(task);
     }
 
     private static void validateParallelConfiguration(
@@ -264,6 +323,7 @@ public final class SparseMatrixCSR {
             throw new IllegalArgumentException(
                     "Parallel threshold must be greater than zero.");
         }
+
         if (parallelism <= 0) {
             throw new IllegalArgumentException(
                     "Parallelism must be greater than zero.");
@@ -271,20 +331,28 @@ public final class SparseMatrixCSR {
     }
 
     private void validateInputVector(double[] x) {
-        Objects.requireNonNull(x, "Input vector cannot be null.");
+        Objects.requireNonNull(
+                x,
+                "Input vector cannot be null.");
+
         if (x.length != columns) {
             throw new IllegalArgumentException(
                     "Input vector length (" + x.length
-                            + ") must equal matrix column count (" + columns + ").");
+                            + ") must equal matrix column count ("
+                            + columns + ").");
         }
     }
 
     private void validateOutputVector(double[] y) {
-        Objects.requireNonNull(y, "Output vector cannot be null.");
+        Objects.requireNonNull(
+                y,
+                "Output vector cannot be null.");
+
         if (y.length != rows) {
             throw new IllegalArgumentException(
                     "Output vector length (" + y.length
-                            + ") must equal matrix row count (" + rows + ").");
+                            + ") must equal matrix row count ("
+                            + rows + ").");
         }
     }
 
@@ -318,9 +386,11 @@ public final class SparseMatrixCSR {
 
     public double getDensity() {
         long totalElements = (long) rows * (long) columns;
+
         if (totalElements == 0L) {
             return 0.0;
         }
+
         return (double) values.length / (double) totalElements;
     }
 
@@ -329,26 +399,35 @@ public final class SparseMatrixCSR {
             throw new IndexOutOfBoundsException(
                     "Row index out of bounds: " + row);
         }
+
         if (column < 0 || column >= columns) {
             throw new IndexOutOfBoundsException(
                     "Column index out of bounds: " + column);
         }
 
         double sum = 0.0;
+
         for (int index = rowPointers[row];
              index < rowPointers[row + 1];
              index++) {
+
             if (columnIndices[index] == column) {
                 sum += values[index];
             }
         }
+
         return sum;
     }
 
     public boolean isValid() {
         try {
             validateCSRStructure(
-                    values, columnIndices, rowPointers, rows, columns);
+                    values,
+                    columnIndices,
+                    rowPointers,
+                    rows,
+                    columns);
+
             return true;
         } catch (IllegalArgumentException exception) {
             return false;
@@ -373,10 +452,12 @@ public final class SparseMatrixCSR {
         }
 
         if (rowPointers.length == 0 || rowPointers[0] != 0) {
-            throw new IllegalArgumentException("rowPointers[0] must be 0.");
+            throw new IllegalArgumentException(
+                    "rowPointers[0] must be 0.");
         }
 
         int previous = 0;
+
         for (int i = 0; i < rowPointers.length; i++) {
             int current = rowPointers[i];
 
@@ -384,10 +465,12 @@ public final class SparseMatrixCSR {
                 throw new IllegalArgumentException(
                         "rowPointers must be non-negative and monotonically non-decreasing.");
             }
+
             if (current > values.length) {
                 throw new IllegalArgumentException(
                         "rowPointers value exceeds NNZ at index " + i + ".");
             }
+
             previous = current;
         }
 
@@ -398,9 +481,11 @@ public final class SparseMatrixCSR {
 
         for (int i = 0; i < columnIndices.length; i++) {
             int column = columnIndices[i];
+
             if (column < 0 || column >= columns) {
                 throw new IllegalArgumentException(
-                        "Column index out of bounds at position " + i + ": " + column);
+                        "Column index out of bounds at position "
+                                + i + ": " + column);
             }
         }
 
