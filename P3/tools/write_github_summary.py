@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -50,6 +51,18 @@ COMMIT_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 REMOTE_SCHEMA = "qflpn-p3-remote-integrity-v2"
 EVIDENCE_SCHEMA = "qflpn-p3-evidence-consistency-v1"
 
+REQUIRED_CONSISTENCY_KEYS = {
+    "environment",
+    "csv",
+    "validation_json",
+    "java_benchmark_json",
+    "java_benchmark_txt",
+    "run_markdown",
+    "persistent_markdown",
+    "persistent_validation_json",
+    "run_checksums",
+}
+
 
 def load_json(path: Path, label: str) -> dict[str, Any]:
     if path.is_symlink() or not path.is_file():
@@ -66,6 +79,14 @@ def load_json(path: Path, label: str) -> dict[str, Any]:
     return value
 
 
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
 def evidence_status(root: Path) -> list[tuple[str, bool, int]]:
     result = []
 
@@ -78,7 +99,7 @@ def evidence_status(root: Path) -> list[tuple[str, bool, int]]:
     return result
 
 
-def verify_environment(root: Path, run_id: str) -> None:
+def verify_environment(root: Path, run_id: str) -> str:
     data = load_json(
         root / "P3/reports/environment.json",
         "environment JSON",
@@ -90,18 +111,32 @@ def verify_environment(root: Path, run_id: str) -> None:
     if data.get("run_id") != run_id:
         raise ValueError("Environment JSON RUN_ID mismatch")
 
-    text_path = root / "P3/reports/environment.txt"
+    repository = data.get("repository")
+    if not isinstance(repository, dict):
+        raise ValueError("Environment JSON repository section is missing")
 
+    source_commit = repository.get("commit")
+    if not isinstance(source_commit, str) or not re.fullmatch(
+        r"[0-9a-f]{40}", source_commit
+    ):
+        raise ValueError("Environment SOURCE_COMMIT is invalid")
+
+    text_path = root / "P3/reports/environment.txt"
     if text_path.is_symlink() or not text_path.is_file():
         raise ValueError("Environment TXT is missing or unsafe")
 
     content = text_path.read_text(encoding="utf-8")
-
     if f"RUN_ID: {run_id}" not in content:
         raise ValueError("Environment TXT RUN_ID mismatch")
 
+    return source_commit
 
-def verify_evidence_consistency(root: Path, run_id: str) -> None:
+
+def verify_evidence_consistency(
+    root: Path,
+    run_id: str,
+    expected_source_commit: str,
+) -> None:
     data = load_json(
         root / "P3/reports/evidence-consistency.json",
         "evidence consistency JSON",
@@ -117,40 +152,37 @@ def verify_evidence_consistency(root: Path, run_id: str) -> None:
         raise ValueError("Evidence consistency RUN_ID mismatch")
 
     source_commit = data.get("source_commit")
-    if not isinstance(source_commit, str) or not re.fullmatch(
-        r"[0-9a-f]{40}", source_commit
+    if (
+        not isinstance(source_commit, str)
+        or not re.fullmatch(r"[0-9a-f]{40}", source_commit)
     ):
         raise ValueError("Evidence consistency SOURCE_COMMIT is invalid")
 
+    if source_commit != expected_source_commit:
+        raise ValueError(
+            "Evidence consistency SOURCE_COMMIT does not match environment"
+        )
+
     evidence = data.get("evidence")
     if not isinstance(evidence, dict):
-        raise ValueError("Evidence consistency evidence inventory is invalid")
+        raise ValueError("Evidence consistency inventory is invalid")
 
-    required_keys = {
-        "environment",
-        "csv",
-        "validation_json",
-        "java_benchmark_json",
-        "java_benchmark_txt",
-        "run_markdown",
-        "persistent_markdown",
-        "persistent_validation_json",
-        "run_checksums",
-    }
-
-    if set(evidence) != required_keys:
+    if set(evidence) != REQUIRED_CONSISTENCY_KEYS:
         raise ValueError("Evidence consistency inventory keys mismatch")
 
-    for key in sorted(required_keys):
+    # The canonical producer currently emits "PASS" strings. The object
+    # representation is also accepted for forward compatibility.
+    for key in sorted(REQUIRED_CONSISTENCY_KEYS):
         item = evidence[key]
-        if not isinstance(item, dict) or item.get("status") != "PASS":
+        status = item.get("status") if isinstance(item, dict) else item
+        if status != "PASS":
             raise ValueError(
                 f"Evidence consistency item is not PASS: {key}"
             )
 
 
 def safe_manifest_path(value: str) -> bool:
-    if not value or "\\" in value:
+    if not isinstance(value, str) or not value or "\\" in value:
         return False
 
     path = PurePosixPath(value)
@@ -167,6 +199,8 @@ def safe_manifest_path(value: str) -> bool:
 
 def load_local_integrity_inventory(
     root: Path,
+    *,
+    verify_files: bool = True,
 ) -> tuple[list[str], dict[str, str]]:
     manifest_path = root / "P3/MANIFEST.txt"
     checksums_path = root / "P3/SHA256SUMS.txt"
@@ -177,7 +211,9 @@ def load_local_integrity_inventory(
         or checksums_path.is_symlink()
         or not checksums_path.is_file()
     ):
-        raise ValueError("Global MANIFEST.txt or SHA256SUMS.txt is missing or unsafe")
+        raise ValueError(
+            "Global MANIFEST.txt or SHA256SUMS.txt is missing or unsafe"
+        )
 
     try:
         manifest_content = manifest_path.read_text(encoding="utf-8")
@@ -237,6 +273,21 @@ def load_local_integrity_inventory(
             f"missing_checksums={missing}; extra_checksums={extra}"
         )
 
+    if verify_files:
+        for relative in manifest:
+            target = root / PurePosixPath(relative)
+
+            if target.is_symlink() or not target.is_file():
+                raise ValueError(
+                    f"MANIFEST target is missing or unsafe: {relative}"
+                )
+
+            actual = sha256_file(target)
+            if actual != checksums[relative]:
+                raise ValueError(
+                    f"Local SHA-256 mismatch for MANIFEST target: {relative}"
+                )
+
     return manifest, checksums
 
 
@@ -261,7 +312,6 @@ def verify_remote_result(
         return False, "Remote verification RUN_ID mismatch"
 
     commit = remote.get("commit")
-
     if not isinstance(commit, str) or COMMIT_RE.fullmatch(commit) is None:
         return False, "Remote commit identifier is missing or malformed"
 
@@ -279,7 +329,6 @@ def verify_remote_result(
         return False, "Remote blob count does not match manifest count"
 
     files = remote.get("files")
-
     if not isinstance(files, list) or len(files) != count:
         return False, "Remote per-file verification list is incomplete"
 
@@ -306,33 +355,33 @@ def verify_remote_result(
         seen.add(path)
         remote_checksums[path] = digest
 
-    if expected_manifest is not None:
-        if seen != set(expected_manifest):
-            missing = sorted(set(expected_manifest) - seen)
-            extra = sorted(seen - set(expected_manifest))
-            return (
-                False,
-                "Remote file list differs from local MANIFEST.txt; "
-                f"missing={missing}; extra={extra}",
-            )
+    if expected_manifest is not None and seen != set(expected_manifest):
+        missing = sorted(set(expected_manifest) - seen)
+        extra = sorted(seen - set(expected_manifest))
+        return (
+            False,
+            "Remote file list differs from local MANIFEST.txt; "
+            f"missing={missing}; extra={extra}",
+        )
 
-    if expected_checksums is not None:
-        if remote_checksums != expected_checksums:
-            mismatches = sorted(
-                path
-                for path in set(remote_checksums) & set(expected_checksums)
-                if remote_checksums[path] != expected_checksums[path]
-            )
-            missing = sorted(set(expected_checksums) - set(remote_checksums))
-            extra = sorted(set(remote_checksums) - set(expected_checksums))
+    if expected_checksums is not None and remote_checksums != expected_checksums:
+        mismatches = sorted(
+            path
+            for path in set(remote_checksums) & set(expected_checksums)
+            if remote_checksums[path] != expected_checksums[path]
+        )
+        missing = sorted(set(expected_checksums) - set(remote_checksums))
+        extra = sorted(set(remote_checksums) - set(expected_checksums))
+        return (
+            False,
+            "Remote SHA-256 inventory differs from local SHA256SUMS.txt; "
+            f"mismatches={mismatches}; missing={missing}; extra={extra}",
+        )
 
-            return (
-                False,
-                "Remote SHA-256 inventory differs from local SHA256SUMS.txt; "
-                f"mismatches={mismatches}; missing={missing}; extra={extra}",
-            )
-
-    return True, "All remote manifest paths and SHA-256 values match local integrity inventory"
+    return (
+        True,
+        "All remote manifest paths and SHA-256 values match local integrity inventory",
+    )
 
 
 def effective_verdict(
@@ -367,37 +416,46 @@ def build_summary(
     verdict = load_json(verdict_path, "local final verdict")
     remote = load_json(remote_path, "remote integrity report")
 
-    evidence = evidence_status(root)
-    missing = [name for name, present, _ in evidence if not present]
+    evidence_files = evidence_status(root)
+    missing = [
+        name for name, present, _ in evidence_files if not present
+    ]
 
     benchmark = verdict.get("benchmark")
     if not isinstance(benchmark, dict):
         benchmark = {}
 
     try:
-        verify_environment(root, run_id)
+        source_commit = verify_environment(root, run_id)
         environment_ok = True
-    except (OSError, ValueError):
+    except (OSError, ValueError, TypeError):
+        source_commit = None
         environment_ok = False
 
     if not environment_ok:
-        missing.append("P3/reports/environment.json or RUN_ID binding")
+        missing.append(
+            "P3/reports/environment.json or RUN_ID/SOURCE_COMMIT binding"
+        )
 
     try:
-        verify_evidence_consistency(root, run_id)
+        if source_commit is None:
+            raise ValueError("Environment SOURCE_COMMIT is unavailable")
+        verify_evidence_consistency(root, run_id, source_commit)
         evidence_consistency_ok = True
     except (OSError, ValueError, TypeError):
         evidence_consistency_ok = False
 
     if not evidence_consistency_ok:
-        missing.append("P3/reports/evidence-consistency.json or evidence binding")
+        missing.append(
+            "P3/reports/evidence-consistency.json or evidence binding"
+        )
 
     try:
         expected_manifest, expected_checksums = (
             load_local_integrity_inventory(root)
         )
         local_inventory_ok = True
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, TypeError) as exc:
         expected_manifest = None
         expected_checksums = None
         local_inventory_ok = False
@@ -414,7 +472,9 @@ def build_summary(
             )
         else:
             remote_ok = False
-            remote_reason = "Remote comparison blocked by invalid local integrity inventory"
+            remote_reason = (
+                "Remote comparison blocked by invalid local integrity inventory"
+            )
 
         decision = effective_verdict(
             verdict.get("verdict"),
@@ -447,7 +507,9 @@ def build_summary(
             remote_reason = "Remote report schema is invalid"
             decision = "P3_REJECTED"
         elif remote.get("validation") != "NOT_APPLICABLE":
-            remote_reason = "Pull request remote status must be NOT_APPLICABLE"
+            remote_reason = (
+                "Pull request remote status must be NOT_APPLICABLE"
+            )
             decision = "P3_REJECTED"
 
     integrity = verdict.get("integrity")
@@ -522,7 +584,7 @@ def build_summary(
         "|---|---:|---:|",
     ])
 
-    for name, present, size in evidence:
+    for name, present, size in evidence_files:
         output.append(
             f"| `{name}` | {'PRESENT' if present else '**MISSING**'} | {size} |"
         )
@@ -530,10 +592,10 @@ def build_summary(
     output.extend([
         "",
         f"- Mandatory evidence files present: "
-        f"**{len(evidence) - len([x for x in evidence if not x[1]])}/{len(evidence)}**",
-        f"- Environment RUN_ID binding: **{'PASS' if environment_ok else 'FAIL'}**",
+        f"**{len(evidence_files) - len([x for x in evidence_files if not x[1]])}/{len(evidence_files)}**",
+        f"- Environment RUN_ID/SOURCE_COMMIT binding: **{'PASS' if environment_ok else 'FAIL'}**",
         f"- Evidence consistency: **{'PASS' if evidence_consistency_ok else 'FAIL'}**",
-        f"- Local MANIFEST/SHA256SUMS consistency: **{'PASS' if local_inventory_ok else 'FAIL'}**",
+        f"- Local MANIFEST/SHA256SUMS and file hashes: **{'PASS' if local_inventory_ok else 'FAIL'}**",
         "",
         "## 6. Final decision",
         "",
@@ -607,7 +669,7 @@ def main(argv: list[str] | None = None) -> int:
         output_path = Path(target)
 
     try:
-        summary = build_summary(
+        rendered = build_summary(
             args.root,
             args.verdict_json,
             args.remote_integrity_json,
@@ -622,7 +684,7 @@ def main(argv: list[str] | None = None) -> int:
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         with output_path.open("a", encoding="utf-8", newline="\n") as stream:
-            stream.write(summary)
+            stream.write(rendered)
             stream.write("\n")
 
     except (OSError, ValueError, TypeError) as exc:
