@@ -9,8 +9,12 @@ import java.util.concurrent.RecursiveAction;
  * Computes y = A*x by partitioning the matrix into disjoint row ranges.
  * Every task writes only to its own output interval.
  *
- * Public construction validates and defensively copies the input data.
- * Recursive child tasks share the already validated immutable snapshots.
+ * The public constructor validates and defensively copies all input arrays.
+ * The package-private factory is reserved for SparseMatrixCSR, whose CSR
+ * arrays have already been validated, normalized and made immutable through
+ * private ownership. It still snapshots the input vector once per operation.
+ *
+ * Recursive child tasks share the validated snapshots of their parent.
  */
 public final class MultiplyTask extends RecursiveAction {
 
@@ -27,7 +31,10 @@ public final class MultiplyTask extends RecursiveAction {
     private final int threshold;
 
     /**
-     * Creates a validated multiplication task.
+     * Creates a task from caller-owned CSR arrays.
+     *
+     * All input arrays are validated and defensively copied. The output
+     * vector is intentionally not copied because the task must write into it.
      *
      * @param values CSR nonzero values
      * @param columns CSR column indices
@@ -58,17 +65,9 @@ public final class MultiplyTask extends RecursiveAction {
 
         int rows = rowPointers.length - 1;
 
-        if (output.length != rows) {
-            throw new IllegalArgumentException(
-                    "output length must equal the matrix row count");
-        }
-
+        validateOutputLength(output, rows);
         validateRange(startRow, endRow, rows);
-
-        if (threshold <= 0) {
-            throw new IllegalArgumentException(
-                    "threshold must be greater than zero");
-        }
+        validateThreshold(threshold);
 
         this.values = values.clone();
         this.columns = columns.clone();
@@ -82,9 +81,82 @@ public final class MultiplyTask extends RecursiveAction {
     }
 
     /**
-     * Private constructor used by recursive children.
-     * Arrays are already validated snapshots and are safe to share
-     * between child tasks. The output array is intentionally shared.
+     * Creates a task using CSR arrays already validated and privately owned
+     * by SparseMatrixCSR.
+     *
+     * This method must remain package-private. It deliberately avoids
+     * revalidating and cloning the matrix's CSR arrays on every multiplication.
+     * The input vector is always copied once, preserving snapshot semantics
+     * and making x == output safe.
+     *
+     * @param values validated matrix values owned by SparseMatrixCSR
+     * @param columns validated column indices owned by SparseMatrixCSR
+     * @param rowPointers validated row pointers owned by SparseMatrixCSR
+     * @param input caller input vector; copied by this method
+     * @param output caller output vector
+     * @param startRow first row, inclusive
+     * @param endRow last row, exclusive
+     * @param threshold maximum number of rows computed by one leaf task
+     * @return a task using the trusted matrix arrays and a private input snapshot
+     */
+    static MultiplyTask forValidatedCsr(
+            double[] values,
+            int[] columns,
+            int[] rowPointers,
+            double[] input,
+            double[] output,
+            int startRow,
+            int endRow,
+            int threshold) {
+
+        Objects.requireNonNull(values, "values must not be null");
+        Objects.requireNonNull(columns, "columns must not be null");
+        Objects.requireNonNull(rowPointers, "rowPointers must not be null");
+        Objects.requireNonNull(input, "input must not be null");
+        Objects.requireNonNull(output, "output must not be null");
+
+        if (values.length != columns.length) {
+            throw new IllegalArgumentException(
+                    "values and columns must have equal lengths");
+        }
+
+        if (rowPointers.length == 0) {
+            throw new IllegalArgumentException(
+                    "rowPointers must contain at least one element");
+        }
+
+        int rows = rowPointers.length - 1;
+
+        validateOutputLength(output, rows);
+        validateRange(startRow, endRow, rows);
+        validateThreshold(threshold);
+
+        if (rowPointers[0] != 0
+                || rowPointers[rows] != values.length) {
+            throw new IllegalArgumentException(
+                    "trusted CSR arrays have inconsistent boundary pointers");
+        }
+
+        /*
+         * SparseMatrixCSR owns the CSR arrays and never exposes their
+         * references. Its constructor validates their full structure.
+         * The vector is copied here exactly once for this operation.
+         */
+        return new MultiplyTask(
+                values,
+                columns,
+                rowPointers,
+                input.clone(),
+                output,
+                startRow,
+                endRow,
+                threshold,
+                TrustedData.INSTANCE);
+    }
+
+    /**
+     * Private constructor for trusted, immutable CSR arrays and an already
+     * snapshotted input vector. Recursive tasks use this constructor too.
      */
     private MultiplyTask(
             double[] values,
@@ -95,7 +167,7 @@ public final class MultiplyTask extends RecursiveAction {
             int startRow,
             int endRow,
             int threshold,
-            boolean trusted) {
+            TrustedData trustedData) {
 
         this.values = values;
         this.columns = columns;
@@ -105,6 +177,13 @@ public final class MultiplyTask extends RecursiveAction {
         this.startRow = startRow;
         this.endRow = endRow;
         this.threshold = threshold;
+    }
+
+    /**
+     * Marker used to distinguish the private trusted-data constructor.
+     */
+    private enum TrustedData {
+        INSTANCE
     }
 
     private static void validateCsr(
@@ -165,6 +244,16 @@ public final class MultiplyTask extends RecursiveAction {
         }
     }
 
+    private static void validateOutputLength(
+            double[] output,
+            int rows) {
+
+        if (output.length != rows) {
+            throw new IllegalArgumentException(
+                    "output length must equal the matrix row count");
+        }
+    }
+
     private static void validateRange(
             int startRow,
             int endRow,
@@ -183,6 +272,13 @@ public final class MultiplyTask extends RecursiveAction {
         if (endRow > rows) {
             throw new IllegalArgumentException(
                     "endRow exceeds the matrix row count");
+        }
+    }
+
+    private static void validateThreshold(int threshold) {
+        if (threshold <= 0) {
+            throw new IllegalArgumentException(
+                    "threshold must be greater than zero");
         }
     }
 
@@ -210,7 +306,7 @@ public final class MultiplyTask extends RecursiveAction {
                 startRow,
                 middle,
                 threshold,
-                true);
+                TrustedData.INSTANCE);
 
         MultiplyTask right = new MultiplyTask(
                 values,
@@ -221,7 +317,7 @@ public final class MultiplyTask extends RecursiveAction {
                 middle,
                 endRow,
                 threshold,
-                true);
+                TrustedData.INSTANCE);
 
         invokeAll(left, right);
     }
