@@ -1,0 +1,26 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.15, pytest-9.1.1, pluggy-1.7.0 -- /opt/hostedtoolcache/Python/3.12.15/x64/bin/python
+cachedir: .pytest_cache
+rootdir: /home/runner/work/QFLPN-Quantum-Petri-Nets/QFLPN-Quantum-Petri-Nets
+collecting ... collected 18 items
+
+P3/tests/test_compute_checksums.py::test_inventory_contains_repository_relative_p3_paths PASSED [  5%]
+P3/tests/test_compute_checksums.py::test_manifest_contains_only_sorted_paths PASSED [ 11%]
+P3/tests/test_compute_checksums.py::test_manifest_has_no_header_or_count_metadata PASSED [ 16%]
+P3/tests/test_compute_checksums.py::test_integrity_files_are_excluded_from_manifest PASSED [ 22%]
+P3/tests/test_compute_checksums.py::test_checksum_paths_match_manifest_paths_exactly PASSED [ 27%]
+P3/tests/test_compute_checksums.py::test_checksum_file_does_not_hash_manifest PASSED [ 33%]
+P3/tests/test_compute_checksums.py::test_source_hash_matches_standard_library PASSED [ 38%]
+P3/tests/test_compute_checksums.py::test_every_checksum_line_uses_gnu_sha256_format PASSED [ 44%]
+P3/tests/test_compute_checksums.py::test_generation_is_deterministic PASSED [ 50%]
+P3/tests/test_compute_checksums.py::test_source_change_changes_corresponding_checksum PASSED [ 55%]
+P3/tests/test_compute_checksums.py::test_new_file_is_added_to_both_inventories PASSED [ 61%]
+P3/tests/test_compute_checksums.py::test_cache_and_build_directories_are_excluded PASSED [ 66%]
+P3/tests/test_compute_checksums.py::test_python_bytecode_files_are_excluded PASSED [ 72%]
+P3/tests/test_compute_checksums.py::test_symlinked_files_are_not_inventoried PASSED [ 77%]
+P3/tests/test_compute_checksums.py::test_symlinked_directories_are_not_traversed PASSED [ 83%]
+P3/tests/test_compute_checksums.py::test_empty_inventory_is_rejected PASSED [ 88%]
+P3/tests/test_compute_checksums.py::test_path_outside_repository_is_rejected PASSED [ 94%]
+P3/tests/test_compute_checksums.py::test_path_outside_p3_is_rejected PASSED [100%]
+
+============================== 18 passed in 0.11s ==============================

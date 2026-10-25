@@ -1,0 +1,36 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.15, pytest-9.1.1, pluggy-1.7.0 -- /opt/hostedtoolcache/Python/3.12.15/x64/bin/python
+cachedir: .pytest_cache
+rootdir: /home/runner/work/QFLPN-Quantum-Petri-Nets/QFLPN-Quantum-Petri-Nets
+collecting ... collected 28 items
+
+P3/results/test_validate_benchmark.py::test_accepts_valid_v2_record PASSED [  3%]
+P3/results/test_validate_benchmark.py::test_rejects_invalid_fields[speedup-3] PASSED [  7%]
+P3/results/test_validate_benchmark.py::test_rejects_invalid_fields[sequential_expected_error-1e-5] PASSED [ 10%]
+P3/results/test_validate_benchmark.py::test_rejects_invalid_fields[parallel_stddev_ms-nan] PASSED [ 14%]
+P3/results/test_validate_benchmark.py::test_rejects_invalid_fields[run_id-] PASSED [ 17%]
+P3/results/test_validate_benchmark.py::test_rejects_invalid_fields[timestamp-not-a-date] PASSED [ 21%]
+P3/results/test_validate_benchmark.py::test_rejects_invalid_fields[timestamp-2026-10-22T10:00:00] PASSED [ 25%]
+P3/results/test_validate_benchmark.py::test_rejects_invalid_fields[dimension-100.0] PASSED [ 28%]
+P3/results/test_validate_benchmark.py::test_rejects_invalid_fields[dimension--100] PASSED [ 32%]
+P3/results/test_validate_benchmark.py::test_rejects_invalid_fields[non_zero_count-199] PASSED [ 35%]
+P3/results/test_validate_benchmark.py::test_rejects_invalid_fields[benchmark_id-WRONG] PASSED [ 39%]
+P3/results/test_validate_benchmark.py::test_rejects_invalid_fields[parallelism-0] PASSED [ 42%]
+P3/results/test_validate_benchmark.py::test_rejects_invalid_fields[threshold-0] PASSED [ 46%]
+P3/results/test_validate_benchmark.py::test_rejects_invalid_fields[warmup_iterations--1] PASSED [ 50%]
+P3/results/test_validate_benchmark.py::test_rejects_invalid_fields[measured_iterations-0] PASSED [ 53%]
+P3/results/test_validate_benchmark.py::test_rejects_invalid_fields[max_jvm_memory_bytes-0] PASSED [ 57%]
+P3/results/test_validate_benchmark.py::test_rejects_invalid_fields[free_jvm_heap_bytes-5000000000] PASSED [ 60%]
+P3/results/test_validate_benchmark.py::test_rejects_invalid_fields[cpu-] PASSED [ 64%]
+P3/results/test_validate_benchmark.py::test_rejects_invalid_fields[operating_system-] PASSED [ 67%]
+P3/results/test_validate_benchmark.py::test_rejects_legacy_header PASSED [ 71%]
+P3/results/test_validate_benchmark.py::test_rejects_header_only_csv PASSED [ 75%]
+P3/results/test_validate_benchmark.py::test_rejects_empty_file PASSED    [ 78%]
+P3/results/test_validate_benchmark.py::test_rejects_missing_column_value PASSED [ 82%]
+P3/results/test_validate_benchmark.py::test_rejects_extra_csv_field PASSED [ 85%]
+P3/results/test_validate_benchmark.py::test_rejects_duplicate_run_id PASSED [ 89%]
+P3/results/test_validate_benchmark.py::test_checks_expected_configuration PASSED [ 92%]
+P3/results/test_validate_benchmark.py::test_rejects_configuration_mismatch PASSED [ 96%]
+P3/results/test_validate_benchmark.py::test_rejects_invalid_utf8 PASSED  [100%]
+
+============================== 28 passed in 0.06s ==============================

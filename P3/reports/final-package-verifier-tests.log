@@ -1,0 +1,28 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.15, pytest-9.1.1, pluggy-1.7.0 -- /opt/hostedtoolcache/Python/3.12.15/x64/bin/python
+cachedir: .pytest_cache
+rootdir: /home/runner/work/QFLPN-Quantum-Petri-Nets/QFLPN-Quantum-Petri-Nets
+collecting ... collected 20 items
+
+P3/tests/test_verify_final_package.py::test_complete_valid_package_is_accepted PASSED [  5%]
+P3/tests/test_verify_final_package.py::test_manifest_must_contain_paths_only PASSED [ 10%]
+P3/tests/test_verify_final_package.py::test_manifest_must_not_contain_integrity_files PASSED [ 15%]
+P3/tests/test_verify_final_package.py::test_modified_source_file_fails_global_hash_check PASSED [ 20%]
+P3/tests/test_verify_final_package.py::test_missing_manifest_fails_closed PASSED [ 25%]
+P3/tests/test_verify_final_package.py::test_missing_checksum_file_fails_closed PASSED [ 30%]
+P3/tests/test_verify_final_package.py::test_checksum_path_set_must_equal_manifest_path_set PASSED [ 35%]
+P3/tests/test_verify_final_package.py::test_wrong_run_id_fails_benchmark_verification PASSED [ 40%]
+P3/tests/test_verify_final_package.py::test_csv_json_run_id_mismatch_fails PASSED [ 45%]
+P3/tests/test_verify_final_package.py::test_invalid_benchmark_report_status_fails PASSED [ 50%]
+P3/tests/test_verify_final_package.py::test_missing_run_evidence_fails PASSED [ 55%]
+P3/tests/test_verify_final_package.py::test_modified_run_evidence_fails_its_checksum PASSED [ 60%]
+P3/tests/test_verify_final_package.py::test_failed_ci_stage_rejects_package PASSED [ 65%]
+P3/tests/test_verify_final_package.py::test_missing_ci_stage_rejects_package PASSED [ 70%]
+P3/tests/test_verify_final_package.py::test_invalid_run_id_is_rejected PASSED [ 75%]
+P3/tests/test_verify_final_package.py::test_invalid_ci_outcomes_json_fails PASSED [ 80%]
+P3/tests/test_verify_final_package.py::test_unexpected_csv_record_fails_authoritative_validation PASSED [ 85%]
+P3/tests/test_verify_final_package.py::test_duplicate_csv_run_id_fails_authoritative_validation PASSED [ 90%]
+P3/tests/test_verify_final_package.py::test_missing_required_package_file_fails PASSED [ 95%]
+P3/tests/test_verify_final_package.py::test_corrupted_run_checksum_file_fails PASSED [100%]
+
+============================== 20 passed in 0.29s ==============================
