@@ -298,7 +298,7 @@ def main(argv: list[str] | None = None) -> int:
         help="Summary destination; defaults to GITHUB_STEP_SUMMARY.",
     )
 
-    args = parser.parse_args(argv)
+    args = parser.parse_args()
 
     output_path = args.output
 
