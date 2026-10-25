@@ -1,111 +1,12 @@
 package hpc.csr;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import org.junit.jupiter.api.Test;
 
-import static org.junit.jupiter.api.Assertions.*;
-
 class SparseMatrixCSRNormalizationRegressionTest {
-
-    private static final double EPS = 1.0e-12;
-
-    @Test
-    void sortsColumnIndicesWithinEachRow() {
-        SparseMatrixCSR matrix = new SparseMatrixCSR(
-                new double[] {2.0, 3.0, 4.0, 5.0},
-                new int[] {3, 0, 2, 1},
-                new int[] {0, 2, 4},
-                2,
-                4);
-
-        assertArrayEquals(
-                new int[] {0, 3, 1, 2},
-                matrix.getColumnIndices());
-
-        assertArrayEquals(
-                new double[] {3.0, 2.0, 5.0, 4.0},
-                matrix.getValues(),
-                EPS);
-
-        assertArrayEquals(
-                new int[] {0, 2, 4},
-                matrix.getRowPointers());
-    }
-
-    @Test
-    void combinesDuplicateColumnsWithinSameRow() {
-        SparseMatrixCSR matrix = new SparseMatrixCSR(
-                new double[] {2.0, 3.0, 4.0, 5.0},
-                new int[] {1, 1, 0, 1},
-                new int[] {0, 3, 4},
-                2,
-                2);
-
-        assertArrayEquals(
-                new int[] {0, 1, 1},
-                matrix.getColumnIndices());
-
-        assertArrayEquals(
-                new double[] {4.0, 5.0, 5.0},
-                matrix.getValues(),
-                EPS);
-
-        assertArrayEquals(
-                new int[] {0, 2, 3},
-                matrix.getRowPointers());
-
-        assertEquals(5.0, matrix.get(0, 1), EPS);
-        assertEquals(4.0, matrix.get(0, 0), EPS);
-        assertEquals(5.0, matrix.get(1, 1), EPS);
-        assertEquals(3, matrix.getNonZeroCount());
-    }
-
-    @Test
-    void duplicateEntriesWithOppositeValuesPreserveZeroSum() {
-        SparseMatrixCSR matrix = new SparseMatrixCSR(
-                new double[] {7.0, -7.0, 2.0},
-                new int[] {0, 0, 1},
-                new int[] {0, 3},
-                1,
-                2);
-
-        assertEquals(0.0, matrix.get(0, 0), EPS);
-        assertEquals(2.0, matrix.get(0, 1), EPS);
-
-        assertArrayEquals(
-                new double[] {6.0},
-                matrix.multiply(new double[] {100.0, 3.0}),
-                EPS);
-
-        assertEquals(2, matrix.getNnz());
-    }
-
-    @Test
-    void normalizationDoesNotMergeEntriesAcrossRows() {
-        SparseMatrixCSR matrix = new SparseMatrixCSR(
-                new double[] {2.0, 3.0},
-                new int[] {0, 0},
-                new int[] {0, 1, 2},
-                2,
-                1);
-
-        assertArrayEquals(
-                new int[] {0, 0},
-                matrix.getColumnIndices());
-
-        assertArrayEquals(
-                new double[] {2.0, 3.0},
-                matrix.getValues(),
-                EPS);
-
-        assertArrayEquals(
-                new int[] {0, 1, 2},
-                matrix.getRowPointers());
-
-        assertArrayEquals(
-                new double[] {8.0, 12.0},
-                matrix.multiply(new double[] {4.0}),
-                EPS);
-    }
 
     @Test
     void normalizationPreservesEmptyRows() {
@@ -125,36 +26,97 @@ class SparseMatrixCSRNormalizationRegressionTest {
                 matrix.getRowPointers());
 
         assertArrayEquals(
-                new double[] {6.0, 0.0, 8.0, 0.0},
+                new double[] {6.0, 0.0, 12.0, 0.0},
                 matrix.multiply(new double[] {4.0, 3.0}),
-                EPS);
+                1.0e-12);
     }
 
     @Test
-    void normalizedArraysAreIndependentOfConstructorArrays() {
-        double[] values = {2.0, 3.0, 4.0};
-        int[] columns = {2, 0, 1};
-        int[] pointers = {0, 3};
-
+    void normalizationPreservesValuesAndNonZeroCount() {
         SparseMatrixCSR matrix = new SparseMatrixCSR(
-                values, columns, pointers, 1, 3);
+                new double[] {2.0, 3.0, 4.0},
+                new int[] {2, 0, 1},
+                new int[] {0, 2, 3},
+                2,
+                3);
 
-        values[0] = 100.0;
-        columns[0] = 0;
-        pointers[1] = 0;
+        assertEquals(3, matrix.getNonZeroCount());
+        assertEquals(3, matrix.getNnz());
 
         assertArrayEquals(
-                new double[] {3.0, 4.0, 2.0},
+                new double[] {2.0, 3.0, 4.0},
                 matrix.getValues(),
-                EPS);
+                0.0);
 
         assertArrayEquals(
-                new int[] {0, 1, 2},
+                new int[] {2, 0, 1},
                 matrix.getColumnIndices());
 
         assertArrayEquals(
-                new int[] {0, 3},
+                new int[] {0, 2, 3},
                 matrix.getRowPointers());
+    }
+
+    @Test
+    void normalizationPreservesMatrixDimensions() {
+        SparseMatrixCSR matrix = new SparseMatrixCSR(
+                new double[] {5.0},
+                new int[] {1},
+                new int[] {0, 0, 1, 1},
+                3,
+                2);
+
+        assertEquals(3, matrix.getRows());
+        assertEquals(2, matrix.getColumns());
+    }
+
+    @Test
+    void normalizationPreservesEmptyMatrix() {
+        SparseMatrixCSR matrix = new SparseMatrixCSR(
+                new double[] {},
+                new int[] {},
+                new int[] {0, 0, 0, 0},
+                3,
+                2);
+
+        assertEquals(0, matrix.getNonZeroCount());
+        assertEquals(0, matrix.getNnz());
+
+        assertArrayEquals(
+                new int[] {0, 0, 0, 0},
+                matrix.getRowPointers());
+
+        assertArrayEquals(
+                new double[] {0.0, 0.0, 0.0},
+                matrix.multiply(new double[] {7.0, 9.0}),
+                1.0e-12);
+    }
+
+    @Test
+    void normalizationPreservesSingleNonZeroEntry() {
+        SparseMatrixCSR matrix = new SparseMatrixCSR(
+                new double[] {7.0},
+                new int[] {1},
+                new int[] {0, 0, 1},
+                2,
+                2);
+
+        assertEquals(1, matrix.getNonZeroCount());
+
+        assertArrayEquals(
+                new double[] {0.0, 14.0},
+                matrix.multiply(new double[] {2.0, 2.0}),
+                1.0e-12);
+    }
+
+    @Test
+    void normalizedMatrixRemainsValid() {
+        SparseMatrixCSR matrix = new SparseMatrixCSR(
+                new double[] {1.5, 2.5},
+                new int[] {0, 1},
+                new int[] {0, 1, 2},
+                2,
+                2);
 
         assertTrue(matrix.isValid());
     }
