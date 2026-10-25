@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
-"""Verify remote P3 integrity and bind published evidence to one CI run.
+"""Verify remote P3 inventories, blobs, and optional CI provenance.
 
-The remote commit must contain:
-- a canonical P3/MANIFEST.txt;
-- a matching P3/SHA256SUMS.txt;
-- every manifest-listed blob with its declared SHA-256;
+Default mode verifies:
+- canonical P3/MANIFEST.txt;
+- matching P3/SHA256SUMS.txt;
+- every manifest-listed remote Git blob and its SHA-256;
 - P3/reports/evidence-consistency.json with validation=PASS and the
   exact expected RUN_ID and SOURCE_COMMIT.
 
-The remote publication commit is intentionally distinct from SOURCE_COMMIT:
-the former contains the published evidence; the latter identifies the
-source revision that produced the evidence.
+The --integrity-only mode verifies the remote inventory and every remote
+blob but deliberately does not require or validate benchmark provenance.
+It must never be used to grant P3_ACCEPTED.
+
+The remote publication commit is distinct from SOURCE_COMMIT:
+the former contains published evidence; the latter identifies the source
+revision that produced the evidence.
 """
 
 from __future__ import annotations
@@ -65,10 +69,7 @@ def git(root: Path, *arguments: str, check: bool = True) -> bytes:
     return result.stdout
 
 
-def validate_expected_identity(
-    run_id: str,
-    source_commit: str,
-) -> None:
+def validate_expected_identity(run_id: str, source_commit: str) -> None:
     require(
         isinstance(run_id, str)
         and RUN_ID_RE.fullmatch(run_id) is not None,
@@ -85,17 +86,10 @@ def validate_expected_identity(
 
 
 def validate_relative_path(value: str) -> None:
-    require(
-        bool(value),
-        "Manifest path must not be empty",
-    )
-    require(
-        "\\" not in value,
-        f"Backslash in manifest path: {value!r}",
-    )
+    require(bool(value), "Manifest path must not be empty")
+    require("\\" not in value, f"Backslash in manifest path: {value!r}")
 
     path = PurePosixPath(value)
-
     require(
         not path.is_absolute()
         and ".." not in path.parts
@@ -121,7 +115,6 @@ def parse_manifest(raw: bytes) -> list[str]:
     )
 
     entries = content.splitlines()
-
     require(
         bool(entries) and all(entries),
         "Remote MANIFEST.txt is empty or contains blank entries",
@@ -156,7 +149,6 @@ def parse_checksums(raw: bytes) -> dict[str, str]:
     )
 
     lines = content.splitlines()
-
     require(
         any(line.strip() for line in lines),
         "Remote SHA256SUMS.txt contains no entries",
@@ -169,15 +161,13 @@ def parse_checksums(raw: bytes) -> dict[str, str]:
             r"([0-9a-f]{64})  ([^\r\n]+)",
             line,
         )
-
         require(
             match is not None,
             f"Malformed SHA256SUMS.txt line {line_number}",
         )
-
         assert match is not None
-        digest, path = match.groups()
 
+        digest, path = match.groups()
         validate_relative_path(path)
 
         require(
@@ -188,25 +178,18 @@ def parse_checksums(raw: bytes) -> dict[str, str]:
             path not in result,
             f"Duplicate checksum path: {path}",
         )
-
         result[path] = digest
 
     require(
         list(result) == sorted(result),
         "Remote SHA256SUMS.txt entries are not sorted",
     )
-
     return result
 
 
-def remote_blob(
-    root: Path,
-    ref: str,
-    path: str,
-) -> bytes:
+def remote_blob(root: Path, ref: str, path: str) -> bytes:
     """Read a regular Git blob from the fetched remote commit."""
     object_name = f"{ref}:{path}"
-
     object_type = git(
         root,
         "cat-file",
@@ -214,17 +197,11 @@ def remote_blob(
         object_name,
         check=False,
     )
-
     require(
         object_type.strip() == b"blob",
         f"Remote path is missing or is not a blob: {path}",
     )
-
-    return git(
-        root,
-        "show",
-        object_name,
-    )
+    return git(root, "show", object_name)
 
 
 def parse_evidence_consistency(
@@ -234,9 +211,7 @@ def parse_evidence_consistency(
     expected_source_commit: str,
 ) -> dict[str, Any]:
     try:
-        evidence = json.loads(
-            raw.decode("utf-8")
-        )
+        evidence = json.loads(raw.decode("utf-8"))
     except (
         UnicodeDecodeError,
         json.JSONDecodeError,
@@ -273,7 +248,6 @@ def parse_evidence_consistency(
             f"got {evidence.get('source_commit')!r}"
         ),
     )
-
     return evidence
 
 
@@ -284,19 +258,13 @@ def verify_remote(
     source_commit: str,
     remote: str = "origin",
     branch: str = "main",
+    require_evidence_consistency: bool = True,
 ) -> dict[str, Any]:
-    """Fetch and verify remote P3 integrity and CI provenance."""
+    """Verify remote P3 inventory; provenance is strict by default."""
     root = Path(root).resolve()
+    require(root.is_dir(), f"Repository root does not exist: {root}")
 
-    require(
-        root.is_dir(),
-        f"Repository root does not exist: {root}",
-    )
-
-    validate_expected_identity(
-        run_id,
-        source_commit,
-    )
+    validate_expected_identity(run_id, source_commit)
 
     require(
         bool(re.fullmatch(r"[A-Za-z0-9._/-]+", remote))
@@ -317,26 +285,15 @@ def verify_remote(
         remote,
         f"refs/heads/{branch}",
     )
-
     fetched_ref = "FETCH_HEAD"
 
-    manifest_raw = remote_blob(
-        root,
-        fetched_ref,
-        MANIFEST_PATH,
-    )
-    checksums_raw = remote_blob(
-        root,
-        fetched_ref,
-        CHECKSUMS_PATH,
-    )
-
+    manifest_raw = remote_blob(root, fetched_ref, MANIFEST_PATH)
+    checksums_raw = remote_blob(root, fetched_ref, CHECKSUMS_PATH)
     manifest = parse_manifest(manifest_raw)
     checksums = parse_checksums(checksums_raw)
 
     manifest_set = set(manifest)
     checksum_set = set(checksums)
-
     require(
         manifest_set == checksum_set,
         (
@@ -345,21 +302,18 @@ def verify_remote(
             f"extra_checksums={sorted(checksum_set - manifest_set)}"
         ),
     )
-    require(
-        EVIDENCE_PATH in manifest_set,
-        f"Remote manifest does not include {EVIDENCE_PATH}",
-    )
+
+    if require_evidence_consistency:
+        require(
+            EVIDENCE_PATH in manifest_set,
+            f"Remote manifest does not include {EVIDENCE_PATH}",
+        )
 
     verified: list[dict[str, str]] = []
     evidence_raw: bytes | None = None
 
     for path in manifest:
-        content = remote_blob(
-            root,
-            fetched_ref,
-            path,
-        )
-
+        content = remote_blob(root, fetched_ref, path)
         actual = hashlib.sha256(content).hexdigest()
         expected = checksums[path]
 
@@ -370,7 +324,6 @@ def verify_remote(
                 f"expected {expected}, got {actual}"
             ),
         )
-
         verified.append(
             {
                 "path": path,
@@ -382,19 +335,41 @@ def verify_remote(
         if path == EVIDENCE_PATH:
             evidence_raw = content
 
-    require(
-        evidence_raw is not None,
-        (
-            "Remote evidence report could not be read: "
-            f"{EVIDENCE_PATH}"
-        ),
-    )
+    evidence_result: dict[str, Any]
 
-    evidence = parse_evidence_consistency(
-        evidence_raw,
-        expected_run_id=run_id,
-        expected_source_commit=source_commit,
-    )
+    if require_evidence_consistency:
+        require(
+            evidence_raw is not None,
+            (
+                "Remote evidence report could not be read: "
+                f"{EVIDENCE_PATH}"
+            ),
+        )
+        evidence = parse_evidence_consistency(
+            evidence_raw,
+            expected_run_id=run_id,
+            expected_source_commit=source_commit,
+        )
+        evidence_result = {
+            "path": EVIDENCE_PATH,
+            "schema": evidence["schema"],
+            "validation": evidence["validation"],
+            "run_id": evidence["run_id"],
+            "source_commit": evidence["source_commit"],
+            "status": "PASS",
+        }
+    else:
+        evidence_result = {
+            "path": EVIDENCE_PATH,
+            "validation": "NOT_CHECKED",
+            "run_id": run_id,
+            "source_commit": source_commit,
+            "status": "NOT_CHECKED",
+            "reason": (
+                "Integrity-only mode verifies the remote inventory and "
+                "all listed blobs, but does not validate benchmark provenance."
+            ),
+        }
 
     commit = git(
         root,
@@ -402,7 +377,6 @@ def verify_remote(
         "--verify",
         f"{fetched_ref}^{{commit}}",
     ).decode("ascii").strip()
-
     require(
         HEX40.fullmatch(commit) is not None,
         "Fetched remote reference did not resolve to a valid commit",
@@ -411,19 +385,17 @@ def verify_remote(
     return {
         "schema": SCHEMA,
         "validation": "PASS",
+        "verification_mode": (
+            "FULL"
+            if require_evidence_consistency
+            else "INTEGRITY_ONLY"
+        ),
         "remote": remote,
         "branch": branch,
         "commit": commit,
         "run_id": run_id,
         "source_commit": source_commit,
-        "evidence_consistency": {
-            "path": EVIDENCE_PATH,
-            "schema": evidence["schema"],
-            "validation": evidence["validation"],
-            "run_id": evidence["run_id"],
-            "source_commit": evidence["source_commit"],
-            "status": "PASS",
-        },
+        "evidence_consistency": evidence_result,
         "manifest_path": MANIFEST_PATH,
         "checksums_path": CHECKSUMS_PATH,
         "manifest_entries": len(manifest),
@@ -432,25 +404,16 @@ def verify_remote(
     }
 
 
-def atomic_write_json(
-    path: Path,
-    value: dict[str, Any],
-) -> None:
+def atomic_write_json(path: Path, value: dict[str, Any]) -> None:
     """Write JSON atomically and refuse symlink destinations."""
     path = Path(path)
-
     require(
         not path.is_symlink(),
         f"Refusing JSON output symlink: {path}",
     )
-
-    path.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+    path.parent.mkdir(parents=True, exist_ok=True)
 
     temporary: Path | None = None
-
     try:
         with tempfile.NamedTemporaryFile(
             mode="w",
@@ -462,7 +425,6 @@ def atomic_write_json(
             delete=False,
         ) as stream:
             temporary = Path(stream.name)
-
             json.dump(
                 value,
                 stream,
@@ -474,12 +436,8 @@ def atomic_write_json(
             stream.flush()
             os.fsync(stream.fileno())
 
-        os.replace(
-            temporary,
-            path,
-        )
+        os.replace(temporary, path)
         temporary = None
-
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
@@ -488,24 +446,13 @@ def atomic_write_json(
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Verify remote P3 manifest/checksums and bind published "
-            "evidence to the expected RUN_ID and SOURCE_COMMIT."
+            "Verify remote P3 MANIFEST/SHA256SUMS and every remote blob; "
+            "optionally require RUN_ID/SOURCE_COMMIT evidence provenance."
         )
     )
-
-    parser.add_argument(
-        "--root",
-        type=Path,
-        default=ROOT,
-    )
-    parser.add_argument(
-        "--remote",
-        default="origin",
-    )
-    parser.add_argument(
-        "--branch",
-        required=True,
-    )
+    parser.add_argument("--root", type=Path, default=ROOT)
+    parser.add_argument("--remote", default="origin")
+    parser.add_argument("--branch", required=True)
     parser.add_argument(
         "--run-id",
         default=os.environ.get("RUN_ID"),
@@ -514,18 +461,21 @@ def main() -> int:
         "--source-commit",
         default=os.environ.get("SOURCE_COMMIT"),
     )
+    parser.add_argument("--json-output", type=Path)
     parser.add_argument(
-        "--json-output",
-        type=Path,
+        "--integrity-only",
+        action="store_true",
+        help=(
+            "Verify MANIFEST, SHA256SUMS and every remote blob without "
+            "requiring benchmark evidence-consistency provenance. "
+            "This mode cannot grant P3_ACCEPTED."
+        ),
     )
 
     args = parser.parse_args()
 
     try:
-        require(
-            args.run_id,
-            "--run-id or RUN_ID is required",
-        )
+        require(args.run_id, "--run-id or RUN_ID is required")
         require(
             args.source_commit,
             "--source-commit or SOURCE_COMMIT is required",
@@ -537,6 +487,7 @@ def main() -> int:
             branch=args.branch,
             run_id=args.run_id,
             source_commit=args.source_commit,
+            require_evidence_consistency=not args.integrity_only,
         )
 
         rendered = json.dumps(
@@ -547,22 +498,16 @@ def main() -> int:
         ) + "\n"
 
         if args.json_output:
-            atomic_write_json(
-                args.json_output,
-                result,
-            )
+            atomic_write_json(args.json_output, result)
 
-        print(
-            rendered,
-            end="",
-        )
+        print(rendered, end="")
         print(
             "P3_REMOTE_INTEGRITY: PASS "
             f"({result['verified_remote_blobs']} remote blobs; "
+            f"mode={result['verification_mode']}; "
             f"RUN_ID={args.run_id}; "
             f"SOURCE_COMMIT={args.source_commit})"
         )
-
         return 0
 
     except (
@@ -576,11 +521,15 @@ def main() -> int:
         failure = {
             "schema": SCHEMA,
             "validation": "FAIL",
+            "verification_mode": (
+                "INTEGRITY_ONLY"
+                if args.integrity_only
+                else "FULL"
+            ),
             "run_id": args.run_id,
             "source_commit": args.source_commit,
             "error": f"{type(exc).__name__}: {exc}",
         }
-
         rendered = json.dumps(
             failure,
             indent=2,
@@ -589,29 +538,18 @@ def main() -> int:
 
         if args.json_output:
             try:
-                atomic_write_json(
-                    args.json_output,
-                    failure,
-                )
-            except (
-                OSError,
-                RemoteIntegrityError,
-            ) as output_error:
+                atomic_write_json(args.json_output, failure)
+            except (OSError, RemoteIntegrityError) as output_error:
                 print(
                     f"Cannot write failure JSON: {output_error}",
                     file=sys.stderr,
                 )
 
-        print(
-            rendered,
-            file=sys.stderr,
-            end="",
-        )
+        print(rendered, file=sys.stderr, end="")
         print(
             f"P3_REMOTE_INTEGRITY: FAIL: {exc}",
             file=sys.stderr,
         )
-
         return 1
 
 
