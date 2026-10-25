@@ -12,24 +12,31 @@ import os
 import re
 import sys
 import tempfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
-RUN_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 
 CSV_REQUIRED = {
-    "timestamp", "run_id", "dimension", "non_zero_count",
-    "warmup_iterations", "measured_iterations",
-    "sequential_mean_ms", "parallel_mean_ms", "speedup",
+    "timestamp",
+    "run_id",
+    "dimension",
+    "non_zero_count",
+    "warmup_iterations",
+    "measured_iterations",
+    "sequential_mean_ms",
+    "parallel_mean_ms",
+    "speedup",
     "max_absolute_error",
 }
 
-RAW_CHECKSUM_FILES = {
-    "benchmark-report.json",
-    "benchmark-report.txt",
-    "benchmark-report.md",
-    "validation-report.json",
+RAW_CHECKSUM_PATHS = {
+    "benchmarks/benchmark_results_v2.csv",
+    "results/raw/{run_id}/benchmark-report.json",
+    "results/raw/{run_id}/benchmark-report.txt",
+    "results/raw/{run_id}/benchmark-report.md",
+    "results/raw/{run_id}/validation-report.json",
 }
 
 
@@ -91,9 +98,47 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def verify_run_checksums(run_dir: Path) -> list[str]:
+def expected_run_checksum_paths(run_id: str) -> set[str]:
+    return {
+        item.format(run_id=run_id)
+        for item in RAW_CHECKSUM_PATHS
+    }
+
+
+def safe_checksum_target(p3_root: Path, name: str) -> Path:
+    require(bool(name), "Empty checksum path")
+    require("\\" not in name, f"Backslash in checksum path: {name}")
+
+    relative = PurePosixPath(name)
+    require(not relative.is_absolute(), f"Absolute checksum path: {name}")
+    require(
+        all(part not in {"", ".", ".."} for part in relative.parts),
+        f"Unsafe checksum path: {name}",
+    )
+
+    target = p3_root.joinpath(*relative.parts)
+    resolved_root = p3_root.resolve()
+    resolved_target = target.resolve()
+
+    require(
+        resolved_target != resolved_root
+        and resolved_root in resolved_target.parents,
+        f"Checksum path escapes P3 root: {name}",
+    )
+
+    current = p3_root
+    for part in relative.parts:
+        current = current / part
+        require(not current.is_symlink(), f"Symlink in checksum path: {name}")
+
+    regular_file(target, f"Checksum target {name}")
+    return target
+
+
+def verify_run_checksums(p3_root: Path, run_id: str) -> list[str]:
+    run_dir = p3_root / "results" / "raw" / run_id
     checksum_path = run_dir / "SHA256SUMS.txt"
-    regular_file(checksum_path, "run-specific SHA256SUMS.txt")
+    regular_file(checksum_path, "Run-specific SHA256SUMS.txt")
 
     try:
         lines = checksum_path.read_text(encoding="ascii").splitlines()
@@ -101,24 +146,29 @@ def verify_run_checksums(run_dir: Path) -> list[str]:
         raise EvidenceError(f"Cannot read run checksums: {exc}") from exc
 
     parsed: dict[str, str] = {}
+
     for number, line in enumerate(lines, start=1):
         match = re.fullmatch(r"([0-9a-f]{64})  ([^\r\n]+)", line)
         require(match is not None, f"Malformed run checksum line {number}")
         assert match is not None
+
         digest, name = match.groups()
         require(name not in parsed, f"Duplicate run checksum entry: {name}")
         parsed[name] = digest
 
+    expected = expected_run_checksum_paths(run_id)
     require(
-        set(parsed) == RAW_CHECKSUM_FILES,
-        "Run SHA256SUMS.txt must cover exactly the four run-specific reports",
+        set(parsed) == expected,
+        "Run SHA256SUMS.txt must cover exactly the five runner evidence paths; "
+        f"missing={sorted(expected - set(parsed))}; "
+        f"unexpected={sorted(set(parsed) - expected)}",
     )
 
     for name, expected_digest in parsed.items():
-        target = run_dir / name
-        regular_file(target, f"Run evidence {name}")
+        target = safe_checksum_target(p3_root, name)
+        actual_digest = sha256_file(target)
         require(
-            sha256_file(target) == expected_digest,
+            actual_digest == expected_digest,
             f"Run-specific SHA-256 mismatch: {name}",
         )
 
@@ -134,18 +184,25 @@ def load_csv_row(csv_path: Path, run_id: str) -> dict[str, str]:
         ) as stream:
             reader = csv.DictReader(stream, strict=True)
             require(reader.fieldnames is not None, "CSV header is missing")
+
             missing = CSV_REQUIRED - set(reader.fieldnames)
             require(
                 not missing,
-                "CSV is missing required columns: " + ", ".join(sorted(missing)),
+                "CSV is missing required columns: "
+                + ", ".join(sorted(missing)),
             )
-            matches = [row for row in reader if row.get("run_id") == run_id]
+
+            matches = [
+                row for row in reader
+                if row.get("run_id") == run_id
+            ]
     except (OSError, UnicodeError, csv.Error) as exc:
         raise EvidenceError(f"Cannot read benchmark CSV: {exc}") from exc
 
     require(
         len(matches) == 1,
-        f"Expected exactly one CSV row for RUN_ID={run_id}; found {len(matches)}",
+        f"Expected exactly one CSV row for RUN_ID={run_id}; "
+        f"found {len(matches)}",
     )
     return matches[0]
 
@@ -159,7 +216,9 @@ def verify_evidence(
     root = Path(root).resolve()
 
     require(
-        isinstance(run_id, str) and RUN_ID_RE.fullmatch(run_id) is not None,
+        isinstance(run_id, str)
+        and run_id not in {".", ".."}
+        and RUN_ID_RE.fullmatch(run_id) is not None,
         "RUN_ID is invalid",
     )
     require(
@@ -179,10 +238,7 @@ def verify_evidence(
         environment.get("schema") == "qflpn-p3-environment-v1",
         "Unsupported environment schema",
     )
-    require(
-        environment.get("run_id") == run_id,
-        "Environment RUN_ID mismatch",
-    )
+    require(environment.get("run_id") == run_id, "Environment RUN_ID mismatch")
 
     repository = environment.get("repository")
     require(isinstance(repository, dict), "Environment repository section missing")
@@ -223,22 +279,36 @@ def verify_evidence(
         "warmup_iterations": "warmup_iterations",
         "measured_iterations": "measured_iterations",
     }
+
     for env_key, csv_key in expected_config.items():
+        try:
+            env_value = int(benchmark_config[env_key])
+            csv_value = int(row[csv_key])
+        except (KeyError, TypeError, ValueError, OverflowError) as exc:
+            raise EvidenceError(
+                f"Invalid environment/CSV configuration field: {env_key}"
+            ) from exc
+
         require(
-            int(row[csv_key]) == int(benchmark_config[env_key]),
+            csv_value == env_value,
             f"Environment/CSV mismatch for {env_key}",
         )
 
+    try:
+        dimension = int(row["dimension"])
+        nnz = int(row["non_zero_count"])
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise EvidenceError("CSV dimension or NNZ is invalid") from exc
+
+    require(dimension > 0, "CSV dimension must be positive")
+    require(nnz == 2 * dimension, "CSV non_zero_count does not equal 2 * dimension")
+
     require(
-        int(row["non_zero_count"]) == 2 * int(row["dimension"]),
-        "CSV non_zero_count does not equal 2 * dimension",
-    )
-    require(
-        int(latest.get("dimension", -1)) == int(row["dimension"]),
+        int(latest.get("dimension", -1)) == dimension,
         "CSV/validation JSON dimension mismatch",
     )
     require(
-        int(latest.get("nnz", -1)) == int(row["non_zero_count"]),
+        int(latest.get("nnz", -1)) == nnz,
         "CSV/validation JSON NNZ mismatch",
     )
 
@@ -248,6 +318,7 @@ def verify_evidence(
         "parallel_mean_ms": "parallel_mean_ms",
         "max_error": "max_absolute_error",
     }
+
     for json_key, csv_key in metric_pairs.items():
         same_number(
             latest.get(json_key),
@@ -265,19 +336,9 @@ def verify_evidence(
         "Java benchmark JSON validation is not PASS",
     )
 
-    # Cross-check numerical values when present in the Java JSON report.
-    java_metric_pairs = {
-        "speedup": "speedup",
-        "sequential_mean_ms": "sequential_mean_ms",
-        "parallel_mean_ms": "parallel_mean_ms",
-    }
-    for java_key, csv_key in java_metric_pairs.items():
-        if java_key in java_report:
-            same_number(
-                java_report[java_key],
-                row[csv_key],
-                f"Java JSON {java_key}",
-            )
+    for key in ("speedup", "sequential_mean_ms", "parallel_mean_ms"):
+        if key in java_report:
+            same_number(java_report[key], row[key], f"Java JSON {key}")
 
     text_path = raw / "benchmark-report.txt"
     regular_file(text_path, "Java benchmark TXT")
@@ -312,12 +373,21 @@ def verify_evidence(
         p3 / "reports" / "validation-report.json",
         "Persistent validation JSON",
     )
+    persistent_latest = persistent_validation.get("latest_record")
     require(
-        persistent_validation.get("latest_record", {}).get("run_id") == run_id,
+        isinstance(persistent_latest, dict),
+        "Persistent validation latest_record is missing",
+    )
+    require(
+        persistent_latest.get("run_id") == run_id,
         "Persistent validation JSON RUN_ID mismatch",
     )
+    require(
+        persistent_validation.get("validation") == "PASS",
+        "Persistent validation JSON is not PASS",
+    )
 
-    verified_checksums = verify_run_checksums(raw)
+    verified_checksums = verify_run_checksums(p3, run_id)
 
     return {
         "schema": "qflpn-p3-evidence-consistency-v1",
@@ -336,8 +406,8 @@ def verify_evidence(
             "run_checksums": "PASS",
         },
         "verified_run_checksum_files": verified_checksums,
-        "csv_dimension": int(row["dimension"]),
-        "csv_nnz": int(row["non_zero_count"]),
+        "csv_dimension": dimension,
+        "csv_nnz": nnz,
     }
 
 
@@ -392,17 +462,20 @@ def main() -> int:
             args.source_commit,
             "--source-commit or SOURCE_COMMIT is required",
         )
+
         result = verify_evidence(
             args.root,
             run_id=args.run_id,
             source_commit=args.source_commit,
         )
         atomic_write_json(args.json_output, result)
+
         print("P3_EVIDENCE_CONSISTENCY: PASS")
         print(f"P3_EVIDENCE_RUN_ID={args.run_id}")
         print(f"P3_EVIDENCE_SOURCE_COMMIT={args.source_commit}")
         print(f"P3_EVIDENCE_REPORT={args.json_output}")
         return 0
+
     except (EvidenceError, OSError, ValueError, TypeError, KeyError) as exc:
         print(
             f"P3_EVIDENCE_CONSISTENCY: FAIL: {type(exc).__name__}: {exc}",
