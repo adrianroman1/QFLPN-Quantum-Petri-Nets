@@ -50,7 +50,10 @@ def require(condition: bool, message: str) -> None:
 
 
 def regular_file(path: Path, label: str) -> None:
-    require(not path.is_symlink(), f"{label} must not be a symlink: {path}")
+    require(
+        not path.is_symlink(),
+        f"Symlink detected for {label}: {path}",
+    )
     require(path.is_file(), f"{label} is missing: {path}")
 
 
