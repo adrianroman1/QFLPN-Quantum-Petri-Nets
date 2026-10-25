@@ -11,48 +11,114 @@ from P3.tools import write_github_summary as summary
 
 RUN_ID = "p3-12345-1"
 BRANCH = "main"
+SOURCE_COMMIT = "a" * 40
+
+
+def write_json(path: Path, data: dict) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(data, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def consistency_report(
+    *,
+    run_id: str = RUN_ID,
+    source_commit: str = SOURCE_COMMIT,
+    evidence: dict | None = None,
+    validation: str = "PASS",
+    schema: str = "qflpn-p3-evidence-consistency-v1",
+) -> dict:
+    if evidence is None:
+        evidence = {
+            key: "PASS"
+            for key in summary.REQUIRED_CONSISTENCY_KEYS
+        }
+
+    return {
+        "schema": schema,
+        "validation": validation,
+        "run_id": run_id,
+        "source_commit": source_commit,
+        "evidence": evidence,
+        "verified_run_checksum_files": [
+            "benchmarks/benchmark_results_v2.csv",
+            f"results/raw/{run_id}/benchmark-report.json",
+            f"results/raw/{run_id}/benchmark-report.txt",
+            f"results/raw/{run_id}/benchmark-report.md",
+            f"results/raw/{run_id}/validation-report.json",
+        ],
+        "csv_dimension": 1_000_000,
+        "csv_nnz": 2_000_000,
+    }
 
 
 def create_required_evidence(root: Path) -> None:
     for relative in summary.REQUIRED_EVIDENCE:
-        if relative in {"P3/MANIFEST.txt", "P3/SHA256SUMS.txt"}:
+        if relative in {
+            "P3/MANIFEST.txt",
+            "P3/SHA256SUMS.txt",
+        }:
             continue
 
         path = root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
 
-        if relative.endswith("environment.json"):
-            path.write_text(
-                json.dumps({
+        if relative == "P3/reports/environment.json":
+            write_json(
+                path,
+                {
                     "schema": "qflpn-p3-environment-v1",
                     "run_id": RUN_ID,
-                }),
-                encoding="utf-8",
+                    "repository": {
+                        "commit": SOURCE_COMMIT,
+                    },
+                    "benchmark": {
+                        "dimension": 1_000_000,
+                        "warmup_iterations": 5,
+                        "measured_iterations": 10,
+                    },
+                },
             )
-        elif relative.endswith("environment.txt"):
+        elif relative == "P3/reports/environment.txt":
             path.write_text(
-                f"QFLPN P3 EXECUTION ENVIRONMENT\nRUN_ID: {RUN_ID}\n",
+                "QFLPN P3 EXECUTION ENVIRONMENT\n"
+                f"RUN_ID: {RUN_ID}\n"
+                f"SOURCE_COMMIT: {SOURCE_COMMIT}\n",
                 encoding="utf-8",
             )
         else:
-            path.write_text("test evidence\n", encoding="utf-8")
+            path.write_text(
+                "test evidence\n",
+                encoding="utf-8",
+            )
+
+    write_json(
+        root / "P3/reports/evidence-consistency.json",
+        consistency_report(),
+    )
 
     manifest_entries = sorted(
         relative
         for relative in summary.REQUIRED_EVIDENCE
-        if relative not in {"P3/MANIFEST.txt", "P3/SHA256SUMS.txt"}
+        if relative not in {
+            "P3/MANIFEST.txt",
+            "P3/SHA256SUMS.txt",
+        }
     )
 
-    manifest_path = root / "P3/MANIFEST.txt"
-    manifest_path.write_text(
+    (root / "P3/MANIFEST.txt").write_text(
         "".join(f"{relative}\n" for relative in manifest_entries),
         encoding="utf-8",
     )
 
     checksum_lines = []
-
     for relative in manifest_entries:
-        digest = hashlib.sha256((root / relative).read_bytes()).hexdigest()
+        digest = hashlib.sha256(
+            (root / relative).read_bytes()
+        ).hexdigest()
         checksum_lines.append(f"{digest}  {relative}\n")
 
     (root / "P3/SHA256SUMS.txt").write_text(
@@ -65,8 +131,8 @@ def local_verdict() -> dict:
     return {
         "verdict": "P3_ACCEPTED",
         "integrity": {
-            "manifest_entries": 25,
-            "sha256_entries_verified": 25,
+            "manifest_entries": 29,
+            "sha256_entries_verified": 29,
         },
         "benchmark": {
             "schema": "qflpn-benchmark-v2",
@@ -86,11 +152,12 @@ def local_verdict() -> dict:
 
 def remote_verdict(**overrides) -> dict:
     data = {
-        "schema": "qflpn-p3-remote-integrity-v1",
+        "schema": summary.REMOTE_SCHEMA,
         "validation": "PASS",
         "remote": "origin",
         "branch": BRANCH,
-        "commit": "a" * 40,
+        "run_id": RUN_ID,
+        "commit": "d" * 40,
         "manifest_entries": 2,
         "verified_remote_blobs": 2,
         "files": [
@@ -110,7 +177,10 @@ def remote_verdict(**overrides) -> dict:
     return data
 
 
-def remote_verdict_for_root(root: Path, **overrides) -> dict:
+def remote_verdict_for_root(
+    root: Path,
+    **overrides,
+) -> dict:
     manifest, checksums = summary.load_local_integrity_inventory(root)
 
     files = [
@@ -123,11 +193,12 @@ def remote_verdict_for_root(root: Path, **overrides) -> dict:
     ]
 
     data = {
-        "schema": "qflpn-p3-remote-integrity-v1",
+        "schema": summary.REMOTE_SCHEMA,
         "validation": "PASS",
         "remote": "origin",
         "branch": BRANCH,
-        "commit": "a" * 40,
+        "run_id": RUN_ID,
+        "commit": "d" * 40,
         "manifest_entries": len(manifest),
         "verified_remote_blobs": len(files),
         "files": files,
@@ -136,16 +207,128 @@ def remote_verdict_for_root(root: Path, **overrides) -> dict:
     return data
 
 
-def write_json(path: Path, data: dict) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    return path
+def test_producer_string_statuses_are_accepted() -> None:
+    evidence = {
+        key: "PASS"
+        for key in summary.REQUIRED_CONSISTENCY_KEYS
+    }
+
+    summary.verify_evidence_consistency(
+        root_with_consistency_report(evidence=evidence),
+        RUN_ID,
+        SOURCE_COMMIT,
+    )
+
+
+def root_with_consistency_report(
+    *,
+    evidence: dict | None = None,
+    source_commit: str = SOURCE_COMMIT,
+    run_id: str = RUN_ID,
+    validation: str = "PASS",
+    schema: str = "qflpn-p3-evidence-consistency-v1",
+) -> Path:
+    import tempfile
+
+    root = Path(tempfile.mkdtemp())
+    report = root / "P3/reports/evidence-consistency.json"
+    write_json(
+        report,
+        consistency_report(
+            evidence=evidence,
+            source_commit=source_commit,
+            run_id=run_id,
+            validation=validation,
+            schema=schema,
+        ),
+    )
+    return root
+
+
+def test_object_status_representation_is_also_accepted() -> None:
+    evidence = {
+        key: {"status": "PASS"}
+        for key in summary.REQUIRED_CONSISTENCY_KEYS
+    }
+
+    root = root_with_consistency_report(evidence=evidence)
+
+    summary.verify_evidence_consistency(
+        root,
+        RUN_ID,
+        SOURCE_COMMIT,
+    )
+
+
+@pytest.mark.parametrize(
+    "bad_status",
+    [
+        "FAIL",
+        "NOT_APPLICABLE",
+        None,
+        {},
+        {"status": "FAIL"},
+    ],
+)
+def test_evidence_consistency_rejects_non_pass_status(
+    bad_status,
+) -> None:
+    evidence = {
+        key: "PASS"
+        for key in summary.REQUIRED_CONSISTENCY_KEYS
+    }
+    evidence["csv"] = bad_status
+
+    root = root_with_consistency_report(evidence=evidence)
+
+    with pytest.raises(ValueError, match="not PASS"):
+        summary.verify_evidence_consistency(
+            root,
+            RUN_ID,
+            SOURCE_COMMIT,
+        )
+
+
+def test_evidence_consistency_rejects_wrong_run_id() -> None:
+    root = root_with_consistency_report(run_id="p3-other-1")
+
+    with pytest.raises(ValueError, match="RUN_ID mismatch"):
+        summary.verify_evidence_consistency(
+            root,
+            RUN_ID,
+            SOURCE_COMMIT,
+        )
+
+
+def test_evidence_consistency_rejects_source_commit_mismatch() -> None:
+    root = root_with_consistency_report(source_commit="b" * 40)
+
+    with pytest.raises(ValueError, match="SOURCE_COMMIT"):
+        summary.verify_evidence_consistency(
+            root,
+            RUN_ID,
+            SOURCE_COMMIT,
+        )
+
+
+def test_evidence_consistency_rejects_wrong_schema() -> None:
+    root = root_with_consistency_report(
+        schema="qflpn-p3-evidence-consistency-v0"
+    )
+
+    with pytest.raises(ValueError, match="schema mismatch"):
+        summary.verify_evidence_consistency(
+            root,
+            RUN_ID,
+            SOURCE_COMMIT,
+        )
 
 
 def test_remote_result_accepts_complete_inventory() -> None:
     valid, reason = summary.verify_remote_result(
         remote_verdict(),
         expected_branch=BRANCH,
+        expected_run_id=RUN_ID,
     )
 
     assert valid is True
@@ -157,9 +340,12 @@ def test_remote_result_accepts_complete_inventory() -> None:
     [
         ({"validation": "FAIL"}, BRANCH),
         ({"branch": "fix/other"}, BRANCH),
+        ({"run_id": "p3-other-1"}, BRANCH),
         ({"verified_remote_blobs": 1}, BRANCH),
         ({"manifest_entries": 3}, BRANCH),
         ({"files": []}, BRANCH),
+        ({"commit": "not-a-commit"}, BRANCH),
+        ({"commit": ""}, BRANCH),
         (
             {
                 "files": [
@@ -172,8 +358,6 @@ def test_remote_result_accepts_complete_inventory() -> None:
             },
             BRANCH,
         ),
-        ({"commit": "not-a-commit"}, BRANCH),
-        ({"commit": ""}, BRANCH),
     ],
 )
 def test_remote_result_rejects_invalid_inventory(
@@ -183,8 +367,19 @@ def test_remote_result_rejects_invalid_inventory(
     valid, _ = summary.verify_remote_result(
         remote_verdict(**overrides),
         expected_branch=expected_branch,
+        expected_run_id=RUN_ID,
     )
     assert valid is False
+
+
+def test_remote_result_rejects_old_schema() -> None:
+    valid, reason = summary.verify_remote_result(
+        remote_verdict(schema="qflpn-p3-remote-integrity-v1"),
+        expected_branch=BRANCH,
+    )
+
+    assert valid is False
+    assert "schema mismatch" in reason
 
 
 def test_remote_result_rejects_manifest_path_set_mismatch() -> None:
@@ -214,10 +409,8 @@ def test_remote_result_rejects_manifest_path_set_mismatch() -> None:
 
 
 def test_remote_result_rejects_checksum_mismatch() -> None:
-    remote = remote_verdict()
-
     valid, reason = summary.verify_remote_result(
-        remote,
+        remote_verdict(),
         expected_branch=BRANCH,
         expected_manifest=["P3/a.txt", "P3/b.txt"],
         expected_checksums={
@@ -280,6 +473,8 @@ def test_build_summary_accepts_local_and_remote_pass(
     assert "Validation: `PASS (independent final verifier)`" in rendered
     assert "P3/MANIFEST.txt" in rendered
     assert "P3/SHA256SUMS.txt" in rendered
+    assert "Evidence consistency: **PASS**" in rendered
+    assert "Local MANIFEST/SHA256SUMS and file hashes: **PASS**" in rendered
 
 
 def test_build_summary_rejects_remote_failure(
@@ -340,13 +535,13 @@ def test_build_summary_rejects_environment_run_id_mismatch(
 ) -> None:
     create_required_evidence(tmp_path)
 
-    environment_json = tmp_path / "P3/reports/environment.json"
-    environment_json.write_text(
-        json.dumps({
+    write_json(
+        tmp_path / "P3/reports/environment.json",
+        {
             "schema": "qflpn-p3-environment-v1",
             "run_id": "p3-another-run",
-        }),
-        encoding="utf-8",
+            "repository": {"commit": SOURCE_COMMIT},
+        },
     )
 
     local_path = write_json(
@@ -367,7 +562,7 @@ def test_build_summary_rejects_environment_run_id_mismatch(
     )
 
     assert "Final verdict: **P3_REJECTED**" in rendered
-    assert "environment.json or RUN_ID binding" in rendered
+    assert "environment.json or RUN_ID/SOURCE_COMMIT binding" in rendered
 
 
 def test_build_summary_rejects_benchmark_run_id_mismatch(
@@ -398,6 +593,35 @@ def test_build_summary_rejects_benchmark_run_id_mismatch(
     assert "Final verdict: **P3_REJECTED**" in rendered
 
 
+def test_build_summary_rejects_local_checksum_tampering(
+    tmp_path: Path,
+) -> None:
+    create_required_evidence(tmp_path)
+
+    target = tmp_path / "P3/pom.xml"
+    target.write_text("tampered\n", encoding="utf-8")
+
+    local_path = write_json(
+        tmp_path / "local-verdict.json",
+        local_verdict(),
+    )
+    remote_path = write_json(
+        tmp_path / "remote-verdict.json",
+        remote_verdict_for_root(tmp_path),
+    )
+
+    rendered = summary.build_summary(
+        tmp_path,
+        local_path,
+        remote_path,
+        RUN_ID,
+        BRANCH,
+    )
+
+    assert "Final verdict: **P3_REJECTED**" in rendered
+    assert "Local integrity inventory" in rendered
+
+
 def test_pull_request_reports_pending_publication(
     tmp_path: Path,
 ) -> None:
@@ -410,7 +634,7 @@ def test_pull_request_reports_pending_publication(
     remote_path = write_json(
         tmp_path / "remote-verdict.json",
         {
-            "schema": "qflpn-p3-remote-integrity-v1",
+            "schema": summary.REMOTE_SCHEMA,
             "validation": "NOT_APPLICABLE",
             "branch": "pull_request",
             "manifest_entries": 0,
@@ -468,8 +692,10 @@ def test_build_summary_rejects_invalid_local_integrity_inventory(
 ) -> None:
     create_required_evidence(tmp_path)
 
-    manifest = tmp_path / "P3/MANIFEST.txt"
-    manifest.write_text("P3/not-in-checksums.txt\n", encoding="utf-8")
+    (tmp_path / "P3/MANIFEST.txt").write_text(
+        "P3/not-in-checksums.txt\n",
+        encoding="utf-8",
+    )
 
     local_path = write_json(
         tmp_path / "local-verdict.json",
