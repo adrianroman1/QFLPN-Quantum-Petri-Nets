@@ -6,15 +6,12 @@ import java.util.concurrent.RecursiveAction;
 /**
  * Fork/Join implementation of CSR sparse matrix-vector multiplication.
  *
- * Computes y = A*x by partitioning the matrix into disjoint row ranges.
- * Every task writes only to its own output interval.
+ * Tasks partition the matrix by row boundaries selected to balance NNZ
+ * work as closely as possible. A row is never split between tasks.
  *
- * The public constructor validates and defensively copies all input arrays.
- * The package-private factory is reserved for SparseMatrixCSR, whose CSR
- * arrays have already been validated, normalized and made immutable through
- * private ownership. It still snapshots the input vector once per operation.
- *
- * Recursive child tasks share the validated snapshots of their parent.
+ * The public constructor validates and defensively copies caller-owned
+ * arrays. The package-private factory is reserved for SparseMatrixCSR,
+ * which owns validated immutable CSR arrays.
  */
 public final class MultiplyTask extends RecursiveAction {
 
@@ -30,21 +27,6 @@ public final class MultiplyTask extends RecursiveAction {
     private final int endRow;
     private final int threshold;
 
-    /**
-     * Creates a task from caller-owned CSR arrays.
-     *
-     * All input arrays are validated and defensively copied. The output
-     * vector is intentionally not copied because the task must write into it.
-     *
-     * @param values CSR nonzero values
-     * @param columns CSR column indices
-     * @param rowPointers CSR row pointers
-     * @param input input vector
-     * @param output output vector
-     * @param startRow first row, inclusive
-     * @param endRow last row, exclusive
-     * @param threshold maximum number of rows computed by one leaf task
-     */
     public MultiplyTask(
             double[] values,
             int[] columns,
@@ -84,20 +66,7 @@ public final class MultiplyTask extends RecursiveAction {
      * Creates a task using CSR arrays already validated and privately owned
      * by SparseMatrixCSR.
      *
-     * This method must remain package-private. It deliberately avoids
-     * revalidating and cloning the matrix's CSR arrays on every multiplication.
-     * The input vector is always copied once, preserving snapshot semantics
-     * and making x == output safe.
-     *
-     * @param values validated matrix values owned by SparseMatrixCSR
-     * @param columns validated column indices owned by SparseMatrixCSR
-     * @param rowPointers validated row pointers owned by SparseMatrixCSR
-     * @param input caller input vector; copied by this method
-     * @param output caller output vector
-     * @param startRow first row, inclusive
-     * @param endRow last row, exclusive
-     * @param threshold maximum number of rows computed by one leaf task
-     * @return a task using the trusted matrix arrays and a private input snapshot
+     * The matrix arrays are not copied. The input vector is snapshotted once.
      */
     static MultiplyTask forValidatedCsr(
             double[] values,
@@ -138,9 +107,8 @@ public final class MultiplyTask extends RecursiveAction {
         }
 
         /*
-         * SparseMatrixCSR owns the CSR arrays and never exposes their
-         * references. Its constructor validates their full structure.
-         * The vector is copied here exactly once for this operation.
+         * SparseMatrixCSR guarantees full structural validation and private
+         * ownership of these arrays. Only the vector needs a per-call copy.
          */
         return new MultiplyTask(
                 values,
@@ -154,10 +122,6 @@ public final class MultiplyTask extends RecursiveAction {
                 TrustedData.INSTANCE);
     }
 
-    /**
-     * Private constructor for trusted, immutable CSR arrays and an already
-     * snapshotted input vector. Recursive tasks use this constructor too.
-     */
     private MultiplyTask(
             double[] values,
             int[] columns,
@@ -174,14 +138,12 @@ public final class MultiplyTask extends RecursiveAction {
         this.rowPointers = rowPointers;
         this.input = input;
         this.output = output;
+
         this.startRow = startRow;
         this.endRow = endRow;
         this.threshold = threshold;
     }
 
-    /**
-     * Marker used to distinguish the private trusted-data constructor.
-     */
     private enum TrustedData {
         INSTANCE
     }
@@ -295,7 +257,20 @@ public final class MultiplyTask extends RecursiveAction {
             return;
         }
 
-        int middle = startRow + rowCount / 2;
+        int middle = findNnzBalancedSplit(startRow, endRow);
+
+        /*
+         * Defensive fallback: every recursive split must make strict
+         * progress and create two non-empty row ranges.
+         */
+        if (middle <= startRow || middle >= endRow) {
+            middle = startRow + rowCount / 2;
+        }
+
+        if (middle <= startRow || middle >= endRow) {
+            computeSequentially();
+            return;
+        }
 
         MultiplyTask left = new MultiplyTask(
                 values,
@@ -320,6 +295,62 @@ public final class MultiplyTask extends RecursiveAction {
                 TrustedData.INSTANCE);
 
         invokeAll(left, right);
+    }
+
+    /**
+     * Finds an internal row boundary that minimizes the difference between
+     * the NNZ counts assigned to the left and right task.
+     *
+     * Rows are indivisible. If the range contains no nonzeros, the method
+     * falls back to a row-count midpoint.
+     *
+     * Long arithmetic is used for totals and imbalance calculations.
+     */
+    private int findNnzBalancedSplit(
+            int rangeStart,
+            int rangeEnd) {
+
+        int rowCount = rangeEnd - rangeStart;
+
+        if (rowCount <= 1) {
+            return rangeStart;
+        }
+
+        long totalNnz =
+                (long) rowPointers[rangeEnd]
+                        - (long) rowPointers[rangeStart];
+
+        if (totalNnz <= 0L) {
+            return rangeStart + rowCount / 2;
+        }
+
+        int bestSplit = -1;
+        long bestImbalance = Long.MAX_VALUE;
+
+        long basePointer = rowPointers[rangeStart];
+
+        for (int candidate = rangeStart + 1;
+             candidate < rangeEnd;
+             candidate++) {
+
+            long leftNnz =
+                    (long) rowPointers[candidate] - basePointer;
+
+            long rightNnz = totalNnz - leftNnz;
+
+            long imbalance = Math.abs(leftNnz - rightNnz);
+
+            if (imbalance < bestImbalance) {
+                bestImbalance = imbalance;
+                bestSplit = candidate;
+            }
+        }
+
+        if (bestSplit < 0) {
+            return rangeStart + rowCount / 2;
+        }
+
+        return bestSplit;
     }
 
     /**
