@@ -26,17 +26,20 @@ REQUIRED_EVIDENCE = (
     "P3/results/generate_benchmark_summary.py",
     "P3/tools/record_environment.py",
     "P3/tools/verify_remote_integrity.py",
+    "P3/tools/verify_evidence_consistency.py",
     "P3/tools/write_github_summary.py",
     "P3/tools/compute_checksums.py",
     "P3/tools/verify_final_package.py",
     "P3/tests/test_record_environment.py",
     "P3/tests/test_verify_remote_integrity.py",
+    "P3/tests/test_verify_evidence_consistency.py",
     "P3/tests/test_generate_benchmark_summary.py",
     "P3/tests/test_write_github_summary.py",
     "P3/reports/environment.json",
     "P3/reports/environment.txt",
     "P3/reports/benchmark-report.md",
     "P3/reports/validation-report.json",
+    "P3/reports/evidence-consistency.json",
     "P3/benchmarks/benchmark_results_v2.csv",
     "P3/MANIFEST.txt",
     "P3/SHA256SUMS.txt",
@@ -44,7 +47,8 @@ REQUIRED_EVIDENCE = (
 
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
-REMOTE_SCHEMA = "qflpn-p3-remote-integrity-v1"
+REMOTE_SCHEMA = "qflpn-p3-remote-integrity-v2"
+EVIDENCE_SCHEMA = "qflpn-p3-evidence-consistency-v1"
 
 
 def load_json(path: Path, label: str) -> dict[str, Any]:
@@ -95,6 +99,54 @@ def verify_environment(root: Path, run_id: str) -> None:
 
     if f"RUN_ID: {run_id}" not in content:
         raise ValueError("Environment TXT RUN_ID mismatch")
+
+
+def verify_evidence_consistency(root: Path, run_id: str) -> None:
+    data = load_json(
+        root / "P3/reports/evidence-consistency.json",
+        "evidence consistency JSON",
+    )
+
+    if data.get("schema") != EVIDENCE_SCHEMA:
+        raise ValueError("Evidence consistency schema mismatch")
+
+    if data.get("validation") != "PASS":
+        raise ValueError("Evidence consistency validation is not PASS")
+
+    if data.get("run_id") != run_id:
+        raise ValueError("Evidence consistency RUN_ID mismatch")
+
+    source_commit = data.get("source_commit")
+    if not isinstance(source_commit, str) or not re.fullmatch(
+        r"[0-9a-f]{40}", source_commit
+    ):
+        raise ValueError("Evidence consistency SOURCE_COMMIT is invalid")
+
+    evidence = data.get("evidence")
+    if not isinstance(evidence, dict):
+        raise ValueError("Evidence consistency evidence inventory is invalid")
+
+    required_keys = {
+        "environment",
+        "csv",
+        "validation_json",
+        "java_benchmark_json",
+        "java_benchmark_txt",
+        "run_markdown",
+        "persistent_markdown",
+        "persistent_validation_json",
+        "run_checksums",
+    }
+
+    if set(evidence) != required_keys:
+        raise ValueError("Evidence consistency inventory keys mismatch")
+
+    for key in sorted(required_keys):
+        item = evidence[key]
+        if not isinstance(item, dict) or item.get("status") != "PASS":
+            raise ValueError(
+                f"Evidence consistency item is not PASS: {key}"
+            )
 
 
 def safe_manifest_path(value: str) -> bool:
@@ -194,6 +246,7 @@ def verify_remote_result(
     expected_branch: str,
     expected_manifest: list[str] | None = None,
     expected_checksums: dict[str, str] | None = None,
+    expected_run_id: str | None = None,
 ) -> tuple[bool, str]:
     if remote.get("schema") != REMOTE_SCHEMA:
         return False, "Remote verification schema mismatch"
@@ -203,6 +256,9 @@ def verify_remote_result(
 
     if remote.get("branch") != expected_branch:
         return False, "Remote verification branch mismatch"
+
+    if expected_run_id is not None and remote.get("run_id") != expected_run_id:
+        return False, "Remote verification RUN_ID mismatch"
 
     commit = remote.get("commit")
 
@@ -328,6 +384,15 @@ def build_summary(
         missing.append("P3/reports/environment.json or RUN_ID binding")
 
     try:
+        verify_evidence_consistency(root, run_id)
+        evidence_consistency_ok = True
+    except (OSError, ValueError, TypeError):
+        evidence_consistency_ok = False
+
+    if not evidence_consistency_ok:
+        missing.append("P3/reports/evidence-consistency.json or evidence binding")
+
+    try:
         expected_manifest, expected_checksums = (
             load_local_integrity_inventory(root)
         )
@@ -345,6 +410,7 @@ def build_summary(
                 expected_branch=branch,
                 expected_manifest=expected_manifest,
                 expected_checksums=expected_checksums,
+                expected_run_id=run_id,
             )
         else:
             remote_ok = False
@@ -466,6 +532,7 @@ def build_summary(
         f"- Mandatory evidence files present: "
         f"**{len(evidence) - len([x for x in evidence if not x[1]])}/{len(evidence)}**",
         f"- Environment RUN_ID binding: **{'PASS' if environment_ok else 'FAIL'}**",
+        f"- Evidence consistency: **{'PASS' if evidence_consistency_ok else 'FAIL'}**",
         f"- Local MANIFEST/SHA256SUMS consistency: **{'PASS' if local_inventory_ok else 'FAIL'}**",
         "",
         "## 6. Final decision",
