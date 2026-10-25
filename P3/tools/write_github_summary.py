@@ -6,8 +6,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 
@@ -41,6 +42,10 @@ REQUIRED_EVIDENCE = (
     "P3/SHA256SUMS.txt",
 )
 
+HEX64 = re.compile(r"^[0-9a-f]{64}$")
+COMMIT_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
+REMOTE_SCHEMA = "qflpn-p3-remote-integrity-v1"
+
 
 def load_json(path: Path, label: str) -> dict[str, Any]:
     if path.is_symlink() or not path.is_file():
@@ -59,11 +64,13 @@ def load_json(path: Path, label: str) -> dict[str, Any]:
 
 def evidence_status(root: Path) -> list[tuple[str, bool, int]]:
     result = []
+
     for relative in REQUIRED_EVIDENCE:
         path = root / relative
         present = path.is_file() and not path.is_symlink()
         size = path.stat().st_size if present else 0
         result.append((relative, present, size))
+
     return result
 
 
@@ -72,26 +79,123 @@ def verify_environment(root: Path, run_id: str) -> None:
         root / "P3/reports/environment.json",
         "environment JSON",
     )
+
     if data.get("schema") != "qflpn-p3-environment-v1":
         raise ValueError("Environment JSON schema mismatch")
+
     if data.get("run_id") != run_id:
         raise ValueError("Environment JSON RUN_ID mismatch")
 
     text_path = root / "P3/reports/environment.txt"
+
     if text_path.is_symlink() or not text_path.is_file():
         raise ValueError("Environment TXT is missing or unsafe")
 
     content = text_path.read_text(encoding="utf-8")
+
     if f"RUN_ID: {run_id}" not in content:
         raise ValueError("Environment TXT RUN_ID mismatch")
+
+
+def safe_manifest_path(value: str) -> bool:
+    if not value or "\\" in value:
+        return False
+
+    path = PurePosixPath(value)
+
+    return (
+        not path.is_absolute()
+        and ".." not in path.parts
+        and path.as_posix() == value
+        and value.startswith("P3/")
+        and value.strip() == value
+        and path.name not in {"MANIFEST.txt", "SHA256SUMS.txt"}
+    )
+
+
+def load_local_integrity_inventory(
+    root: Path,
+) -> tuple[list[str], dict[str, str]]:
+    manifest_path = root / "P3/MANIFEST.txt"
+    checksums_path = root / "P3/SHA256SUMS.txt"
+
+    if (
+        manifest_path.is_symlink()
+        or not manifest_path.is_file()
+        or checksums_path.is_symlink()
+        or not checksums_path.is_file()
+    ):
+        raise ValueError("Global MANIFEST.txt or SHA256SUMS.txt is missing or unsafe")
+
+    try:
+        manifest_content = manifest_path.read_text(encoding="utf-8")
+        checksum_content = checksums_path.read_text(encoding="ascii")
+    except (OSError, UnicodeError) as exc:
+        raise ValueError(f"Cannot read local integrity inventory: {exc}") from exc
+
+    if not manifest_content.endswith("\n"):
+        raise ValueError("MANIFEST.txt lacks its final newline")
+
+    manifest = manifest_content.splitlines()
+
+    if not manifest or any(not item for item in manifest):
+        raise ValueError("MANIFEST.txt is empty or contains blank entries")
+
+    if manifest != sorted(manifest):
+        raise ValueError("MANIFEST.txt entries are not sorted")
+
+    if len(manifest) != len(set(manifest)):
+        raise ValueError("MANIFEST.txt contains duplicate paths")
+
+    for relative in manifest:
+        if not safe_manifest_path(relative):
+            raise ValueError(f"Unsafe MANIFEST.txt path: {relative!r}")
+
+    if not checksum_content.endswith("\n"):
+        raise ValueError("SHA256SUMS.txt lacks its final newline")
+
+    checksums: dict[str, str] = {}
+
+    for number, line in enumerate(checksum_content.splitlines(), start=1):
+        match = re.fullmatch(r"([0-9a-f]{64})  ([^\r\n]+)", line)
+
+        if match is None:
+            raise ValueError(f"Malformed SHA256SUMS.txt line {number}")
+
+        digest, relative = match.groups()
+
+        if not safe_manifest_path(relative):
+            raise ValueError(
+                f"Unsafe SHA256SUMS.txt path on line {number}: {relative!r}"
+            )
+
+        if relative in checksums:
+            raise ValueError(f"Duplicate SHA256SUMS.txt path: {relative}")
+
+        checksums[relative] = digest
+
+    if list(checksums) != sorted(checksums):
+        raise ValueError("SHA256SUMS.txt entries are not sorted")
+
+    if set(manifest) != set(checksums):
+        missing = sorted(set(manifest) - set(checksums))
+        extra = sorted(set(checksums) - set(manifest))
+        raise ValueError(
+            "MANIFEST.txt and SHA256SUMS.txt path sets differ; "
+            f"missing_checksums={missing}; extra_checksums={extra}"
+        )
+
+    return manifest, checksums
 
 
 def verify_remote_result(
     remote: dict[str, Any],
     *,
     expected_branch: str,
+    expected_manifest: list[str] | None = None,
+    expected_checksums: dict[str, str] | None = None,
 ) -> tuple[bool, str]:
-    if remote.get("schema") != "qflpn-p3-remote-integrity-v1":
+    if remote.get("schema") != REMOTE_SCHEMA:
         return False, "Remote verification schema mismatch"
 
     if remote.get("validation") != "PASS":
@@ -99,6 +203,11 @@ def verify_remote_result(
 
     if remote.get("branch") != expected_branch:
         return False, "Remote verification branch mismatch"
+
+    commit = remote.get("commit")
+
+    if not isinstance(commit, str) or COMMIT_RE.fullmatch(commit) is None:
+        return False, "Remote commit identifier is missing or malformed"
 
     count = remote.get("manifest_entries")
     verified = remote.get("verified_remote_blobs")
@@ -114,28 +223,60 @@ def verify_remote_result(
         return False, "Remote blob count does not match manifest count"
 
     files = remote.get("files")
+
     if not isinstance(files, list) or len(files) != count:
         return False, "Remote per-file verification list is incomplete"
 
     seen: set[str] = set()
+    remote_checksums: dict[str, str] = {}
+
     for item in files:
         if not isinstance(item, dict):
             return False, "Remote file result is malformed"
+
         path = item.get("path")
         digest = item.get("sha256")
+
         if (
             not isinstance(path, str)
-            or not path.startswith("P3/")
+            or not safe_manifest_path(path)
             or item.get("status") != "PASS"
             or not isinstance(digest, str)
-            or len(digest) != 64
-            or any(ch not in "0123456789abcdef" for ch in digest)
+            or HEX64.fullmatch(digest) is None
             or path in seen
         ):
             return False, "Remote per-file verification contains invalid data"
-        seen.add(path)
 
-    return True, "All remote manifest blobs were verified"
+        seen.add(path)
+        remote_checksums[path] = digest
+
+    if expected_manifest is not None:
+        if seen != set(expected_manifest):
+            missing = sorted(set(expected_manifest) - seen)
+            extra = sorted(seen - set(expected_manifest))
+            return (
+                False,
+                "Remote file list differs from local MANIFEST.txt; "
+                f"missing={missing}; extra={extra}",
+            )
+
+    if expected_checksums is not None:
+        if remote_checksums != expected_checksums:
+            mismatches = sorted(
+                path
+                for path in set(remote_checksums) & set(expected_checksums)
+                if remote_checksums[path] != expected_checksums[path]
+            )
+            missing = sorted(set(expected_checksums) - set(remote_checksums))
+            extra = sorted(set(remote_checksums) - set(expected_checksums))
+
+            return (
+                False,
+                "Remote SHA-256 inventory differs from local SHA256SUMS.txt; "
+                f"mismatches={mismatches}; missing={missing}; extra={extra}",
+            )
+
+    return True, "All remote manifest paths and SHA-256 values match local integrity inventory"
 
 
 def effective_verdict(
@@ -147,10 +288,13 @@ def effective_verdict(
 ) -> str:
     if local_verdict != "P3_ACCEPTED":
         return "P3_REJECTED"
+
     if missing_evidence or not remote_ok:
         return "P3_REJECTED"
+
     if benchmark_run_id != expected_run_id:
         return "P3_REJECTED"
+
     return "P3_ACCEPTED"
 
 
@@ -160,6 +304,8 @@ def build_summary(
     remote_path: Path,
     run_id: str,
     branch: str,
+    *,
+    remote_required: bool = True,
 ) -> str:
     root = root.resolve()
     verdict = load_json(verdict_path, "local final verdict")
@@ -167,11 +313,6 @@ def build_summary(
 
     evidence = evidence_status(root)
     missing = [name for name, present, _ in evidence if not present]
-
-    remote_ok, remote_reason = verify_remote_result(
-        remote,
-        expected_branch=branch,
-    )
 
     benchmark = verdict.get("benchmark")
     if not isinstance(benchmark, dict):
@@ -186,13 +327,62 @@ def build_summary(
     if not environment_ok:
         missing.append("P3/reports/environment.json or RUN_ID binding")
 
-    decision = effective_verdict(
-        verdict.get("verdict"),
-        missing,
-        remote_ok,
-        benchmark.get("run_id"),
-        run_id,
-    )
+    try:
+        expected_manifest, expected_checksums = (
+            load_local_integrity_inventory(root)
+        )
+        local_inventory_ok = True
+    except (OSError, ValueError) as exc:
+        expected_manifest = None
+        expected_checksums = None
+        local_inventory_ok = False
+        missing.append(f"Local integrity inventory: {exc}")
+
+    if remote_required:
+        if local_inventory_ok:
+            remote_ok, remote_reason = verify_remote_result(
+                remote,
+                expected_branch=branch,
+                expected_manifest=expected_manifest,
+                expected_checksums=expected_checksums,
+            )
+        else:
+            remote_ok = False
+            remote_reason = "Remote comparison blocked by invalid local integrity inventory"
+
+        decision = effective_verdict(
+            verdict.get("verdict"),
+            missing,
+            remote_ok,
+            benchmark.get("run_id"),
+            run_id,
+        )
+    else:
+        remote_ok = False
+        remote_reason = (
+            "Remote publication is not applicable to pull requests; "
+            "local validation is reported separately"
+        )
+
+        local_ok = (
+            verdict.get("verdict") == "P3_ACCEPTED"
+            and not missing
+            and benchmark.get("run_id") == run_id
+            and local_inventory_ok
+        )
+
+        decision = (
+            "P3_VALIDATED_PENDING_PUBLICATION"
+            if local_ok
+            else "P3_REJECTED"
+        )
+
+        if remote.get("schema") != REMOTE_SCHEMA:
+            remote_reason = "Remote report schema is invalid"
+            decision = "P3_REJECTED"
+        elif remote.get("validation") != "NOT_APPLICABLE":
+            remote_reason = "Pull request remote status must be NOT_APPLICABLE"
+            decision = "P3_REJECTED"
 
     integrity = verdict.get("integrity")
     if not isinstance(integrity, dict):
@@ -201,6 +391,14 @@ def build_summary(
     stages = verdict.get("ci_stages")
     if not isinstance(stages, dict):
         stages = {}
+
+    benchmark_validation = (
+        "PASS (independent final verifier)"
+        if verdict.get("verdict") == "P3_ACCEPTED"
+        and benchmark.get("schema") == "qflpn-benchmark-v2"
+        and benchmark.get("run_id") == run_id
+        else "UNAVAILABLE"
+    )
 
     output = [
         "# QFLPN P3 — FINAL VALIDATION SUMMARY",
@@ -223,17 +421,19 @@ def build_summary(
         f"- Manifest entries: `{remote.get('manifest_entries', 'UNAVAILABLE')}`",
         f"- Remote blobs verified: "
         f"`{remote.get('verified_remote_blobs', 'UNAVAILABLE')}`",
-        f"- Remote result: **{'PASS' if remote_ok else 'FAIL'}**",
+        f"- Remote result: **{'PASS' if remote_ok else ('NOT APPLICABLE' if not remote_required else 'FAIL')}**",
         f"- Detail: {remote_reason}",
         "",
         "## 3. Benchmark evidence",
         "",
         f"- Schema: `{benchmark.get('schema', 'UNAVAILABLE')}`",
         f"- RUN_ID: `{benchmark.get('run_id', 'UNAVAILABLE')}`",
-        f"- Validation: `{benchmark.get('validation', 'UNAVAILABLE')}`",
+        f"- Validation: `{benchmark_validation}`",
         f"- Records: `{benchmark.get('records', 'UNAVAILABLE')}`",
         f"- Dimension: `{benchmark.get('dimension', 'UNAVAILABLE')}`",
         f"- Non-zero count: `{benchmark.get('non_zero_count', 'UNAVAILABLE')}`",
+        f"- Speedup: `{benchmark.get('speedup', 'UNAVAILABLE')}`",
+        f"- Maximum absolute error: `{benchmark.get('max_absolute_error', 'UNAVAILABLE')}`",
         "",
         "## 4. CI stages",
         "",
@@ -266,6 +466,7 @@ def build_summary(
         f"- Mandatory evidence files present: "
         f"**{len(evidence) - len([x for x in evidence if not x[1]])}/{len(evidence)}**",
         f"- Environment RUN_ID binding: **{'PASS' if environment_ok else 'FAIL'}**",
+        f"- Local MANIFEST/SHA256SUMS consistency: **{'PASS' if local_inventory_ok else 'FAIL'}**",
         "",
         "## 6. Final decision",
         "",
@@ -274,7 +475,14 @@ def build_summary(
     if decision == "P3_ACCEPTED":
         output.extend([
             "**P3_ACCEPTED** — local package checks, benchmark evidence, "
-            "mandatory files and every remote manifest blob passed.",
+            "mandatory files and every remote manifest path and SHA-256 value passed.",
+            "",
+        ])
+    elif decision == "P3_VALIDATED_PENDING_PUBLICATION":
+        output.extend([
+            "**P3_VALIDATED_PENDING_PUBLICATION** — local validation passed. "
+            "Remote persistence and remote integrity must be verified by a branch workflow "
+            "before P3_ACCEPTED can be granted.",
             "",
         ])
     else:
@@ -311,6 +519,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--remote-integrity-json", type=Path, required=True)
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--branch", required=True)
+    parser.add_argument(
+        "--remote-not-required",
+        action="store_true",
+        help="Use a pending-publication verdict for pull requests.",
+    )
     parser.add_argument("--output", type=Path)
 
     args = parser.parse_args()
@@ -333,13 +546,18 @@ def main(argv: list[str] | None = None) -> int:
             args.remote_integrity_json,
             args.run_id,
             args.branch,
+            remote_required=not args.remote_not_required,
         )
+
         if output_path.is_symlink():
             raise ValueError("Summary output must not be a symlink")
+
         output_path.parent.mkdir(parents=True, exist_ok=True)
+
         with output_path.open("a", encoding="utf-8", newline="\n") as stream:
             stream.write(summary)
             stream.write("\n")
+
     except (OSError, ValueError, TypeError) as exc:
         print(
             f"P3_SUMMARY_ERROR: {type(exc).__name__}: {exc}",
