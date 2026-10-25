@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Publish a structured, evidence-based QFLPN P3 GitHub Actions summary."""
+"""Publish the P3 verdict only when local and remote evidence both pass."""
 
 from __future__ import annotations
 
@@ -23,241 +23,275 @@ REQUIRED_EVIDENCE = (
     "P3/results/validate_benchmark.py",
     "P3/results/test_validate_benchmark.py",
     "P3/results/generate_benchmark_summary.py",
+    "P3/tools/record_environment.py",
+    "P3/tools/verify_remote_integrity.py",
+    "P3/tools/write_github_summary.py",
     "P3/tools/compute_checksums.py",
     "P3/tools/verify_final_package.py",
-    "P3/tools/write_github_summary.py",
-    "P3/tests/test_compute_checksums.py",
-    "P3/tests/test_verify_final_package.py",
+    "P3/tests/test_record_environment.py",
+    "P3/tests/test_verify_remote_integrity.py",
+    "P3/tests/test_generate_benchmark_summary.py",
     "P3/tests/test_write_github_summary.py",
+    "P3/reports/environment.json",
     "P3/reports/environment.txt",
+    "P3/reports/benchmark-report.md",
+    "P3/reports/validation-report.json",
+    "P3/benchmarks/benchmark_results_v2.csv",
     "P3/MANIFEST.txt",
     "P3/SHA256SUMS.txt",
 )
 
 
-def load_json(path: Path) -> dict[str, Any]:
-    """Load a JSON object and reject malformed or non-object documents."""
+def load_json(path: Path, label: str) -> dict[str, Any]:
+    if path.is_symlink() or not path.is_file():
+        raise ValueError(f"{label} is missing or unsafe: {path}")
+
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
-    except OSError as exc:
-        raise ValueError(f"Cannot read verdict JSON: {exc}") from exc
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"Invalid verdict JSON: {exc}") from exc
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"Cannot read {label}: {exc}") from exc
 
     if not isinstance(value, dict):
-        raise ValueError("Verdict JSON must contain a JSON object")
+        raise ValueError(f"{label} must be a JSON object")
 
     return value
 
 
 def evidence_status(root: Path) -> list[tuple[str, bool, int]]:
-    """Return the presence and byte size of every mandatory evidence file."""
     result = []
-
     for relative in REQUIRED_EVIDENCE:
         path = root / relative
         present = path.is_file() and not path.is_symlink()
         size = path.stat().st_size if present else 0
         result.append((relative, present, size))
-
     return result
 
 
-def format_ci_stages(value: Any) -> list[str]:
-    """Render verifier CI stages without assuming their presence."""
-    if not isinstance(value, dict):
-        return [
-            "| No CI-stage data supplied | **UNAVAILABLE** |",
-        ]
+def verify_environment(root: Path, run_id: str) -> None:
+    data = load_json(
+        root / "P3/reports/environment.json",
+        "environment JSON",
+    )
+    if data.get("schema") != "qflpn-p3-environment-v1":
+        raise ValueError("Environment JSON schema mismatch")
+    if data.get("run_id") != run_id:
+        raise ValueError("Environment JSON RUN_ID mismatch")
 
-    rows = []
+    text_path = root / "P3/reports/environment.txt"
+    if text_path.is_symlink() or not text_path.is_file():
+        raise ValueError("Environment TXT is missing or unsafe")
 
-    for name in sorted(value):
-        status = value[name]
-        normalized = str(status).strip().lower()
-
-        if normalized == "success":
-            rendered = "PASS"
-        elif normalized:
-            rendered = f"FAIL — `{status}`"
-        else:
-            rendered = "UNAVAILABLE"
-
-        rows.append(f"| `{name}` | {rendered} |")
-
-    return rows or ["| No CI stages recorded | **UNAVAILABLE** |"]
+    content = text_path.read_text(encoding="utf-8")
+    if f"RUN_ID: {run_id}" not in content:
+        raise ValueError("Environment TXT RUN_ID mismatch")
 
 
-def format_environment(root: Path, maximum_lines: int = 60) -> list[str]:
-    """Include a bounded environment excerpt when the file is available."""
-    path = root / "P3/reports/environment.txt"
+def verify_remote_result(
+    remote: dict[str, Any],
+    *,
+    expected_branch: str,
+) -> tuple[bool, str]:
+    if remote.get("schema") != "qflpn-p3-remote-integrity-v1":
+        return False, "Remote verification schema mismatch"
 
-    if not path.is_file() or path.is_symlink():
-        return [
-            "**Environment report:** MISSING",
-            "",
-        ]
+    if remote.get("validation") != "PASS":
+        return False, "Remote integrity validation is not PASS"
 
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeError) as exc:
-        return [
-            f"**Environment report could not be read:** `{exc}`",
-            "",
-        ]
+    if remote.get("branch") != expected_branch:
+        return False, "Remote verification branch mismatch"
 
-    selected = lines[:maximum_lines]
-    output = [
-        f"**Environment report:** PRESENT ({len(lines)} lines)",
-        "",
-        "```text",
-        *selected,
-    ]
+    count = remote.get("manifest_entries")
+    verified = remote.get("verified_remote_blobs")
 
-    if len(lines) > maximum_lines:
-        output.append(
-            f"... {len(lines) - maximum_lines} additional lines "
-            "remain in the evidence file."
-        )
+    if (
+        not isinstance(count, int)
+        or isinstance(count, bool)
+        or count <= 0
+        or not isinstance(verified, int)
+        or isinstance(verified, bool)
+        or verified != count
+    ):
+        return False, "Remote blob count does not match manifest count"
 
-    output.extend(["```", ""])
-    return output
+    files = remote.get("files")
+    if not isinstance(files, list) or len(files) != count:
+        return False, "Remote per-file verification list is incomplete"
+
+    seen: set[str] = set()
+    for item in files:
+        if not isinstance(item, dict):
+            return False, "Remote file result is malformed"
+        path = item.get("path")
+        digest = item.get("sha256")
+        if (
+            not isinstance(path, str)
+            or not path.startswith("P3/")
+            or item.get("status") != "PASS"
+            or not isinstance(digest, str)
+            or len(digest) != 64
+            or any(ch not in "0123456789abcdef" for ch in digest)
+            or path in seen
+        ):
+            return False, "Remote per-file verification contains invalid data"
+        seen.add(path)
+
+    return True, "All remote manifest blobs were verified"
 
 
 def effective_verdict(
-    declared_verdict: Any,
+    local_verdict: Any,
     missing_evidence: list[str],
+    remote_ok: bool,
+    benchmark_run_id: Any,
+    expected_run_id: str,
 ) -> str:
-    """Fail closed when the verifier verdict or mandatory evidence is invalid."""
-    if declared_verdict != "P3_ACCEPTED":
+    if local_verdict != "P3_ACCEPTED":
         return "P3_REJECTED"
-
-    if missing_evidence:
+    if missing_evidence or not remote_ok:
         return "P3_REJECTED"
-
+    if benchmark_run_id != expected_run_id:
+        return "P3_REJECTED"
     return "P3_ACCEPTED"
 
 
 def build_summary(
     root: Path,
     verdict_path: Path,
+    remote_path: Path,
     run_id: str,
+    branch: str,
 ) -> str:
-    """Build the complete structured P3 validation summary."""
     root = root.resolve()
-    verdict = load_json(verdict_path)
+    verdict = load_json(verdict_path, "local final verdict")
+    remote = load_json(remote_path, "remote integrity report")
 
     evidence = evidence_status(root)
-    missing = [
-        name
-        for name, present, _ in evidence
-        if not present
-    ]
+    missing = [name for name, present, _ in evidence if not present]
 
-    decision = effective_verdict(
-        verdict.get("verdict", "P3_REJECTED"),
-        missing,
+    remote_ok, remote_reason = verify_remote_result(
+        remote,
+        expected_branch=branch,
     )
 
-    integrity = verdict.get("integrity", {})
-    benchmark = verdict.get("benchmark", {})
-    ci_stages = verdict.get("ci_stages", {})
+    benchmark = verdict.get("benchmark")
+    if not isinstance(benchmark, dict):
+        benchmark = {}
 
+    try:
+        verify_environment(root, run_id)
+        environment_ok = True
+    except (OSError, ValueError):
+        environment_ok = False
+
+    if not environment_ok:
+        missing.append("P3/reports/environment.json or RUN_ID binding")
+
+    decision = effective_verdict(
+        verdict.get("verdict"),
+        missing,
+        remote_ok,
+        benchmark.get("run_id"),
+        run_id,
+    )
+
+    integrity = verdict.get("integrity")
     if not isinstance(integrity, dict):
         integrity = {}
 
-    if not isinstance(benchmark, dict):
-        benchmark = {}
+    stages = verdict.get("ci_stages")
+    if not isinstance(stages, dict):
+        stages = {}
 
     output = [
         "# QFLPN P3 — FINAL VALIDATION SUMMARY",
         "",
         f"- Final verdict: **{decision}**",
         f"- Benchmark RUN_ID: `{run_id}`",
-        f"- Repository root: `{root}`",
+        f"- Repository branch checked remotely: `{branch}`",
         "",
-        "## 1. Independent integrity verification",
+        "## 1. Local package verification",
         "",
-        f"- MANIFEST entries: "
-        f"`{integrity.get('manifest_entries', 'UNAVAILABLE')}`",
-        f"- SHA-256 entries verified: "
+        f"- Local verifier verdict: `{verdict.get('verdict', 'UNAVAILABLE')}`",
+        f"- MANIFEST entries: `{integrity.get('manifest_entries', 'UNAVAILABLE')}`",
+        f"- SHA-256 entries verified locally: "
         f"`{integrity.get('sha256_entries_verified', 'UNAVAILABLE')}`",
         "",
-        "## 2. Benchmark evidence",
+        "## 2. Remote repository verification",
+        "",
+        f"- Remote validation: `{remote.get('validation', 'UNAVAILABLE')}`",
+        f"- Remote commit: `{remote.get('commit', 'UNAVAILABLE')}`",
+        f"- Manifest entries: `{remote.get('manifest_entries', 'UNAVAILABLE')}`",
+        f"- Remote blobs verified: "
+        f"`{remote.get('verified_remote_blobs', 'UNAVAILABLE')}`",
+        f"- Remote result: **{'PASS' if remote_ok else 'FAIL'}**",
+        f"- Detail: {remote_reason}",
+        "",
+        "## 3. Benchmark evidence",
         "",
         f"- Schema: `{benchmark.get('schema', 'UNAVAILABLE')}`",
         f"- RUN_ID: `{benchmark.get('run_id', 'UNAVAILABLE')}`",
         f"- Validation: `{benchmark.get('validation', 'UNAVAILABLE')}`",
         f"- Records: `{benchmark.get('records', 'UNAVAILABLE')}`",
         f"- Dimension: `{benchmark.get('dimension', 'UNAVAILABLE')}`",
+        f"- Non-zero count: `{benchmark.get('non_zero_count', 'UNAVAILABLE')}`",
         "",
-        "## 3. Mandatory CI stages",
+        "## 4. CI stages",
         "",
         "| Stage | Result |",
         "|---|---|",
-        *format_ci_stages(ci_stages),
-        "",
-        "## 4. Mandatory evidence inventory",
-        "",
-        "| File | Status | Bytes |",
-        "|---|---:|---:|",
     ]
 
-    for name, present, size in evidence:
-        status = "PRESENT" if present else "MISSING"
+    for name in sorted(stages):
+        status = stages[name]
         output.append(
-            f"| `{name}` | **{status}** | {size} |"
+            f"| `{name}` | "
+            f"{'PASS' if status == 'success' else f'FAIL — `{status}`'} |"
         )
 
     output.extend([
         "",
-        f"- Mandatory files present: "
-        f"**{len(evidence) - len(missing)}/{len(evidence)}**",
-        f"- Mandatory files missing: **{len(missing)}**",
+        "## 5. Mandatory evidence inventory",
         "",
+        "| File | Status | Bytes |",
+        "|---|---:|---:|",
     ])
 
-    if missing:
-        output.extend([
-            "**Missing mandatory evidence:**",
-            "",
-            *[f"- `{name}`" for name in missing],
-            "",
-        ])
+    for name, present, size in evidence:
+        output.append(
+            f"| `{name}` | {'PRESENT' if present else '**MISSING**'} | {size} |"
+        )
 
     output.extend([
-        "## 5. Execution environment",
         "",
-        *format_environment(root),
-        "## 6. Integrity publication",
+        f"- Mandatory evidence files present: "
+        f"**{len(evidence) - len([x for x in evidence if not x[1]])}/{len(evidence)}**",
+        f"- Environment RUN_ID binding: **{'PASS' if environment_ok else 'FAIL'}**",
         "",
-        "- Complete `MANIFEST.txt` publication: handled by the "
-        "dedicated workflow step.",
-        "- Complete `SHA256SUMS.txt` publication: handled by the "
-        "dedicated workflow step.",
-        "- Original integrity files remain available in the P3 "
-        "validation artifact.",
-        "",
-        "## 7. Final decision",
+        "## 6. Final decision",
         "",
     ])
 
     if decision == "P3_ACCEPTED":
         output.extend([
-            "**P3_ACCEPTED** — the independent verifier accepted "
-            "the package and all mandatory evidence files are present.",
+            "**P3_ACCEPTED** — local package checks, benchmark evidence, "
+            "mandatory files and every remote manifest blob passed.",
             "",
         ])
     else:
         output.extend([
-            "**P3_REJECTED / INCOMPLETE EVIDENCE** — the package "
-            "must not be treated as accepted.",
+            "**P3_REJECTED** — acceptance is not granted. At least one "
+            "required local, benchmark, environment or remote condition failed.",
             "",
         ])
 
+    if missing:
+        output.extend(["### Missing or invalid evidence", ""])
+        output.extend(f"- `{item}`" for item in missing)
+        output.append("")
+
     if verdict.get("error"):
         output.extend([
-            "### Verification error",
+            "### Local verification error",
             "",
             "```text",
             str(verdict["error"]),
@@ -270,70 +304,42 @@ def build_summary(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description=(
-            "Publish a structured P3 GitHub Actions validation summary."
-        )
+        description="Publish the evidence-bound P3 final GitHub summary."
     )
-    parser.add_argument(
-        "--root",
-        type=Path,
-        default=Path.cwd(),
-        help="Repository root directory.",
-    )
-    parser.add_argument(
-        "--verdict-json",
-        type=Path,
-        required=True,
-        help="JSON output produced by verify_final_package.py.",
-    )
-    parser.add_argument(
-        "--run-id",
-        required=True,
-        help="Exact P3 benchmark RUN_ID.",
-    )
-    parser.add_argument(
-        "--output",
-        type=Path,
-        default=None,
-        help="Summary destination; defaults to GITHUB_STEP_SUMMARY.",
-    )
+    parser.add_argument("--root", type=Path, default=Path.cwd())
+    parser.add_argument("--verdict-json", type=Path, required=True)
+    parser.add_argument("--remote-integrity-json", type=Path, required=True)
+    parser.add_argument("--run-id", required=True)
+    parser.add_argument("--branch", required=True)
+    parser.add_argument("--output", type=Path)
 
     args = parser.parse_args()
-
     output_path = args.output
 
     if output_path is None:
-        summary_environment = os.environ.get("GITHUB_STEP_SUMMARY")
-
-        if not summary_environment:
+        target = os.environ.get("GITHUB_STEP_SUMMARY")
+        if not target:
             print(
                 "P3_SUMMARY_ERROR: GITHUB_STEP_SUMMARY is not set",
                 file=sys.stderr,
             )
             return 2
-
-        output_path = Path(summary_environment)
+        output_path = Path(target)
 
     try:
         summary = build_summary(
             args.root,
             args.verdict_json,
+            args.remote_integrity_json,
             args.run_id,
+            args.branch,
         )
-
-        output_path.parent.mkdir(
-            parents=True,
-            exist_ok=True,
-        )
-
-        with output_path.open(
-            "a",
-            encoding="utf-8",
-            newline="\n",
-        ) as stream:
+        if output_path.is_symlink():
+            raise ValueError("Summary output must not be a symlink")
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with output_path.open("a", encoding="utf-8", newline="\n") as stream:
             stream.write(summary)
             stream.write("\n")
-
     except (OSError, ValueError, TypeError) as exc:
         print(
             f"P3_SUMMARY_ERROR: {type(exc).__name__}: {exc}",
@@ -344,7 +350,6 @@ def main(argv: list[str] | None = None) -> int:
     print("P3_GITHUB_SUMMARY_PUBLISHED")
     print(f"P3_SUMMARY_OUTPUT={output_path}")
     print(f"P3_SUMMARY_RUN_ID={args.run_id}")
-
     return 0
 
 
