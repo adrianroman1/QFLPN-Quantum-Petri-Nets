@@ -1,5 +1,5 @@
 P3 benchmark configuration
-RUN_ID=p3-40229435654-1
+RUN_ID=p3-40229495325-1
 N=1000000
 WARMUP=5
 ITERATIONS=10
@@ -28,7 +28,7 @@ PARALLELISM=2
 [INFO] 
 [INFO] --- compiler:3.13.0:testCompile (default-testCompile) @ qflpn-p3-validation ---
 [INFO] Recompiling the module because of changed dependency.
-[INFO] Compiling 20 source files with javac [debug release 21] to target/test-classes
+[INFO] Compiling 21 source files with javac [debug release 21] to target/test-classes
 [INFO] 
 [INFO] --- surefire:3.2.5:test (default-test) @ qflpn-p3-validation ---
 [INFO] Using auto detected provider org.apache.maven.surefire.junitplatform.JUnitPlatformProvider
@@ -37,94 +37,78 @@ PARALLELISM=2
 [INFO]  T E S T S
 [INFO] -------------------------------------------------------
 [INFO] Running hpc.csr.SparseMatrixCSRValidationRegressionTest
-[INFO] Tests run: 17, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.087 s -- in hpc.csr.SparseMatrixCSRValidationRegressionTest
+[INFO] Tests run: 17, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.100 s -- in hpc.csr.SparseMatrixCSRValidationRegressionTest
 [INFO] Running hpc.csr.MultiplyTaskTest
-[INFO] Tests run: 21, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.051 s -- in hpc.csr.MultiplyTaskTest
+[INFO] Tests run: 21, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.071 s -- in hpc.csr.MultiplyTaskTest
 [INFO] Running hpc.csr.BenchmarkResultWriterTest
-[INFO] Tests run: 8, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.096 s -- in hpc.csr.BenchmarkResultWriterTest
+[INFO] Tests run: 8, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.102 s -- in hpc.csr.BenchmarkResultWriterTest
 [INFO] Running hpc.csr.SparseMatrixCSRNormalizationRegressionTest
-[INFO] Tests run: 9, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.011 s -- in hpc.csr.SparseMatrixCSRNormalizationRegressionTest
+[INFO] Tests run: 9, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.009 s -- in hpc.csr.SparseMatrixCSRNormalizationRegressionTest
 [INFO] Running hpc.csr.BenchmarkAuditValidatorTest
-[INFO] Tests run: 12, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.020 s -- in hpc.csr.BenchmarkAuditValidatorTest
+[INFO] Tests run: 12, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.014 s -- in hpc.csr.BenchmarkAuditValidatorTest
 [INFO] Running hpc.csr.MultiplyTaskSnapshotAndRangeTest
-[INFO] Tests run: 8, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.017 s -- in hpc.csr.MultiplyTaskSnapshotAndRangeTest
+[INFO] Tests run: 8, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.013 s -- in hpc.csr.MultiplyTaskSnapshotAndRangeTest
 [INFO] Running hpc.csr.SparseMatrixCSRParallelEquivalenceTest
-[INFO] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.090 s -- in hpc.csr.SparseMatrixCSRParallelEquivalenceTest
+[INFO] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.068 s -- in hpc.csr.SparseMatrixCSRParallelEquivalenceTest
 [INFO] Running hpc.csr.BenchmarkResultReaderTest
-[INFO] Tests run: 10, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.052 s -- in hpc.csr.BenchmarkResultReaderTest
+[INFO] Tests run: 10, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.048 s -- in hpc.csr.BenchmarkResultReaderTest
 [INFO] Running hpc.csr.BenchmarkScaleTest
 [INFO] Tests run: 9, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.019 s -- in hpc.csr.BenchmarkScaleTest
 [INFO] Running hpc.csr.SparseMatrixCSRContractTest
 [INFO] Tests run: 24, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.053 s -- in hpc.csr.SparseMatrixCSRContractTest
 [INFO] Running hpc.csr.BenchmarkRunnerNumericalValidationTest
-[INFO] Tests run: 10, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.013 s -- in hpc.csr.BenchmarkRunnerNumericalValidationTest
+[INFO] Tests run: 10, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.019 s -- in hpc.csr.BenchmarkRunnerNumericalValidationTest
 [INFO] Running hpc.csr.SparseMatrixCSROracleTest
-[INFO] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.092 s -- in hpc.csr.SparseMatrixCSROracleTest
+[INFO] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.097 s -- in hpc.csr.SparseMatrixCSROracleTest
 [INFO] Running hpc.csr.MultiplyTaskConcurrencyTest
-[INFO] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.032 s -- in hpc.csr.MultiplyTaskConcurrencyTest
+[INFO] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.026 s -- in hpc.csr.MultiplyTaskConcurrencyTest
 [INFO] Running hpc.csr.MultiplyTaskDeterminismTest
-[INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.030 s -- in hpc.csr.MultiplyTaskDeterminismTest
+[INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.028 s -- in hpc.csr.MultiplyTaskDeterminismTest
 [INFO] Running hpc.csr.BenchmarkEnvironmentTest
-[INFO] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.016 s -- in hpc.csr.BenchmarkEnvironmentTest
+[INFO] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.014 s -- in hpc.csr.BenchmarkEnvironmentTest
 [INFO] Running hpc.csr.BenchmarkRunnerTest
-[INFO] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.006 s -- in hpc.csr.BenchmarkRunnerTest
+[INFO] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.008 s -- in hpc.csr.BenchmarkRunnerTest
 [INFO] Running hpc.csr.BenchmarkResultTest
-[INFO] Tests run: 16, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.014 s -- in hpc.csr.BenchmarkResultTest
+[INFO] Tests run: 16, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.027 s -- in hpc.csr.BenchmarkResultTest
+[INFO] Running hpc.csr.ParallelNnzPartitionRegressionTest
+[ERROR] Tests run: 7, Failures: 0, Errors: 1, Skipped: 0, Time elapsed: 0.032 s <<< FAILURE! -- in hpc.csr.ParallelNnzPartitionRegressionTest
+[ERROR] hpc.csr.ParallelNnzPartitionRegressionTest.nnzBalancedParallelMultiplicationMatchesSequentialForSkewedRows -- Time elapsed: 0.005 s <<< ERROR!
+java.lang.IllegalArgumentException: rowPointers length must be rows + 1.
+	at hpc.csr.SparseMatrixCSR.normalizeAndValidate(SparseMatrixCSR.java:77)
+	at hpc.csr.SparseMatrixCSR.<init>(SparseMatrixCSR.java:38)
+	at hpc.csr.ParallelNnzPartitionRegressionTest.nnzBalancedParallelMultiplicationMatchesSequentialForSkewedRows(ParallelNnzPartitionRegressionTest.java:14)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+
 [INFO] Running hpc.csr.QFLPNCoreEngineTest
 [INFO] Tests run: 18, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.042 s -- in hpc.csr.QFLPNCoreEngineTest
 [INFO] Running hpc.csr.SparseMatrixCSRTest
-[INFO] Tests run: 47, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.048 s -- in hpc.csr.SparseMatrixCSRTest
+[INFO] Tests run: 47, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.050 s -- in hpc.csr.SparseMatrixCSRTest
 [INFO] Running hpc.csr.CSRvsDenseOracleTest
-[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.004 s -- in hpc.csr.CSRvsDenseOracleTest
+[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.005 s -- in hpc.csr.CSRvsDenseOracleTest
 [INFO] 
 [INFO] Results:
 [INFO] 
-[INFO] Tests run: 248, Failures: 0, Errors: 0, Skipped: 0
+[ERROR] Errors: 
+[ERROR]   ParallelNnzPartitionRegressionTest.nnzBalancedParallelMultiplicationMatchesSequentialForSkewedRows:14 » IllegalArgument rowPointers length must be rows + 1.
+[INFO] 
+[ERROR] Tests run: 255, Failures: 0, Errors: 1, Skipped: 0
 [INFO] 
 [INFO] ------------------------------------------------------------------------
-[INFO] BUILD SUCCESS
+[ERROR] BUILD FAILURE
 [INFO] ------------------------------------------------------------------------
-[INFO] Total time:  4.862 s
-[INFO] Finished at: 2026-10-25T20:10:02Z
+[INFO] Total time:  5.099 s
+[INFO] Finished at: 2026-10-25T20:10:50Z
 [INFO] ------------------------------------------------------------------------
-RUN_ID=p3-40229435654-1
-VALIDATION=PASS
-Sequential mean/median/stddev: 2.962582 / 2.959157 / 0.130527 ms
-Parallel mean/median/stddev: 11.598211 / 12.395956 / 1.880500 ms
-Speedup: 0.255434
-Sequential oracle error: 0.000e+00
-Parallel oracle error: 0.000e+00
-CSV: benchmarks/benchmark_results_v2.csv
-{
-  "schema": "qflpn-benchmark-v2",
-  "validation": "PASS",
-  "records": 31,
-  "all_records_valid": true,
-  "latest_record": {
-    "row": 31,
-    "run_id": "p3-40229435654-1",
-    "dimension": 1000000,
-    "nnz": 2000000,
-    "speedup": 0.255434415798,
-    "sequential_mean_ms": 2.9625822,
-    "parallel_mean_ms": 11.5982108,
-    "max_error": 0.0
-  }
-}
-PASS: all run-specific reports are associated with RUN_ID.
-benchmarks/benchmark_results_v2.csv: OK
-results/raw/p3-40229435654-1/benchmark-report.json: OK
-results/raw/p3-40229435654-1/benchmark-report.md: OK
-results/raw/p3-40229435654-1/benchmark-report.txt: OK
-results/raw/p3-40229435654-1/validation-report.json: OK
-## P3 Benchmark V2
-
-- Run ID: `p3-40229435654-1`
-- Validation: **PASS**
-- Dimension: 1000000
-- Warm-up / iterations: 5 / 10
-- CSV: `P3/benchmarks/benchmark_results_v2.csv`
-- Run-specific reports: `P3/results/raw/p3-40229435654-1/`
-- Markdown producer: `P3/results/generate_benchmark_summary.py`
-- Run-specific checksums: `P3/results/raw/p3-40229435654-1/SHA256SUMS.txt`
-P3 benchmark evidence generated successfully: p3-40229435654-1
+[ERROR] Failed to execute goal org.apache.maven.plugins:maven-surefire-plugin:3.2.5:test (default-test) on project qflpn-p3-validation: 
+[ERROR] 
+[ERROR] Please refer to /home/runner/work/QFLPN-Quantum-Petri-Nets/QFLPN-Quantum-Petri-Nets/P3/target/surefire-reports for the individual test results.
+[ERROR] Please refer to dump files (if any exist) [date].dump, [date]-jvmRun[N].dump and [date].dumpstream.
+[ERROR] -> [Help 1]
+[ERROR] 
+[ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.
+[ERROR] Re-run Maven using the -X switch to enable full debug logging.
+[ERROR] 
+[ERROR] For more information about the errors and possible solutions, please read the following articles:
+[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/MojoFailureException
