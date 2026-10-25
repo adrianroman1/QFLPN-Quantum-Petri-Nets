@@ -76,6 +76,7 @@ def build_package(
             f"run_id,dimension\n{run_id},100\n".encode("utf-8")
         ),
     }
+
     if include_evidence:
         payloads["P3/reports/evidence-consistency.json"] = evidence_report(
             run_id=run_id,
@@ -257,6 +258,103 @@ def test_verify_remote_rejects_missing_evidence_consistency_report(
         remote_integrity.RemoteIntegrityError,
         match="does not include",
     ):
+        verify(work)
+
+
+def test_integrity_only_accepts_package_without_evidence_consistency(
+    remote_repository: tuple[Path, Path],
+) -> None:
+    work, _ = remote_repository
+
+    build_package(work, include_evidence=False)
+    publish_changed_package(work, "publish inventory without provenance")
+
+    result = verify(
+        work,
+        require_evidence_consistency=False,
+    )
+
+    assert result["schema"] == "qflpn-p3-remote-integrity-v2"
+    assert result["validation"] == "PASS"
+    assert result["verification_mode"] == "INTEGRITY_ONLY"
+    assert result["manifest_entries"] == 3
+    assert result["verified_remote_blobs"] == 3
+    assert result["run_id"] == RUN_ID
+    assert result["source_commit"] == SOURCE_COMMIT
+
+    provenance = result["evidence_consistency"]
+    assert provenance["status"] == "NOT_CHECKED"
+
+    assert all(
+        item["status"] == "PASS"
+        for item in result["files"]
+    )
+
+
+def test_integrity_only_still_rejects_remote_blob_hash_mismatch(
+    remote_repository: tuple[Path, Path],
+) -> None:
+    work, _ = remote_repository
+
+    target = work / "P3/reports/environment.txt"
+    target.write_text("tampered environment\n", encoding="utf-8")
+    publish_changed_package(work, "tamper inventory blob")
+
+    with pytest.raises(
+        remote_integrity.RemoteIntegrityError,
+        match="SHA-256 mismatch",
+    ):
+        verify(
+            work,
+            require_evidence_consistency=False,
+        )
+
+
+def test_integrity_only_does_not_parse_malformed_evidence_json(
+    remote_repository: tuple[Path, Path],
+) -> None:
+    work, _ = remote_repository
+
+    evidence_path = work / "P3/reports/evidence-consistency.json"
+    evidence_path.write_bytes(b"{ malformed json\n")
+
+    # Rebuild the global inventory using the malformed report's actual hash.
+    payloads = {
+        relative: (work / relative).read_bytes()
+        for relative in (
+            "P3/benchmarks/benchmark_results_v2.csv",
+            "P3/reports/benchmark-report.md",
+            "P3/reports/environment.txt",
+            "P3/reports/evidence-consistency.json",
+        )
+    }
+
+    paths = sorted(payloads)
+    (work / "P3/MANIFEST.txt").write_text(
+        "".join(path + "\n" for path in paths),
+        encoding="utf-8",
+    )
+    (work / "P3/SHA256SUMS.txt").write_text(
+        "".join(
+            f"{sha256(payloads[path])}  {path}\n"
+            for path in paths
+        ),
+        encoding="ascii",
+    )
+
+    publish_changed_package(work, "publish malformed provenance JSON")
+
+    result = verify(
+        work,
+        require_evidence_consistency=False,
+    )
+
+    assert result["validation"] == "PASS"
+    assert result["verification_mode"] == "INTEGRITY_ONLY"
+    assert result["verified_remote_blobs"] == 4
+    assert result["evidence_consistency"]["status"] == "NOT_CHECKED"
+
+    with pytest.raises(remote_integrity.RemoteIntegrityError):
         verify(work)
 
 
