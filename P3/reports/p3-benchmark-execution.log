@@ -1,5 +1,5 @@
 P3 benchmark configuration
-RUN_ID=p3-40151142073-1
+RUN_ID=p3-40151361985-1
 N=1000000
 WARMUP=5
 ITERATIONS=10
@@ -28,7 +28,7 @@ PARALLELISM=2
 [INFO] 
 [INFO] --- compiler:3.13.0:testCompile (default-testCompile) @ qflpn-p3-validation ---
 [INFO] Recompiling the module because of changed dependency.
-[INFO] Compiling 16 source files with javac [debug release 21] to target/test-classes
+[INFO] Compiling 17 source files with javac [debug release 21] to target/test-classes
 [INFO] 
 [INFO] --- surefire:3.2.5:test (default-test) @ qflpn-p3-validation ---
 [INFO] Using auto detected provider org.apache.maven.surefire.junitplatform.JUnitPlatformProvider
@@ -37,86 +37,88 @@ PARALLELISM=2
 [INFO]  T E S T S
 [INFO] -------------------------------------------------------
 [INFO] Running hpc.csr.MultiplyTaskTest
-[INFO] Tests run: 21, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.074 s -- in hpc.csr.MultiplyTaskTest
+[INFO] Tests run: 21, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.100 s -- in hpc.csr.MultiplyTaskTest
 [INFO] Running hpc.csr.BenchmarkResultWriterTest
-[INFO] Tests run: 8, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.110 s -- in hpc.csr.BenchmarkResultWriterTest
+[INFO] Tests run: 8, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.085 s -- in hpc.csr.BenchmarkResultWriterTest
 [INFO] Running hpc.csr.BenchmarkAuditValidatorTest
-[INFO] Tests run: 12, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.010 s -- in hpc.csr.BenchmarkAuditValidatorTest
+[INFO] Tests run: 12, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.016 s -- in hpc.csr.BenchmarkAuditValidatorTest
+[INFO] Running hpc.csr.MultiplyTaskSnapshotAndRangeTest
+[INFO] Tests run: 8, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.022 s -- in hpc.csr.MultiplyTaskSnapshotAndRangeTest
 [INFO] Running hpc.csr.BenchmarkResultReaderTest
-[INFO] Tests run: 10, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.041 s -- in hpc.csr.BenchmarkResultReaderTest
+[INFO] Tests run: 10, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.051 s -- in hpc.csr.BenchmarkResultReaderTest
 [INFO] Running hpc.csr.BenchmarkScaleTest
-[INFO] Tests run: 9, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.011 s -- in hpc.csr.BenchmarkScaleTest
+[INFO] Tests run: 9, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.020 s -- in hpc.csr.BenchmarkScaleTest
 [INFO] Running hpc.csr.SparseMatrixCSRContractTest
-[INFO] Tests run: 24, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.039 s -- in hpc.csr.SparseMatrixCSRContractTest
+[INFO] Tests run: 24, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.060 s -- in hpc.csr.SparseMatrixCSRContractTest
 [INFO] Running hpc.csr.BenchmarkRunnerNumericalValidationTest
-[INFO] Tests run: 10, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.007 s -- in hpc.csr.BenchmarkRunnerNumericalValidationTest
+[INFO] Tests run: 10, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.018 s -- in hpc.csr.BenchmarkRunnerNumericalValidationTest
 [INFO] Running hpc.csr.SparseMatrixCSROracleTest
-[INFO] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.088 s -- in hpc.csr.SparseMatrixCSROracleTest
+[INFO] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.108 s -- in hpc.csr.SparseMatrixCSROracleTest
 [INFO] Running hpc.csr.MultiplyTaskConcurrencyTest
-[INFO] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.022 s -- in hpc.csr.MultiplyTaskConcurrencyTest
+[INFO] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.024 s -- in hpc.csr.MultiplyTaskConcurrencyTest
 [INFO] Running hpc.csr.MultiplyTaskDeterminismTest
-[INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.030 s -- in hpc.csr.MultiplyTaskDeterminismTest
+[INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.026 s -- in hpc.csr.MultiplyTaskDeterminismTest
 [INFO] Running hpc.csr.BenchmarkEnvironmentTest
-[INFO] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.011 s -- in hpc.csr.BenchmarkEnvironmentTest
+[INFO] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.012 s -- in hpc.csr.BenchmarkEnvironmentTest
 [INFO] Running hpc.csr.BenchmarkRunnerTest
-[INFO] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.036 s -- in hpc.csr.BenchmarkRunnerTest
+[INFO] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.012 s -- in hpc.csr.BenchmarkRunnerTest
 [INFO] Running hpc.csr.BenchmarkResultTest
-[INFO] Tests run: 16, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.011 s -- in hpc.csr.BenchmarkResultTest
+[INFO] Tests run: 16, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.020 s -- in hpc.csr.BenchmarkResultTest
 [INFO] Running hpc.csr.QFLPNCoreEngineTest
-[INFO] Tests run: 18, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.024 s -- in hpc.csr.QFLPNCoreEngineTest
+[INFO] Tests run: 18, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.031 s -- in hpc.csr.QFLPNCoreEngineTest
 [INFO] Running hpc.csr.SparseMatrixCSRTest
-[INFO] Tests run: 47, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.029 s -- in hpc.csr.SparseMatrixCSRTest
+[INFO] Tests run: 47, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.046 s -- in hpc.csr.SparseMatrixCSRTest
 [INFO] Running hpc.csr.CSRvsDenseOracleTest
-[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.004 s -- in hpc.csr.CSRvsDenseOracleTest
+[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.001 s -- in hpc.csr.CSRvsDenseOracleTest
 [INFO] 
 [INFO] Results:
 [INFO] 
-[INFO] Tests run: 207, Failures: 0, Errors: 0, Skipped: 0
+[INFO] Tests run: 215, Failures: 0, Errors: 0, Skipped: 0
 [INFO] 
 [INFO] ------------------------------------------------------------------------
 [INFO] BUILD SUCCESS
 [INFO] ------------------------------------------------------------------------
-[INFO] Total time:  3.500 s
-[INFO] Finished at: 2026-10-25T01:35:02Z
+[INFO] Total time:  4.770 s
+[INFO] Finished at: 2026-10-25T01:38:02Z
 [INFO] ------------------------------------------------------------------------
-RUN_ID=p3-40151142073-1
+RUN_ID=p3-40151361985-1
 VALIDATION=PASS
-Sequential mean/median/stddev: 1.627156 / 1.597875 / 0.099491 ms
-Parallel mean/median/stddev: 5.749793 / 5.832772 / 1.050344 ms
-Speedup: 0.282994
+Sequential mean/median/stddev: 3.537152 / 3.026950 / 1.027427 ms
+Parallel mean/median/stddev: 14.518155 / 13.418967 / 2.705330 ms
+Speedup: 0.243636
 Sequential oracle error: 0.000e+00
 Parallel oracle error: 0.000e+00
 CSV: benchmarks/benchmark_results_v2.csv
 {
   "schema": "qflpn-benchmark-v2",
   "validation": "PASS",
-  "records": 7,
+  "records": 8,
   "all_records_valid": true,
   "latest_record": {
-    "row": 7,
-    "run_id": "p3-40151142073-1",
+    "row": 8,
+    "run_id": "p3-40151361985-1",
     "dimension": 1000000,
     "nnz": 2000000,
-    "speedup": 0.2829938573441,
-    "sequential_mean_ms": 1.6271561,
-    "parallel_mean_ms": 5.749793,
+    "speedup": 0.2436364711131,
+    "sequential_mean_ms": 3.5371521,
+    "parallel_mean_ms": 14.5181552,
     "max_error": 0.0
   }
 }
 PASS: all run-specific reports are associated with RUN_ID.
 benchmarks/benchmark_results_v2.csv: OK
-results/raw/p3-40151142073-1/benchmark-report.json: OK
-results/raw/p3-40151142073-1/benchmark-report.md: OK
-results/raw/p3-40151142073-1/benchmark-report.txt: OK
-results/raw/p3-40151142073-1/validation-report.json: OK
+results/raw/p3-40151361985-1/benchmark-report.json: OK
+results/raw/p3-40151361985-1/benchmark-report.md: OK
+results/raw/p3-40151361985-1/benchmark-report.txt: OK
+results/raw/p3-40151361985-1/validation-report.json: OK
 ## P3 Benchmark V2
 
-- Run ID: `p3-40151142073-1`
+- Run ID: `p3-40151361985-1`
 - Validation: **PASS**
 - Dimension: 1000000
 - Warm-up / iterations: 5 / 10
 - CSV: `P3/benchmarks/benchmark_results_v2.csv`
-- Run-specific reports: `P3/results/raw/p3-40151142073-1/`
+- Run-specific reports: `P3/results/raw/p3-40151361985-1/`
 - Markdown producer: `P3/results/generate_benchmark_summary.py`
-- Run-specific checksums: `P3/results/raw/p3-40151142073-1/SHA256SUMS.txt`
-P3 benchmark evidence generated successfully: p3-40151142073-1
+- Run-specific checksums: `P3/results/raw/p3-40151361985-1/SHA256SUMS.txt`
+P3 benchmark evidence generated successfully: p3-40151361985-1
