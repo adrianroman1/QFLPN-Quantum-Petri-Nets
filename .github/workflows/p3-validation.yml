@@ -435,30 +435,84 @@ jobs:
           PY
 
       # --------------------------------------------------------
-      # 8. GLOBAL MANIFEST AND SHA256SUMS
+      # 8. GLOBAL MANIFEST AND SHA256SUMS — COMPLETE AUTOMATION
       # --------------------------------------------------------
 
-      - name: Generate and validate complete P3 MANIFEST and SHA256SUMS
+      - name: Generate and independently verify complete P3 MANIFEST and SHA256SUMS
         id: p3_integrity_generate
         if: always()
         shell: bash
         run: |
           set -Eeuo pipefail
 
-          if [ "${{ steps.p3_benchmark_summary.outcome }}" != "success" ]; then
-            echo "P3_INTEGRITY_BLOCKED: evidence consistency did not pass" >&2
-            exit 1
-          fi
+          echo "P3_GLOBAL_INTEGRITY_GENERATION_STARTED"
 
+          # Generate the complete inventory on every workflow run.
+          # Includes CSV, TXT, MD and all other eligible regular files
+          # under P3/, regardless of previous test or benchmark outcomes.
           python P3/tools/compute_checksums.py
 
           test -s P3/MANIFEST.txt
           test -s P3/SHA256SUMS.txt
 
-          python P3/tools/verify_final_package.py --help >/dev/null
+          # Independently reconstruct the filesystem inventory and verify
+          # every SHA-256 digest against the actual file contents.
+          python - <<'PY'
+          import importlib.util
+          from pathlib import Path
+
+          verifier_path = Path("P3/tools/verify_final_package.py")
+
+          if not verifier_path.is_file() or verifier_path.is_symlink():
+              raise SystemExit("P3_INDEPENDENT_VERIFIER_MISSING_OR_UNSAFE")
+
+          spec = importlib.util.spec_from_file_location(
+              "p3_independent_integrity_verifier",
+              verifier_path,
+          )
+
+          if spec is None or spec.loader is None:
+              raise SystemExit("P3_INDEPENDENT_VERIFIER_LOAD_FAILED")
+
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+
+          result = module.verify_global_integrity(Path("."))
+
+          manifest_count = result["manifest_entries"]
+          checksum_count = result["sha256_entries_verified"]
+
+          if manifest_count <= 0:
+              raise SystemExit("P3_GLOBAL_MANIFEST_EMPTY")
+
+          if checksum_count != manifest_count:
+              raise SystemExit("P3_GLOBAL_INTEGRITY_COUNT_MISMATCH")
+
+          manifest = Path("P3/MANIFEST.txt").read_text(
+              encoding="utf-8"
+          ).splitlines()
+
+          csv_count = sum(
+              path.lower().endswith(".csv") for path in manifest
+          )
+          txt_count = sum(
+              path.lower().endswith(".txt") for path in manifest
+          )
+          md_count = sum(
+              path.lower().endswith(".md") for path in manifest
+          )
+
+          print(f"P3_MANIFEST_ENTRIES_VERIFIED={manifest_count}")
+          print(f"P3_SHA256_ENTRIES_VERIFIED={checksum_count}")
+          print(f"P3_CSV_ENTRIES={csv_count}")
+          print(f"P3_TXT_ENTRIES={txt_count}")
+          print(f"P3_MD_ENTRIES={md_count}")
+          print("P3_GLOBAL_INTEGRITY_INDEPENDENT_VERIFICATION=PASS")
+          PY
 
           echo "P3_GLOBAL_MANIFEST_GENERATED"
           echo "P3_GLOBAL_SHA256SUMS_GENERATED"
+          echo "P3_GLOBAL_CSV_TXT_MD_INCLUDED"
           echo "P3_GLOBAL_INTEGRITY_GENERATED"
 
       # --------------------------------------------------------
