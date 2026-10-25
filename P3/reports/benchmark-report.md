@@ -1,9 +1,9 @@
 ## QFLPN P3 benchmark summary
 
 - Validation: **PASS**
-- Run ID: `p3-40154561963-1`
+- Run ID: `p3-40155072366-1`
 - Schema: `qflpn-benchmark-v2`
-- Valid CSV records: 12
+- Valid CSV records: 13
 - Dimension: 1000000
 - Non-zero values: 2000000
 - Warm-up iterations: 5
@@ -11,16 +11,16 @@
 
 | Metric | Sequential | Parallel |
 |---|---:|---:|
-| Mean (ms) | 1.581831 | 5.439634 |
-| Median (ms) | 1.548997 | 5.474215 |
-| Std. dev. (ms) | 0.176872 | 1.005250 |
-| Throughput (states/s) | 632178945.078 | 183835914.681 |
+| Mean (ms) | 2.061518 | 5.677714 |
+| Median (ms) | 1.813997 | 5.907332 |
+| Std. dev. (ms) | 0.403192 | 1.081700 |
+| Throughput (states/s) | 485079488.521 | 176127219.932 |
 
-- Speedup: **0.290797×**
+- Speedup: **0.363089×**
 - Sequential oracle error: `0.000000000000e+00`
 - Parallel oracle error: `0.000000000000e+00`
 - Maximum absolute error: `0.000000000000e+00`
-- JSON report: `P3/results/raw/p3-40154561963-1/validation-report.json`
+- JSON report: `P3/results/raw/p3-40155072366-1/validation-report.json`
 - CSV evidence: `P3/benchmarks/benchmark_results_v2.csv`
 
 The CSV row and JSON validation report were matched by the exact RUN_ID.
