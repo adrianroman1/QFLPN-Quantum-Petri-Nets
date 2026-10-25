@@ -2,6 +2,7 @@ package hpc.csr;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
@@ -43,8 +44,6 @@ class SparseMatrixCSRNormalizationRegressionTest {
         assertEquals(3, matrix.getNonZeroCount());
         assertEquals(3, matrix.getNnz());
 
-        // Row 0 is normalized from columns [2, 0] to [0, 2].
-        // Values must follow the corresponding column permutation.
         assertArrayEquals(
                 new double[] {3.0, 2.0, 4.0},
                 matrix.getValues(),
@@ -109,6 +108,64 @@ class SparseMatrixCSRNormalizationRegressionTest {
                 new double[] {0.0, 14.0},
                 matrix.multiply(new double[] {2.0, 2.0}),
                 1.0e-12);
+    }
+
+    @Test
+    void duplicateColumnsAreAggregatedWithoutLosingValues() {
+        SparseMatrixCSR matrix = new SparseMatrixCSR(
+                new double[] {2.0, 3.0, 4.0},
+                new int[] {1, 0, 1},
+                new int[] {0, 3},
+                1,
+                2);
+
+        assertEquals(2, matrix.getNnz());
+
+        assertArrayEquals(
+                new int[] {0, 1},
+                matrix.getColumnIndices());
+
+        assertArrayEquals(
+                new double[] {3.0, 6.0},
+                matrix.getValues(),
+                0.0);
+
+        assertEquals(6.0, matrix.get(0, 1), 0.0);
+
+        assertArrayEquals(
+                new double[] {15.0},
+                matrix.multiply(new double[] {1.0, 2.0}),
+                1.0e-12);
+    }
+
+    @Test
+    void duplicateAggregationRejectsPositiveOverflow() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new SparseMatrixCSR(
+                        new double[] {
+                                Double.MAX_VALUE,
+                                Double.MAX_VALUE
+                        },
+                        new int[] {0, 0},
+                        new int[] {0, 2},
+                        1,
+                        1));
+    }
+
+    @Test
+    void duplicateAggregationRejectsNegativeOverflow() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new SparseMatrixCSR(
+                        new double[] {
+                                -Double.MAX_VALUE,
+                                -Double.MAX_VALUE
+                        },
+                        new int[] {0, 0},
+                        new int[] {0, 2},
+                        1,
+                        1));
     }
 
     @Test
