@@ -181,7 +181,10 @@ def remote_verdict_for_root(
     root: Path,
     **overrides,
 ) -> dict:
-    manifest, checksums = summary.load_local_integrity_inventory(root)
+    manifest, checksums = summary.load_local_integrity_inventory(
+        root,
+        verify_files=False,
+    )
 
     files = [
         {
