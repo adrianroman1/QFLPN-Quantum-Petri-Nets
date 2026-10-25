@@ -43,13 +43,15 @@ class SparseMatrixCSRNormalizationRegressionTest {
         assertEquals(3, matrix.getNonZeroCount());
         assertEquals(3, matrix.getNnz());
 
+        // Row 0 is normalized from columns [2, 0] to [0, 2].
+        // Values must follow the corresponding column permutation.
         assertArrayEquals(
-                new double[] {2.0, 3.0, 4.0},
+                new double[] {3.0, 2.0, 4.0},
                 matrix.getValues(),
                 0.0);
 
         assertArrayEquals(
-                new int[] {2, 0, 1},
+                new int[] {0, 2, 1},
                 matrix.getColumnIndices());
 
         assertArrayEquals(
