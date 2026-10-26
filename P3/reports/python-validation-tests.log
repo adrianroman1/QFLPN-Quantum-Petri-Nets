@@ -98,19 +98,19 @@ P3/tests/test_verify_remote_integrity.py::test_parse_evidence_consistency_reject
 P3/tests/test_verify_remote_integrity.py::test_parse_evidence_consistency_rejects_non_object_json PASSED [ 48%]
 P3/tests/test_verify_remote_integrity.py::test_atomic_write_json_writes_valid_json PASSED [ 48%]
 P3/tests/test_verify_remote_integrity.py::test_atomic_write_json_rejects_symlink PASSED [ 49%]
-P3/tests/test_verify_evidence_consistency.py::test_v3_csv_has_exact_46_column_contract FAILED [ 49%]
-P3/tests/test_verify_evidence_consistency.py::test_v3_matrix_has_192_records FAILED [ 50%]
-P3/tests/test_verify_evidence_consistency.py::test_v3_legacy_matrix_has_96_records FAILED [ 50%]
-P3/tests/test_verify_evidence_consistency.py::test_v3_validator_accepts_complete_ab_matrix FAILED [ 51%]
-P3/tests/test_verify_evidence_consistency.py::test_v3_rejects_wrong_commit FAILED [ 51%]
-P3/tests/test_verify_evidence_consistency.py::test_v3_rejects_wrong_workflow_id FAILED [ 52%]
-P3/tests/test_verify_evidence_consistency.py::test_v3_rejects_tampered_csv FAILED [ 52%]
-P3/tests/test_verify_evidence_consistency.py::test_v3_rejects_tampered_persistent_report FAILED [ 53%]
+P3/tests/test_verify_evidence_consistency.py::test_v3_csv_has_exact_46_column_contract PASSED [ 49%]
+P3/tests/test_verify_evidence_consistency.py::test_v3_matrix_has_192_records PASSED [ 50%]
+P3/tests/test_verify_evidence_consistency.py::test_v3_legacy_matrix_has_96_records PASSED [ 50%]
+P3/tests/test_verify_evidence_consistency.py::test_v3_validator_accepts_complete_ab_matrix PASSED [ 51%]
+P3/tests/test_verify_evidence_consistency.py::test_v3_rejects_wrong_commit PASSED [ 51%]
+P3/tests/test_verify_evidence_consistency.py::test_v3_rejects_wrong_workflow_id PASSED [ 52%]
+P3/tests/test_verify_evidence_consistency.py::test_v3_rejects_tampered_csv PASSED [ 52%]
+P3/tests/test_verify_evidence_consistency.py::test_v3_rejects_tampered_persistent_report PASSED [ 53%]
 P3/tests/test_verify_evidence_consistency.py::test_run_id_validation PASSED [ 53%]
 P3/tests/test_verify_evidence_consistency.py::test_source_commit_validation PASSED [ 54%]
-P3/tests/test_verify_evidence_consistency.py::test_checksum_parser_rejects_duplicate_entries FAILED [ 54%]
-P3/tests/test_verify_evidence_consistency.py::test_checksum_parser_rejects_path_traversal FAILED [ 55%]
-P3/tests/test_verify_evidence_consistency.py::test_checksum_parser_rejects_tampering FAILED [ 56%]
+P3/tests/test_verify_evidence_consistency.py::test_checksum_parser_rejects_duplicate_entries PASSED [ 54%]
+P3/tests/test_verify_evidence_consistency.py::test_checksum_parser_rejects_path_traversal PASSED [ 55%]
+P3/tests/test_verify_evidence_consistency.py::test_checksum_parser_rejects_tampering PASSED [ 56%]
 P3/tests/test_generate_benchmark_summary.py::test_summary_accepts_matching_csv_and_json PASSED [ 56%]
 P3/tests/test_generate_benchmark_summary.py::test_summary_rejects_csv_run_id_mismatch PASSED [ 57%]
 P3/tests/test_generate_benchmark_summary.py::test_summary_rejects_json_run_id_mismatch PASSED [ 57%]
@@ -197,61 +197,6 @@ P3/tests/test_verify_final_package.py::test_missing_required_package_file_fails 
 P3/tests/test_verify_final_package.py::test_corrupted_run_checksum_file_fails FAILED [100%]
 
 =================================== FAILURES ===================================
-___________________ test_v3_csv_has_exact_46_column_contract ___________________
-P3/tests/test_verify_evidence_consistency.py:186: in test_v3_csv_has_exact_46_column_contract
-    assert set(V3_HEADER) == verifier.V3_REQUIRED
-                             ^^^^^^^^^^^^^^^^^^^^
-E   AttributeError: module 'evidence_verifier' has no attribute 'V3_REQUIRED'. Did you mean: 'CSV_REQUIRED'?
-________________________ test_v3_matrix_has_192_records ________________________
-P3/tests/test_verify_evidence_consistency.py:192: in test_v3_matrix_has_192_records
-    rows = verifier.read_csv(path, verifier.V3_REQUIRED)
-           ^^^^^^^^^^^^^^^^^
-E   AttributeError: module 'evidence_verifier' has no attribute 'read_csv'. Did you mean: 'read_json'?
-_____________________ test_v3_legacy_matrix_has_96_records _____________________
-P3/tests/test_verify_evidence_consistency.py:199: in test_v3_legacy_matrix_has_96_records
-    rows = verifier.read_csv(path, verifier.V3_REQUIRED)
-           ^^^^^^^^^^^^^^^^^
-E   AttributeError: module 'evidence_verifier' has no attribute 'read_csv'. Did you mean: 'read_json'?
-_________________ test_v3_validator_accepts_complete_ab_matrix _________________
-P3/tests/test_verify_evidence_consistency.py:205: in test_v3_validator_accepts_complete_ab_matrix
-    result = verifier.verify_v3(package, RUN_ID, COMMIT, WORKFLOW)
-             ^^^^^^^^^^^^^^^^^^
-E   AttributeError: module 'evidence_verifier' has no attribute 'verify_v3'
-_________________________ test_v3_rejects_wrong_commit _________________________
-P3/tests/test_verify_evidence_consistency.py:213: in test_v3_rejects_wrong_commit
-    verifier.verify_v3(package, RUN_ID, "b" * 40, WORKFLOW)
-    ^^^^^^^^^^^^^^^^^^
-E   AttributeError: module 'evidence_verifier' has no attribute 'verify_v3'
-______________________ test_v3_rejects_wrong_workflow_id _______________________
-P3/tests/test_verify_evidence_consistency.py:218: in test_v3_rejects_wrong_workflow_id
-    verifier.verify_v3(package, RUN_ID, COMMIT, "99999")
-    ^^^^^^^^^^^^^^^^^^
-E   AttributeError: module 'evidence_verifier' has no attribute 'verify_v3'
-_________________________ test_v3_rejects_tampered_csv _________________________
-P3/tests/test_verify_evidence_consistency.py:226: in test_v3_rejects_tampered_csv
-    verifier.verify_v3(package, RUN_ID, COMMIT, WORKFLOW)
-    ^^^^^^^^^^^^^^^^^^
-E   AttributeError: module 'evidence_verifier' has no attribute 'verify_v3'
-__________________ test_v3_rejects_tampered_persistent_report __________________
-P3/tests/test_verify_evidence_consistency.py:235: in test_v3_rejects_tampered_persistent_report
-    verifier.verify_v3(package, RUN_ID, COMMIT, WORKFLOW)
-    ^^^^^^^^^^^^^^^^^^
-E   AttributeError: module 'evidence_verifier' has no attribute 'verify_v3'
-________________ test_checksum_parser_rejects_duplicate_entries ________________
-P3/tests/test_verify_evidence_consistency.py:263: in test_checksum_parser_rejects_duplicate_entries
-    verifier.verify_checksums(
-    ^^^^^^^^^^^^^^^^^^^^^^^^^
-E   AttributeError: module 'evidence_verifier' has no attribute 'verify_checksums'. Did you mean: 'verify_run_checksums'?
-_________________ test_checksum_parser_rejects_path_traversal __________________
-P3/tests/test_verify_evidence_consistency.py:274: in test_checksum_parser_rejects_path_traversal
-    verifier.verify_checksums(p3, sums, {"../outside"})
-    ^^^^^^^^^^^^^^^^^^^^^^^^^
-E   AttributeError: module 'evidence_verifier' has no attribute 'verify_checksums'. Did you mean: 'verify_run_checksums'?
-____________________ test_checksum_parser_rejects_tampering ____________________
-P3/tests/test_verify_evidence_consistency.py:290: in test_checksum_parser_rejects_tampering
-    verifier.verify_checksums(
-    ^^^^^^^^^^^^^^^^^^^^^^^^^
-E   AttributeError: module 'evidence_verifier' has no attribute 'verify_checksums'. Did you mean: 'verify_run_checksums'?
 ___________________ test_complete_valid_package_is_accepted ____________________
 P3/tests/test_verify_final_package.py:428: in test_complete_valid_package_is_accepted
     result = MODULE.verify_package(
@@ -371,17 +316,6 @@ P3/tests/test_verify_final_package.py:408: in expect_verification_failure
     MODULE.verify_package(
 E   TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
 =========================== short test summary info ============================
-FAILED P3/tests/test_verify_evidence_consistency.py::test_v3_csv_has_exact_46_column_contract - AttributeError: module 'evidence_verifier' has no attribute 'V3_REQUIRED'. Did you mean: 'CSV_REQUIRED'?
-FAILED P3/tests/test_verify_evidence_consistency.py::test_v3_matrix_has_192_records - AttributeError: module 'evidence_verifier' has no attribute 'read_csv'. Did you mean: 'read_json'?
-FAILED P3/tests/test_verify_evidence_consistency.py::test_v3_legacy_matrix_has_96_records - AttributeError: module 'evidence_verifier' has no attribute 'read_csv'. Did you mean: 'read_json'?
-FAILED P3/tests/test_verify_evidence_consistency.py::test_v3_validator_accepts_complete_ab_matrix - AttributeError: module 'evidence_verifier' has no attribute 'verify_v3'
-FAILED P3/tests/test_verify_evidence_consistency.py::test_v3_rejects_wrong_commit - AttributeError: module 'evidence_verifier' has no attribute 'verify_v3'
-FAILED P3/tests/test_verify_evidence_consistency.py::test_v3_rejects_wrong_workflow_id - AttributeError: module 'evidence_verifier' has no attribute 'verify_v3'
-FAILED P3/tests/test_verify_evidence_consistency.py::test_v3_rejects_tampered_csv - AttributeError: module 'evidence_verifier' has no attribute 'verify_v3'
-FAILED P3/tests/test_verify_evidence_consistency.py::test_v3_rejects_tampered_persistent_report - AttributeError: module 'evidence_verifier' has no attribute 'verify_v3'
-FAILED P3/tests/test_verify_evidence_consistency.py::test_checksum_parser_rejects_duplicate_entries - AttributeError: module 'evidence_verifier' has no attribute 'verify_checksums'. Did you mean: 'verify_run_checksums'?
-FAILED P3/tests/test_verify_evidence_consistency.py::test_checksum_parser_rejects_path_traversal - AttributeError: module 'evidence_verifier' has no attribute 'verify_checksums'. Did you mean: 'verify_run_checksums'?
-FAILED P3/tests/test_verify_evidence_consistency.py::test_checksum_parser_rejects_tampering - AttributeError: module 'evidence_verifier' has no attribute 'verify_checksums'. Did you mean: 'verify_run_checksums'?
 FAILED P3/tests/test_verify_final_package.py::test_complete_valid_package_is_accepted - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
 FAILED P3/tests/test_verify_final_package.py::test_manifest_must_contain_paths_only - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
 FAILED P3/tests/test_verify_final_package.py::test_manifest_must_not_contain_integrity_files - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
@@ -402,4 +336,4 @@ FAILED P3/tests/test_verify_final_package.py::test_unexpected_csv_record_fails_a
 FAILED P3/tests/test_verify_final_package.py::test_duplicate_csv_run_id_fails_authoritative_validation - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
 FAILED P3/tests/test_verify_final_package.py::test_missing_required_package_file_fails - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
 FAILED P3/tests/test_verify_final_package.py::test_corrupted_run_checksum_file_fails - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
-======================== 31 failed, 160 passed in 2.40s ========================
+======================== 20 failed, 171 passed in 2.93s ========================
