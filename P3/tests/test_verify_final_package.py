@@ -1,13 +1,5 @@
-#!/usr/bin/env python3
-"""Tests for the P3 final-package verifier.
-
-The tests exercise package acceptance and rejection paths using isolated
-temporary repositories. They do not modify the actual P3 repository.
-"""
-
 from __future__ import annotations
 
-import csv
 import hashlib
 import importlib.util
 import json
@@ -18,17 +10,18 @@ import pytest
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-VERIFIER_PATH = REPOSITORY_ROOT / "P3" / "tools" / "verify_final_package.py"
-
-if not VERIFIER_PATH.is_file():
-    raise RuntimeError(f"Missing final-package verifier: {VERIFIER_PATH}")
+MODULE_PATH = (
+    REPOSITORY_ROOT
+    / "P3"
+    / "tools"
+    / "verify_final_package.py"
+)
 
 SPEC = importlib.util.spec_from_file_location(
     "p3_verify_final_package_under_test",
-    VERIFIER_PATH,
+    MODULE_PATH,
 )
-if SPEC is None or SPEC.loader is None:
-    raise RuntimeError("Cannot load verify_final_package.py")
+assert SPEC is not None and SPEC.loader is not None
 
 MODULE = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = MODULE
@@ -37,376 +30,436 @@ SPEC.loader.exec_module(MODULE)
 
 RUN_ID = "p3-12345-1"
 SOURCE_COMMIT = "a" * 40
+WORKFLOW_RUN_ID = "12345"
 
 EXPECTED = {
-    "dimension": 12,
-    "warmup": 2,
-    "iterations": 3,
-    "threshold": 4,
+    "dimension": 1_000_000,
+    "warmup_iterations": 5,
+    "measured_iterations": 10,
+    "threshold": 4096,
     "parallelism": 2,
 }
 
-V2_COLUMNS = [
-    "timestamp",
-    "run_id",
-    "dimension",
-    "non_zero_count",
-    "warmup_iterations",
-    "measured_iterations",
-    "sequential_mean_ms",
-    "parallel_mean_ms",
-    "speedup",
-    "max_absolute_error",
-]
+
+def write_text(path: Path, value: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(value, encoding="utf-8")
 
 
-def sha256(path: Path) -> str:
+def write_json(path: Path, value: dict) -> None:
+    write_text(
+        path,
+        json.dumps(value, indent=2, sort_keys=True) + "\n",
+    )
+
+
+def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
     return digest.hexdigest()
 
 
-def write_json(path: Path, payload: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(payload, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-
-
-def write_text(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
-
-
-def write_v2_csv(root: Path) -> Path:
-    path = root / "P3" / "benchmarks" / "benchmark_results_v2.csv"
-    path.parent.mkdir(parents=True, exist_ok=True)
-
-    row = {
-        "timestamp": "2026-01-01T00:00:00Z",
-        "run_id": RUN_ID,
-        "dimension": str(EXPECTED["dimension"]),
-        "non_zero_count": str(EXPECTED["dimension"] * 2),
-        "warmup_iterations": str(EXPECTED["warmup"]),
-        "measured_iterations": str(EXPECTED["iterations"]),
-        "sequential_mean_ms": "10.0",
-        "parallel_mean_ms": "5.0",
-        "speedup": "2.0",
-        "max_absolute_error": "0.0",
-    }
-
-    with path.open("w", newline="", encoding="utf-8") as stream:
-        writer = csv.DictWriter(stream, fieldnames=V2_COLUMNS)
-        writer.writeheader()
-        writer.writerow(row)
-
-    return path
-
-
-def write_run_evidence(root: Path) -> None:
-    raw = root / "P3" / "results" / "raw" / RUN_ID
-
-    write_json(
-        raw / "validation-report.json",
-        {
-            "schema": "qflpn-benchmark-v2",
-            "run_id": RUN_ID,
-            "verdict": "PASS",
-            "all_records_valid": True,
-            "latest_record": {
-                "dimension": EXPECTED["dimension"],
-                "non_zero_count": EXPECTED["dimension"] * 2,
-                "warmup_iterations": EXPECTED["warmup"],
-                "measured_iterations": EXPECTED["iterations"],
-                "sequential_mean_ms": 10.0,
-                "parallel_mean_ms": 5.0,
-                "speedup": 2.0,
-                "max_absolute_error": 0.0,
-            },
-        },
-    )
-
-    write_json(
-        raw / "benchmark-report.json",
-        {
-            "schema": "qflpn-java-benchmark-v2",
-            "run_id": RUN_ID,
-            "verdict": "PASS",
-            "dimension": EXPECTED["dimension"],
-            "non_zero_count": EXPECTED["dimension"] * 2,
-        },
-    )
-
-    write_text(
-        raw / "benchmark-report.txt",
-        f"RUN_ID={RUN_ID}\nVERDICT=PASS\n",
-    )
-    write_text(
-        raw / "benchmark-report.md",
-        f"# P3 benchmark\n\nRUN_ID: `{RUN_ID}`\n\nVerdict: **PASS**\n",
-    )
-
-
-def write_environment(root: Path) -> None:
-    write_json(
-        root / "P3" / "results" / "raw" / RUN_ID / "environment.json",
-        {
-            "schema": "qflpn-p3-environment-v1",
-            "run_id": RUN_ID,
-            "source_commit": SOURCE_COMMIT,
-            "dimension": EXPECTED["dimension"],
-            "warmup": EXPECTED["warmup"],
-            "iterations": EXPECTED["iterations"],
-            "threshold": EXPECTED["threshold"],
-            "parallelism": EXPECTED["parallelism"],
-        },
-    )
-
-
-def write_run_checksums(root: Path) -> None:
-    p3 = root / "P3"
-    raw = p3 / "results" / "raw" / RUN_ID
-    targets = [
-        p3 / "benchmarks" / "benchmark_results_v2.csv",
-        raw / "benchmark-report.json",
-        raw / "benchmark-report.txt",
-        raw / "benchmark-report.md",
-        raw / "validation-report.json",
-    ]
-
-    lines = [
-        f"{sha256(path)}  {path.relative_to(p3).as_posix()}"
-        for path in targets
-    ]
-    write_text(raw / "SHA256SUMS.txt", "\n".join(lines) + "\n")
-
-
-def write_required_package_files(root: Path) -> None:
-    """Create minimal regular files for required package-path checks."""
-    required = getattr(MODULE, "REQUIRED_PACKAGE_FILES", ())
-    for relative in required:
+def make_required_files(root: Path) -> None:
+    for relative in MODULE.REQUIRED_PACKAGE_FILES:
         path = root / relative
-        if path.name in {"MANIFEST.txt", "SHA256SUMS.txt"}:
-            continue
         if not path.exists():
             write_text(path, "test fixture\n")
 
 
-def write_ci_outcomes(root: Path) -> Path:
-    path = root / "P3" / "reports" / "ci-outcomes.json"
-    stages = getattr(MODULE, "REQUIRED_CI_STAGES", ())
+def make_ci_outcomes(path: Path) -> None:
     write_json(
         path,
         {
             stage: "success"
-            for stage in stages
+            for stage in MODULE.REQUIRED_CI_STAGES
         },
     )
-    return path
 
 
-def write_global_integrity(root: Path) -> None:
-    """Create the global inventory using the verifier's own inventory rules."""
+def make_evidence_report(root: Path) -> None:
+    write_json(
+        root / "P3" / "reports" / "evidence-consistency.json",
+        {
+            "schema": "qflpn-p3-evidence-consistency-v1",
+            "validation": "PASS",
+            "run_id": RUN_ID,
+            "source_commit": SOURCE_COMMIT,
+        },
+    )
+
+
+def make_global_integrity(root: Path) -> None:
+    """Write MANIFEST and SHA256SUMS using the verifier's path contract.
+
+    independent_inventory() returns list[str], not list[dict].
+    """
     p3 = root / "P3"
     p3.mkdir(parents=True, exist_ok=True)
 
-    inventory_function = getattr(MODULE, "independent_inventory", None)
-    if inventory_function is None:
-        raise AssertionError(
-            "verify_final_package.py must expose independent_inventory()."
-        )
+    inventory = MODULE.independent_inventory(root)
 
-    inventory = inventory_function(root)
+    assert all(isinstance(item, str) for item in inventory)
+
     manifest = p3 / "MANIFEST.txt"
     checksums = p3 / "SHA256SUMS.txt"
 
-    manifest_lines = [
-        f"{entry['path']}  {entry['sha256']}"
-        for entry in inventory
-    ]
-    write_text(manifest, "\n".join(manifest_lines) + "\n")
+    write_text(
+        manifest,
+        "".join(f"{relative}\n" for relative in inventory),
+    )
 
-    checksum_lines = [
-        f"{entry['sha256']}  {entry['path']}"
-        for entry in inventory
-    ]
-    write_text(checksums, "\n".join(checksum_lines) + "\n")
+    checksum_lines = []
+    for relative in inventory:
+        target = root / relative
+        checksum_lines.append(
+            f"{sha256_file(target)}  {relative}\n"
+        )
+
+    write_text(checksums, "".join(checksum_lines))
 
 
-def make_valid_package(tmp_path: Path) -> tuple[Path, Path]:
+def make_package(tmp_path: Path) -> tuple[Path, Path]:
     root = tmp_path / "repository"
     root.mkdir()
 
-    write_v2_csv(root)
-    write_run_evidence(root)
-    write_environment(root)
-    write_run_checksums(root)
-    write_required_package_files(root)
+    make_required_files(root)
 
-    outcomes = write_ci_outcomes(root)
-    write_global_integrity(root)
+    outcomes_path = root / "ci-outcomes.json"
+    make_ci_outcomes(outcomes_path)
+    make_evidence_report(root)
+    make_global_integrity(root)
 
-    return root, outcomes
+    return root, outcomes_path
 
 
-def call_verify(root: Path, outcomes: Path):
-    verify = getattr(MODULE, "verify_package", None)
-    if verify is None:
-        raise AssertionError(
-            "verify_final_package.py must expose verify_package()."
-        )
+def fake_v2(
+    root: Path,
+    run_id: str,
+    expected: dict[str, int],
+) -> dict:
+    assert run_id == RUN_ID
+    assert expected == EXPECTED
+    return {
+        "schema": "qflpn-benchmark-v2",
+        "run_id": RUN_ID,
+        "records": 1,
+        "dimension": EXPECTED["dimension"],
+        "non_zero_count": EXPECTED["dimension"] * 2,
+        "speedup": 2.0,
+    }
 
-    return verify(
-        root=root,
-        run_id=RUN_ID,
-        expected=EXPECTED,
-        outcomes_path=outcomes,
+
+def fake_v3(
+    root: Path,
+    run_id: str,
+    commit_sha: str,
+    workflow_run_id: str | None,
+) -> dict:
+    assert run_id == RUN_ID
+    assert commit_sha == SOURCE_COMMIT
+    assert workflow_run_id == WORKFLOW_RUN_ID
+    return {
+        "schema": "qflpn-benchmark-v3-validation-v2",
+        "run_id": RUN_ID,
+        "run_contract": "AB_192",
+        "validated_records": 192,
+        "split_policies": [
+            "BINARY_NNZ_SPLIT",
+            "ROW_BOUNDARY_SCAN",
+        ],
+    }
+
+
+def install_benchmark_stubs(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(MODULE, "verify_v2", fake_v2)
+    monkeypatch.setattr(MODULE, "verify_v3", fake_v3)
+
+
+def call_package(
+    root: Path,
+    outcomes_path: Path,
+) -> dict:
+    return MODULE.verify_package(
+        root,
+        RUN_ID,
+        EXPECTED,
+        outcomes_path,
+        source_commit=SOURCE_COMMIT,
+        workflow_run_id=WORKFLOW_RUN_ID,
     )
 
 
-def test_valid_package_is_accepted(tmp_path: Path) -> None:
-    root, outcomes = make_valid_package(tmp_path)
+def test_inventory_returns_sorted_relative_path_strings(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repo"
+    write_text(root / "P3" / "z.txt", "z\n")
+    write_text(root / "P3" / "a.txt", "a\n")
 
-    result = call_verify(root, outcomes)
+    inventory = MODULE.independent_inventory(root)
+
+    assert inventory == sorted(inventory)
+    assert "P3/a.txt" in inventory
+    assert "P3/z.txt" in inventory
+    assert all(isinstance(item, str) for item in inventory)
+
+
+def test_inventory_excludes_global_integrity_files(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repo"
+    write_text(root / "P3" / "data.txt", "data\n")
+    write_text(root / "P3" / "MANIFEST.txt", "old manifest\n")
+    write_text(root / "P3" / "SHA256SUMS.txt", "old sums\n")
+
+    inventory = MODULE.independent_inventory(root)
+
+    assert "P3/data.txt" in inventory
+    assert "P3/MANIFEST.txt" not in inventory
+    assert "P3/SHA256SUMS.txt" not in inventory
+
+
+def test_inventory_excludes_generated_cache_directories(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repo"
+    write_text(root / "P3" / "data.txt", "data\n")
+    write_text(root / "P3" / "__pycache__" / "module.pyc", "cache\n")
+    write_text(root / "P3" / "target" / "compiled.class", "class\n")
+
+    inventory = MODULE.independent_inventory(root)
+
+    assert inventory == ["P3/data.txt"]
+
+
+def test_global_integrity_accepts_correct_manifest_and_checksums(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repo"
+    write_text(root / "P3" / "a.txt", "alpha\n")
+    write_text(root / "P3" / "b.txt", "beta\n")
+
+    make_global_integrity(root)
+
+    result = MODULE.verify_global_integrity(root)
+
+    assert result["manifest_entries"] == 2
+    assert result["sha256_entries_verified"] == 2
+
+
+def test_global_integrity_rejects_tampered_file(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repo"
+    write_text(root / "P3" / "a.txt", "original\n")
+    make_global_integrity(root)
+
+    write_text(root / "P3" / "a.txt", "modified\n")
+
+    with pytest.raises(MODULE.VerificationError, match="SHA-256 mismatch"):
+        MODULE.verify_global_integrity(root)
+
+
+def test_global_integrity_rejects_manifest_path_mismatch(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repo"
+    write_text(root / "P3" / "a.txt", "alpha\n")
+    make_global_integrity(root)
+
+    write_text(root / "P3" / "MANIFEST.txt", "P3/not-present.txt\n")
+
+    with pytest.raises(MODULE.VerificationError):
+        MODULE.verify_global_integrity(root)
+
+
+def test_global_integrity_rejects_self_reference(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repo"
+    write_text(root / "P3" / "a.txt", "alpha\n")
+    make_global_integrity(root)
+
+    manifest = root / "P3" / "MANIFEST.txt"
+    write_text(
+        manifest,
+        manifest.read_text(encoding="utf-8") + "P3/MANIFEST.txt\n",
+    )
+
+    with pytest.raises(MODULE.VerificationError):
+        MODULE.verify_global_integrity(root)
+
+
+def test_ci_outcomes_requires_every_mandatory_stage(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "ci-outcomes.json"
+    make_ci_outcomes(path)
+
+    result = MODULE.verify_ci_outcomes(path)
+
+    assert set(result) == set(MODULE.REQUIRED_CI_STAGES)
+    assert all(value == "success" for value in result.values())
+
+
+def test_ci_outcomes_rejects_missing_stage(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "ci-outcomes.json"
+    outcomes = {
+        stage: "success"
+        for stage in MODULE.REQUIRED_CI_STAGES
+    }
+    outcomes.pop(MODULE.REQUIRED_CI_STAGES[0])
+    write_json(path, outcomes)
+
+    with pytest.raises(MODULE.VerificationError):
+        MODULE.verify_ci_outcomes(path)
+
+
+def test_ci_outcomes_rejects_failed_stage(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "ci-outcomes.json"
+    outcomes = {
+        stage: "success"
+        for stage in MODULE.REQUIRED_CI_STAGES
+    }
+    outcomes[MODULE.REQUIRED_CI_STAGES[0]] = "failure"
+    write_json(path, outcomes)
+
+    with pytest.raises(MODULE.VerificationError, match="failed"):
+        MODULE.verify_ci_outcomes(path)
+
+
+def test_valid_package_orchestration_is_accepted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, outcomes_path = make_package(tmp_path)
+    install_benchmark_stubs(monkeypatch)
+
+    result = call_package(root, outcomes_path)
 
     assert result["verdict"] == "P3_ACCEPTED"
     assert result["run_id"] == RUN_ID
+    assert result["source_commit"] == SOURCE_COMMIT
+    assert result["workflow_run_id"] == WORKFLOW_RUN_ID
+    assert result["benchmark_v2"]["schema"] == "qflpn-benchmark-v2"
+    assert result["benchmark_v3"]["run_contract"] == "AB_192"
+    assert result["benchmark_v3"]["validated_records"] == 192
+    assert result["evidence_consistency"] == "PASS"
 
 
-def test_missing_ci_stage_is_rejected(tmp_path: Path) -> None:
-    root, outcomes = make_valid_package(tmp_path)
+def test_package_rejects_failed_ci_stage(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, outcomes_path = make_package(tmp_path)
+    install_benchmark_stubs(monkeypatch)
 
-    payload = json.loads(outcomes.read_text(encoding="utf-8"))
-    stages = list(payload)
-    assert stages, "The verifier must define required CI stages."
+    outcomes = json.loads(outcomes_path.read_text(encoding="utf-8"))
+    outcomes[MODULE.REQUIRED_CI_STAGES[0]] = "failure"
+    write_json(outcomes_path, outcomes)
 
-    payload[stages[0]] = "failure"
-    write_json(outcomes, payload)
-
-    with pytest.raises(Exception):
-        call_verify(root, outcomes)
-
-
-def test_missing_v2_csv_is_rejected(tmp_path: Path) -> None:
-    root, outcomes = make_valid_package(tmp_path)
-
-    (root / "P3" / "benchmarks" / "benchmark_results_v2.csv").unlink()
-
-    with pytest.raises(Exception):
-        call_verify(root, outcomes)
+    with pytest.raises(MODULE.VerificationError):
+        call_package(root, outcomes_path)
 
 
-def test_tampered_run_checksum_is_rejected(tmp_path: Path) -> None:
-    root, outcomes = make_valid_package(tmp_path)
+def test_package_rejects_missing_required_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, outcomes_path = make_package(tmp_path)
+    install_benchmark_stubs(monkeypatch)
 
-    report = (
-        root / "P3" / "results" / "raw" / RUN_ID / "benchmark-report.txt"
-    )
-    write_text(report, "tampered evidence\n")
+    required = root / MODULE.REQUIRED_PACKAGE_FILES[0]
+    required.unlink()
 
-    with pytest.raises(Exception):
-        call_verify(root, outcomes)
-
-
-def test_wrong_run_id_is_rejected(tmp_path: Path) -> None:
-    root, outcomes = make_valid_package(tmp_path)
-
-    csv_path = root / "P3" / "benchmarks" / "benchmark_results_v2.csv"
-    content = csv_path.read_text(encoding="utf-8")
-    csv_path.write_text(
-        content.replace(RUN_ID, "p3-99999-1"),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(Exception):
-        call_verify(root, outcomes)
+    with pytest.raises(MODULE.VerificationError, match="Required P3 files"):
+        call_package(root, outcomes_path)
 
 
-def test_missing_environment_evidence_is_rejected(tmp_path: Path) -> None:
-    root, outcomes = make_valid_package(tmp_path)
+def test_package_rejects_wrong_source_commit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, outcomes_path = make_package(tmp_path)
+    install_benchmark_stubs(monkeypatch)
 
-    environment = (
-        root / "P3" / "results" / "raw" / RUN_ID / "environment.json"
-    )
-    environment.unlink()
-
-    with pytest.raises(Exception):
-        call_verify(root, outcomes)
-
-
-def test_global_manifest_is_required(tmp_path: Path) -> None:
-    root, outcomes = make_valid_package(tmp_path)
-
-    (root / "P3" / "MANIFEST.txt").unlink()
-
-    with pytest.raises(Exception):
-        call_verify(root, outcomes)
-
-
-def test_global_sha256_file_is_required(tmp_path: Path) -> None:
-    root, outcomes = make_valid_package(tmp_path)
-
-    (root / "P3" / "SHA256SUMS.txt").unlink()
-
-    with pytest.raises(Exception):
-        call_verify(root, outcomes)
+    with pytest.raises(MODULE.VerificationError, match="commit mismatch"):
+        write_json(
+            root / "P3" / "reports" / "evidence-consistency.json",
+            {
+                "schema": "qflpn-p3-evidence-consistency-v1",
+                "validation": "PASS",
+                "run_id": RUN_ID,
+                "source_commit": "b" * 40,
+            },
+        )
+        call_package(root, outcomes_path)
 
 
-def test_global_integrity_rejects_tampered_file(tmp_path: Path) -> None:
-    root, outcomes = make_valid_package(tmp_path)
+def test_package_rejects_tampered_global_integrity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, outcomes_path = make_package(tmp_path)
+    install_benchmark_stubs(monkeypatch)
 
-    write_text(
-        root / "P3" / "results" / "raw" / RUN_ID / "benchmark-report.md",
-        "tampered markdown\n",
-    )
+    write_text(root / "P3" / "reports" / "evidence-consistency.json", "tampered\n")
 
-    with pytest.raises(Exception):
-        call_verify(root, outcomes)
+    with pytest.raises(MODULE.VerificationError):
+        call_package(root, outcomes_path)
 
 
-def test_global_integrity_files_are_not_self_referential(
+def test_package_rejects_invalid_run_id(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, outcomes_path = make_package(tmp_path)
+    install_benchmark_stubs(monkeypatch)
+
+    with pytest.raises(MODULE.VerificationError, match="Invalid RUN_ID"):
+        MODULE.verify_package(
+            root,
+            "../invalid",
+            EXPECTED,
+            outcomes_path,
+            source_commit=SOURCE_COMMIT,
+            workflow_run_id=WORKFLOW_RUN_ID,
+        )
+
+
+def test_package_rejects_invalid_source_commit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, outcomes_path = make_package(tmp_path)
+    install_benchmark_stubs(monkeypatch)
+
+    with pytest.raises(MODULE.VerificationError, match="Invalid SOURCE_COMMIT"):
+        MODULE.verify_package(
+            root,
+            RUN_ID,
+            EXPECTED,
+            outcomes_path,
+            source_commit="not-a-commit",
+            workflow_run_id=WORKFLOW_RUN_ID,
+        )
+
+
+def test_manifest_inventory_is_deterministic(
     tmp_path: Path,
 ) -> None:
-    root, _ = make_valid_package(tmp_path)
+    root = tmp_path / "repo"
+    write_text(root / "P3" / "nested" / "b.txt", "b\n")
+    write_text(root / "P3" / "a.txt", "a\n")
 
-    manifest = (root / "P3" / "MANIFEST.txt").read_text(encoding="utf-8")
-    checksums = (root / "P3" / "SHA256SUMS.txt").read_text(
-        encoding="utf-8"
-    )
-
-    assert "MANIFEST.txt" not in manifest
-    assert "SHA256SUMS.txt" not in manifest
-    assert "MANIFEST.txt" not in checksums
-    assert "SHA256SUMS.txt" not in checksums
-
-
-def test_symlink_evidence_is_rejected_when_supported(
-    tmp_path: Path,
-) -> None:
-    root, outcomes = make_valid_package(tmp_path)
-
-    source = root / "P3" / "results" / "raw" / RUN_ID / "benchmark-report.txt"
-    link = root / "P3" / "results" / "raw" / RUN_ID / "benchmark-report-link.txt"
-
-    try:
-        link.symlink_to(source)
-    except (OSError, NotImplementedError):
-        pytest.skip("Symlink creation is unavailable on this platform.")
-
-    with pytest.raises(Exception):
-        call_verify(root, outcomes)
-
-
-def test_manifest_inventory_is_deterministic(tmp_path: Path) -> None:
-    root, _ = make_valid_package(tmp_path)
-
-    inventory_function = getattr(MODULE, "independent_inventory", None)
-    assert inventory_function is not None
-
-    first = inventory_function(root)
-    second = inventory_function(root)
+    first = MODULE.independent_inventory(root)
+    second = MODULE.independent_inventory(root)
 
     assert first == second
+    assert first == sorted(first)
