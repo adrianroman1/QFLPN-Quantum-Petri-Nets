@@ -6,16 +6,33 @@ import java.util.concurrent.RecursiveAction;
 /**
  * Fork/Join implementation of CSR sparse matrix-vector multiplication.
  *
- * Tasks partition the matrix by row boundaries selected to balance NNZ
- * work as closely as possible. A row is never split between tasks.
+ * Rows are indivisible: every task owns a contiguous row interval.
  *
- * The public constructor validates and defensively copies caller-owned
- * arrays. The package-private factory is reserved for SparseMatrixCSR,
- * which owns validated immutable CSR arrays.
+ * Two NNZ partition strategies are supported:
+ *  - ROW_BOUNDARY_SCAN: scans every internal row boundary.
+ *  - BINARY_NNZ_SPLIT: uses binary search over monotonic CSR row pointers.
+ *
+ * The default strategy remains ROW_BOUNDARY_SCAN to preserve the
+ * existing execution behavior and compatibility.
  */
 public final class MultiplyTask extends RecursiveAction {
 
     private static final long serialVersionUID = 1L;
+
+    /**
+     * Strategy used to select the row boundary between two child tasks.
+     */
+    public enum SplitPolicy {
+        /**
+         * Baseline strategy: inspect all internal row boundaries.
+         */
+        ROW_BOUNDARY_SCAN,
+
+        /**
+         * Experimental strategy: binary search for the NNZ midpoint.
+         */
+        BINARY_NNZ_SPLIT
+    }
 
     private final double[] values;
     private final int[] columns;
@@ -26,7 +43,14 @@ public final class MultiplyTask extends RecursiveAction {
     private final int startRow;
     private final int endRow;
     private final int threshold;
+    private final SplitPolicy splitPolicy;
 
+    /**
+     * Backward-compatible public constructor.
+     *
+     * The default partition strategy is ROW_BOUNDARY_SCAN.
+     * Caller-owned arrays are defensively copied.
+     */
     public MultiplyTask(
             double[] values,
             int[] columns,
@@ -37,11 +61,40 @@ public final class MultiplyTask extends RecursiveAction {
             int endRow,
             int threshold) {
 
+        this(
+                values,
+                columns,
+                rowPointers,
+                input,
+                output,
+                startRow,
+                endRow,
+                threshold,
+                SplitPolicy.ROW_BOUNDARY_SCAN);
+    }
+
+    /**
+     * Public constructor with an explicit split policy.
+     *
+     * Caller-owned arrays are defensively copied.
+     */
+    public MultiplyTask(
+            double[] values,
+            int[] columns,
+            int[] rowPointers,
+            double[] input,
+            double[] output,
+            int startRow,
+            int endRow,
+            int threshold,
+            SplitPolicy splitPolicy) {
+
         Objects.requireNonNull(values, "values must not be null");
         Objects.requireNonNull(columns, "columns must not be null");
         Objects.requireNonNull(rowPointers, "rowPointers must not be null");
         Objects.requireNonNull(input, "input must not be null");
         Objects.requireNonNull(output, "output must not be null");
+        Objects.requireNonNull(splitPolicy, "splitPolicy must not be null");
 
         validateCsr(values, columns, rowPointers, input.length);
 
@@ -60,13 +113,16 @@ public final class MultiplyTask extends RecursiveAction {
         this.startRow = startRow;
         this.endRow = endRow;
         this.threshold = threshold;
+        this.splitPolicy = splitPolicy;
     }
 
     /**
-     * Creates a task using CSR arrays already validated and privately owned
-     * by SparseMatrixCSR.
+     * Backward-compatible factory for SparseMatrixCSR.
      *
-     * The matrix arrays are not copied. The input vector is snapshotted once.
+     * CSR arrays are already validated and privately owned by the matrix.
+     * The input vector is snapshotted once.
+     *
+     * The default partition strategy is ROW_BOUNDARY_SCAN.
      */
     static MultiplyTask forValidatedCsr(
             double[] values,
@@ -78,11 +134,41 @@ public final class MultiplyTask extends RecursiveAction {
             int endRow,
             int threshold) {
 
+        return forValidatedCsr(
+                values,
+                columns,
+                rowPointers,
+                input,
+                output,
+                startRow,
+                endRow,
+                threshold,
+                SplitPolicy.ROW_BOUNDARY_SCAN);
+    }
+
+    /**
+     * Factory for SparseMatrixCSR with an explicit partition strategy.
+     *
+     * Matrix-owned CSR arrays are reused without cloning.
+     * The input vector is snapshotted once per multiplication.
+     */
+    static MultiplyTask forValidatedCsr(
+            double[] values,
+            int[] columns,
+            int[] rowPointers,
+            double[] input,
+            double[] output,
+            int startRow,
+            int endRow,
+            int threshold,
+            SplitPolicy splitPolicy) {
+
         Objects.requireNonNull(values, "values must not be null");
         Objects.requireNonNull(columns, "columns must not be null");
         Objects.requireNonNull(rowPointers, "rowPointers must not be null");
         Objects.requireNonNull(input, "input must not be null");
         Objects.requireNonNull(output, "output must not be null");
+        Objects.requireNonNull(splitPolicy, "splitPolicy must not be null");
 
         if (values.length != columns.length) {
             throw new IllegalArgumentException(
@@ -108,7 +194,7 @@ public final class MultiplyTask extends RecursiveAction {
 
         /*
          * SparseMatrixCSR guarantees full structural validation and private
-         * ownership of these arrays. Only the vector needs a per-call copy.
+         * ownership of its CSR arrays. Only the input vector is copied.
          */
         return new MultiplyTask(
                 values,
@@ -119,9 +205,14 @@ public final class MultiplyTask extends RecursiveAction {
                 startRow,
                 endRow,
                 threshold,
+                splitPolicy,
                 TrustedData.INSTANCE);
     }
 
+    /**
+     * Internal constructor for trusted matrix-owned arrays and recursive
+     * child tasks.
+     */
     private MultiplyTask(
             double[] values,
             int[] columns,
@@ -131,6 +222,7 @@ public final class MultiplyTask extends RecursiveAction {
             int startRow,
             int endRow,
             int threshold,
+            SplitPolicy splitPolicy,
             TrustedData trustedData) {
 
         this.values = values;
@@ -142,6 +234,7 @@ public final class MultiplyTask extends RecursiveAction {
         this.startRow = startRow;
         this.endRow = endRow;
         this.threshold = threshold;
+        this.splitPolicy = splitPolicy;
     }
 
     private enum TrustedData {
@@ -257,10 +350,28 @@ public final class MultiplyTask extends RecursiveAction {
             return;
         }
 
-        int middle = findNnzBalancedSplit(startRow, endRow);
+        int middle;
+
+        switch (splitPolicy) {
+            case ROW_BOUNDARY_SCAN:
+                middle = findNnzBalancedSplitByScan(
+                        startRow,
+                        endRow);
+                break;
+
+            case BINARY_NNZ_SPLIT:
+                middle = findNnzBalancedSplitByBinarySearch(
+                        startRow,
+                        endRow);
+                break;
+
+            default:
+                throw new IllegalStateException(
+                        "Unsupported split policy: " + splitPolicy);
+        }
 
         /*
-         * Defensive fallback: every recursive split must make strict
+         * Defensive fallback. Every recursive split must make strict
          * progress and create two non-empty row ranges.
          */
         if (middle <= startRow || middle >= endRow) {
@@ -281,6 +392,7 @@ public final class MultiplyTask extends RecursiveAction {
                 startRow,
                 middle,
                 threshold,
+                splitPolicy,
                 TrustedData.INSTANCE);
 
         MultiplyTask right = new MultiplyTask(
@@ -292,21 +404,23 @@ public final class MultiplyTask extends RecursiveAction {
                 middle,
                 endRow,
                 threshold,
+                splitPolicy,
                 TrustedData.INSTANCE);
 
         invokeAll(left, right);
     }
 
     /**
-     * Finds an internal row boundary that minimizes the difference between
-     * the NNZ counts assigned to the left and right task.
+     * Baseline NNZ partitioning strategy.
      *
-     * Rows are indivisible. If the range contains no nonzeros, the method
-     * falls back to a row-count midpoint.
+     * Inspects every internal row boundary and selects the boundary with
+     * the smallest absolute difference between left and right NNZ counts.
      *
-     * Long arithmetic is used for totals and imbalance calculations.
+     * In case of equal imbalance, the first (lowest) row boundary wins.
+     *
+     * Complexity: O(number of rows in the task interval).
      */
-    private int findNnzBalancedSplit(
+    private int findNnzBalancedSplitByScan(
             int rangeStart,
             int rangeEnd) {
 
@@ -316,9 +430,9 @@ public final class MultiplyTask extends RecursiveAction {
             return rangeStart;
         }
 
+        long basePointer = rowPointers[rangeStart];
         long totalNnz =
-                (long) rowPointers[rangeEnd]
-                        - (long) rowPointers[rangeStart];
+                (long) rowPointers[rangeEnd] - basePointer;
 
         if (totalNnz <= 0L) {
             return rangeStart + rowCount / 2;
@@ -326,8 +440,6 @@ public final class MultiplyTask extends RecursiveAction {
 
         int bestSplit = -1;
         long bestImbalance = Long.MAX_VALUE;
-
-        long basePointer = rowPointers[rangeStart];
 
         for (int candidate = rangeStart + 1;
              candidate < rangeEnd;
@@ -351,6 +463,115 @@ public final class MultiplyTask extends RecursiveAction {
         }
 
         return bestSplit;
+    }
+
+    /**
+     * Experimental binary-search NNZ partitioning strategy.
+     *
+     * CSR row pointers are monotonically non-decreasing. Therefore, the
+     * internal boundary whose left NNZ count is closest to half of the
+     * interval's total NNZ can be located with lower-bound binary search.
+     *
+     * The search is restricted to internal row boundaries:
+     *     rangeStart + 1 <= boundary < rangeEnd
+     *
+     * Repeated row pointers are valid and represent empty rows. The
+     * lower-bound search handles them deterministically.
+     *
+     * If two candidates have equal imbalance, the lower row boundary wins.
+     *
+     * If the interval contains no nonzeros, a row-count midpoint is used.
+     *
+     * Complexity: O(log(number of rows in the task interval)).
+     */
+    private int findNnzBalancedSplitByBinarySearch(
+            int rangeStart,
+            int rangeEnd) {
+
+        int rowCount = rangeEnd - rangeStart;
+
+        if (rowCount <= 1) {
+            return rangeStart;
+        }
+
+        long basePointer = rowPointers[rangeStart];
+        long totalNnz =
+                (long) rowPointers[rangeEnd] - basePointer;
+
+        if (totalNnz <= 0L) {
+            return rangeStart + rowCount / 2;
+        }
+
+        /*
+         * Find the first internal boundary for which:
+         *
+         *     2 * leftNnz >= totalNnz
+         *
+         * Long arithmetic avoids overflow in the comparison.
+         */
+        int low = rangeStart + 1;
+        int high = rangeEnd;
+
+        while (low < high) {
+            int middle = low + (high - low) / 2;
+
+            long leftNnz =
+                    (long) rowPointers[middle] - basePointer;
+
+            if (2L * leftNnz < totalNnz) {
+                low = middle + 1;
+            } else {
+                high = middle;
+            }
+        }
+
+        /*
+         * low is the lower-bound insertion position. It may equal
+         * rangeEnd, which is not an admissible internal split boundary.
+         */
+        int rightCandidate = low;
+        int leftCandidate = low - 1;
+
+        boolean leftValid =
+                leftCandidate > rangeStart
+                        && leftCandidate < rangeEnd;
+
+        boolean rightValid =
+                rightCandidate > rangeStart
+                        && rightCandidate < rangeEnd;
+
+        if (!leftValid && !rightValid) {
+            return rangeStart + rowCount / 2;
+        }
+
+        if (!leftValid) {
+            return rightCandidate;
+        }
+
+        if (!rightValid) {
+            return leftCandidate;
+        }
+
+        long leftNnzAtLeft =
+                (long) rowPointers[leftCandidate] - basePointer;
+
+        long leftNnzAtRight =
+                (long) rowPointers[rightCandidate] - basePointer;
+
+        long leftImbalance = Math.abs(
+                totalNnz - 2L * leftNnzAtLeft);
+
+        long rightImbalance = Math.abs(
+                totalNnz - 2L * leftNnzAtRight);
+
+        /*
+         * Deterministic tie-break: choose the lower row boundary.
+         */
+        if (leftImbalance <= rightImbalance) {
+            return leftCandidate;
+        }
+
+        return rightCandidate;
     }
 
     /**
@@ -382,5 +603,12 @@ public final class MultiplyTask extends RecursiveAction {
 
     public int getThreshold() {
         return threshold;
+    }
+
+    /**
+     * Returns the partition strategy used by this task.
+     */
+    public SplitPolicy getSplitPolicy() {
+        return splitPolicy;
     }
 }
