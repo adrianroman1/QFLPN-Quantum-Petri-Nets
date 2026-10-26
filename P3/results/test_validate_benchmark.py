@@ -1,415 +1,180 @@
-#!/usr/bin/env bash
-set -Eeuo pipefail
+from __future__ import annotations
 
-# QFLPN P3 — reproducible benchmark execution.
-#
-# The current RUN_ID owns all run-specific evidence:
-#   execution-identity.txt
-#   benchmark-report.json
-#   benchmark-report.txt
-#   benchmark-report.md
-#   validation-report.json
-#   SHA256SUMS.txt
-#
-# A directory pre-created by p3_validation is accepted only when its
-# execution identity matches this exact workflow run.
-# Existing evidence is never deleted or overwritten.
-
-N="${N:-1000000}"
-WARMUP="${WARMUP:-5}"
-ITERATIONS="${ITERATIONS:-10}"
-THRESHOLD="${THRESHOLD:-4096}"
-PARALLELISM="${PARALLELISM:-2}"
-RUN_ID="${RUN_ID:-}"
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-P3_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-ROOT_DIR="$(cd "$P3_DIR/.." && pwd)"
-
-CSV="$P3_DIR/benchmarks/benchmark_results_v2.csv"
-RAW="$P3_DIR/results/raw"
-VALIDATOR="$P3_DIR/results/validate_benchmark.py"
-SUMMARY_GENERATOR="$P3_DIR/results/generate_benchmark_summary.py"
-
-for executable in java mvn python3 git sha256sum; do
-    if ! command -v "$executable" >/dev/null 2>&1; then
-        echo "ERROR: Missing executable: $executable" >&2
-        exit 1
-    fi
-done
-
-if [[ ! -f "$VALIDATOR" || -L "$VALIDATOR" ]]; then
-    echo "ERROR: Benchmark validator is missing or is a symlink." >&2
-    exit 1
-fi
-
-if [[ ! -f "$SUMMARY_GENERATOR" || -L "$SUMMARY_GENERATOR" ]]; then
-    echo "ERROR: Benchmark summary generator is missing or is a symlink." >&2
-    exit 1
-fi
-
-if [[ ! "$N" =~ ^[1-9][0-9]*$ \
-   || ! "$WARMUP" =~ ^[0-9]+$ \
-   || ! "$ITERATIONS" =~ ^[1-9][0-9]*$ \
-   || ! "$THRESHOLD" =~ ^[1-9][0-9]*$ \
-   || ! "$PARALLELISM" =~ ^[1-9][0-9]*$ ]]; then
-    echo "ERROR: Invalid benchmark configuration." >&2
-    exit 1
-fi
-
-if [[ -z "$RUN_ID" ]]; then
-    COMMIT_ID="$(git -C "$ROOT_DIR" rev-parse --short HEAD)"
-    RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-${COMMIT_ID}-$$"
-fi
-
-if [[ ! "$RUN_ID" =~ ^[A-Za-z0-9._-]+$ ]]; then
-    echo "ERROR: RUN_ID contains unsupported characters." >&2
-    exit 2
-fi
-
-export RUN_ID
-
-RUN_DIR="$RAW/$RUN_ID"
-IDENTITY_FILE="$RUN_DIR/execution-identity.txt"
-
-SOURCE_COMMIT="${SOURCE_COMMIT:-$(git -C "$ROOT_DIR" rev-parse HEAD)}"
-WORKFLOW_RUN_ID="${P3_WORKFLOW_RUN_ID:-local}"
-V3_DIMENSION="${P3_V3_DIMENSION:-4096}"
-
-if [[ ! "$SOURCE_COMMIT" =~ ^[A-Fa-f0-9]{7,64}$ ]]; then
-    echo "ERROR: SOURCE_COMMIT is missing or invalid." >&2
-    exit 1
-fi
-
-if [[ ! "$WORKFLOW_RUN_ID" =~ ^[A-Za-z0-9._-]+$ ]]; then
-    echo "ERROR: P3_WORKFLOW_RUN_ID is invalid." >&2
-    exit 1
-fi
-
-if [[ ! "$V3_DIMENSION" =~ ^[1-9][0-9]*$ ]]; then
-    echo "ERROR: P3_V3_DIMENSION is invalid." >&2
-    exit 1
-fi
-
-export SOURCE_COMMIT
-
-mkdir -p "$RAW" "$P3_DIR/benchmarks"
-
-if [[ -L "$RAW" || ! -d "$RAW" ]]; then
-    echo "ERROR: Raw evidence directory must be a real directory." >&2
-    exit 1
-fi
-
-if [[ -L "$RUN_DIR" ]]; then
-    echo "ERROR: RUN_ID directory must not be a symlink." >&2
-    exit 1
-fi
-
-EXPECTED_IDENTITY="$(
-    printf '%s\n' \
-        "P3_RUN_ID=$RUN_ID" \
-        "P3_WORKFLOW_RUN_ID=$WORKFLOW_RUN_ID" \
-        "P3_SOURCE_COMMIT=$SOURCE_COMMIT" \
-        "P3_V2_DIMENSION=$N" \
-        "P3_V3_DIMENSION=$V3_DIMENSION"
-)"
-
-if [[ -e "$RUN_DIR" ]]; then
-    if [[ ! -d "$RUN_DIR" ]]; then
-        echo "ERROR: RUN_ID output path exists and is not a directory." >&2
-        exit 1
-    fi
-
-    if [[ -L "$IDENTITY_FILE" || ! -f "$IDENTITY_FILE" ]]; then
-        echo "ERROR: Existing RUN_ID directory has no valid execution identity." >&2
-        echo "Refusing to reuse an unverified evidence directory." >&2
-        exit 1
-    fi
-
-    ACTUAL_IDENTITY="$(cat "$IDENTITY_FILE")"
-
-    if [[ "$ACTUAL_IDENTITY" != "$EXPECTED_IDENTITY" ]]; then
-        echo "ERROR: Existing RUN_ID identity does not match this execution." >&2
-        echo "Refusing to overwrite or reuse evidence from another run." >&2
-        exit 1
-    fi
-
-    echo "PASS: pre-created RUN_ID directory matches execution identity."
-else
-    # Atomic creation prevents two concurrent executions from claiming
-    # the same RUN_ID directory.
-    if ! mkdir "$RUN_DIR"; then
-        echo "ERROR: Could not exclusively create RUN_ID directory." >&2
-        exit 1
-    fi
-
-    IDENTITY_TMP="$RUN_DIR/.execution-identity.tmp"
-
-    if [[ -e "$IDENTITY_TMP" || -L "$IDENTITY_TMP" ]]; then
-        echo "ERROR: Unexpected temporary identity path already exists." >&2
-        exit 1
-    fi
-
-    printf '%s\n' "$EXPECTED_IDENTITY" > "$IDENTITY_TMP"
-    mv "$IDENTITY_TMP" "$IDENTITY_FILE"
-
-    echo "PASS: new RUN_ID directory and execution identity created."
-fi
-
-if [[ -L "$IDENTITY_FILE" || ! -f "$IDENTITY_FILE" ]]; then
-    echo "ERROR: execution-identity.txt is missing or unsafe." >&2
-    exit 1
-fi
-
-# Verify the identity again immediately before benchmark execution.
-ACTUAL_IDENTITY="$(cat "$IDENTITY_FILE")"
-
-if [[ "$ACTUAL_IDENTITY" != "$EXPECTED_IDENTITY" ]]; then
-    echo "ERROR: Execution identity changed during initialization." >&2
-    exit 1
-fi
-
-if [[ -L "$CSV" ]]; then
-    echo "ERROR: Benchmark CSV must not be a symlink." >&2
-    exit 1
-fi
-
-if [[ -e "$CSV" && ! -f "$CSV" ]]; then
-    echo "ERROR: Benchmark CSV is not a regular file." >&2
-    exit 1
-fi
-
-echo "P3 benchmark configuration"
-echo "RUN_ID=$RUN_ID"
-echo "SOURCE_COMMIT=$SOURCE_COMMIT"
-echo "WORKFLOW_RUN_ID=$WORKFLOW_RUN_ID"
-echo "N=$N"
-echo "WARMUP=$WARMUP"
-echo "ITERATIONS=$ITERATIONS"
-echo "THRESHOLD=$THRESHOLD"
-echo "PARALLELISM=$PARALLELISM"
-
-# Run the complete Maven test suite before measuring performance.
-cd "$ROOT_DIR"
-mvn -B -f "$P3_DIR/pom.xml" clean test
-
-# Record the CSV row count before this execution.
-before=0
-
-if [[ -f "$CSV" ]]; then
-    before="$(($(wc -l < "$CSV") - 1))"
-    if (( before < 0 )); then
-        echo "ERROR: Benchmark CSV has an invalid line count." >&2
-        exit 1
-    fi
-fi
-
-# Execute Java benchmark with the exact RUN_ID exported above.
-cd "$P3_DIR"
-
-java \
-    -cp target/classes \
-    hpc.csr.BenchmarkRunner \
-    "--n=$N" \
-    "--warmup=$WARMUP" \
-    "--iterations=$ITERATIONS" \
-    "--threshold=$THRESHOLD" \
-    "--parallelism=$PARALLELISM"
-
-if [[ ! -f "$CSV" || -L "$CSV" ]]; then
-    echo "ERROR: Benchmark CSV was not produced as a regular file." >&2
-    exit 1
-fi
-
-after="$(($(wc -l < "$CSV") - 1))"
-
-if [[ "$after" -ne "$((before + 1))" ]]; then
-    echo "ERROR: Expected exactly one new V2 CSV record." >&2
-    echo "Before: $before; after: $after" >&2
-    exit 1
-fi
-
-# Produce validation-report.json for this exact RUN_ID.
-VALIDATION_REPORT="$RUN_DIR/validation-report.json"
-
-if [[ -e "$VALIDATION_REPORT" || -L "$VALIDATION_REPORT" ]]; then
-    echo "ERROR: validation-report.json already exists." >&2
-    echo "Refusing to overwrite existing run evidence." >&2
-    exit 1
-fi
-
-python3 "$VALIDATOR" \
-    --csv "$CSV" \
-    --expected-n "$N" \
-    --warmup "$WARMUP" \
-    --iterations "$ITERATIONS" \
-    --threshold "$THRESHOLD" \
-    --parallelism "$PARALLELISM" \
-    --report-json "$VALIDATION_REPORT"
-
-if [[ ! -s "$VALIDATION_REPORT" || -L "$VALIDATION_REPORT" ]]; then
-    echo "ERROR: Current-run validation report is missing, empty, or a symlink." >&2
-    exit 1
-fi
-
-# Refuse to overwrite reports that may belong to an earlier execution.
-for filename in \
-    benchmark-report.json \
-    benchmark-report.txt \
-    benchmark-report.md \
-    SHA256SUMS.txt; do
-    if [[ -e "$RUN_DIR/$filename" || -L "$RUN_DIR/$filename" ]]; then
-        echo "ERROR: Run evidence already exists: $filename" >&2
-        echo "Refusing to overwrite existing evidence." >&2
-        exit 1
-    fi
-done
-
-# Produce benchmark-report.md inside this RUN_ID directory.
-python3 "$SUMMARY_GENERATOR" \
-    --csv "$CSV" \
-    --report "$VALIDATION_REPORT" \
-    --run-id "$RUN_ID" \
-    --output "$RUN_DIR/benchmark-report.md" \
-    --strict-output
-
-# Verify that all run-specific reports belong to this execution.
-python3 - "$RUN_DIR" "$RUN_ID" <<'PY'
-import json
-import sys
+import csv
+import importlib.util
 from pathlib import Path
 
-run_dir = Path(sys.argv[1])
-expected_run_id = sys.argv[2]
+import pytest
 
-required = (
-    "execution-identity.txt",
-    "benchmark-report.json",
-    "benchmark-report.txt",
-    "benchmark-report.md",
-    "validation-report.json",
+MODULE_PATH = Path(__file__).with_name("validate_benchmark.py")
+SPEC = importlib.util.spec_from_file_location("qflpn_validate_benchmark", MODULE_PATH)
+assert SPEC is not None and SPEC.loader is not None
+VALIDATOR = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(VALIDATOR)
+
+
+def valid_row() -> dict[str, str]:
+    return {
+        "timestamp": "2026-10-22T10:00:00Z",
+        "run_id": "ci-123",
+        "benchmark_id": "QFLPN-100",
+        "dimension": "100",
+        "non_zero_count": "200",
+        "parallelism": "2",
+        "threshold": "4096",
+        "warmup_iterations": "5",
+        "measured_iterations": "10",
+        "sequential_mean_ms": "20",
+        "sequential_median_ms": "19",
+        "sequential_stddev_ms": "2",
+        "parallel_mean_ms": "10",
+        "parallel_median_ms": "9",
+        "parallel_stddev_ms": "1",
+        "speedup": "2",
+        "sequential_throughput_states_per_s": "5000",
+        "parallel_throughput_states_per_s": "10000",
+        "sequential_expected_error": "0",
+        "parallel_expected_error": "0",
+        "max_absolute_error": "0",
+        "setup_time_ms": "1",
+        "cpu": "test-cpu",
+        "max_jvm_memory_bytes": "4000000000",
+        "free_jvm_heap_bytes": "500000000",
+        "java_version": "21",
+        "operating_system": "Linux",
+        "notes": "test",
+    }
+
+
+def write_csv(path: Path, rows: list[dict[str, str]]) -> None:
+    with path.open("w", newline="", encoding="utf-8") as stream:
+        writer = csv.DictWriter(
+            stream, fieldnames=VALIDATOR.HEADER, extrasaction="raise"
+        )
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def test_accepts_valid_v2_record(tmp_path: Path) -> None:
+    path = tmp_path / "valid.csv"
+    write_csv(path, [valid_row()])
+    result = VALIDATOR.validate(path)
+    assert result["validation"] == "PASS"
+    assert result["records"] == 1
+    assert result["all_records_valid"] is True
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("speedup", "3"),
+        ("sequential_expected_error", "1e-5"),
+        ("parallel_stddev_ms", "nan"),
+        ("run_id", ""),
+        ("timestamp", "not-a-date"),
+        ("timestamp", "2026-10-22T10:00:00"),
+        ("dimension", "100.0"),
+        ("dimension", "-100"),
+        ("non_zero_count", "199"),
+        ("benchmark_id", "WRONG"),
+        ("parallelism", "0"),
+        ("threshold", "0"),
+        ("warmup_iterations", "-1"),
+        ("measured_iterations", "0"),
+        ("max_jvm_memory_bytes", "0"),
+        ("free_jvm_heap_bytes", "5000000000"),
+        ("cpu", ""),
+        ("operating_system", ""),
+    ],
 )
+def test_rejects_invalid_fields(
+    tmp_path: Path, field: str, value: str
+) -> None:
+    row = valid_row()
+    row[field] = value
+    path = tmp_path / "invalid.csv"
+    write_csv(path, [row])
+    with pytest.raises(VALIDATOR.ValidationError):
+        VALIDATOR.validate(path)
 
-for filename in required:
-    path = run_dir / filename
 
-    if path.is_symlink():
-        raise SystemExit(f"ERROR: {filename} must not be a symlink.")
+def test_rejects_legacy_header(tmp_path: Path) -> None:
+    path = tmp_path / "legacy.csv"
+    path.write_text("timestamp,dimension\nnow,1\n", encoding="utf-8")
+    with pytest.raises(VALIDATOR.ValidationError, match="header mismatch"):
+        VALIDATOR.validate(path)
 
-    if not path.is_file():
-        raise SystemExit(f"ERROR: Missing run-specific report: {filename}")
 
-    if path.stat().st_size == 0:
-        raise SystemExit(f"ERROR: Empty run-specific report: {filename}")
+def test_rejects_header_only_csv(tmp_path: Path) -> None:
+    path = tmp_path / "header-only.csv"
+    path.write_text(",".join(VALIDATOR.HEADER) + "\n", encoding="utf-8")
+    with pytest.raises(VALIDATOR.ValidationError, match="no benchmark data"):
+        VALIDATOR.validate(path)
 
-benchmark_json_path = run_dir / "benchmark-report.json"
-validation_json_path = run_dir / "validation-report.json"
-benchmark_text_path = run_dir / "benchmark-report.txt"
-benchmark_markdown_path = run_dir / "benchmark-report.md"
 
-try:
-    benchmark_json = json.loads(
-        benchmark_json_path.read_text(encoding="utf-8")
+def test_rejects_empty_file(tmp_path: Path) -> None:
+    path = tmp_path / "empty.csv"
+    path.write_text("", encoding="utf-8")
+    with pytest.raises(VALIDATOR.ValidationError):
+        VALIDATOR.validate(path)
+
+
+def test_rejects_missing_column_value(tmp_path: Path) -> None:
+    row = valid_row()
+    del row["cpu"]
+    path = tmp_path / "missing.csv"
+    with path.open("w", newline="", encoding="utf-8") as stream:
+        writer = csv.DictWriter(stream, fieldnames=VALIDATOR.HEADER)
+        writer.writeheader()
+        writer.writerow(row)
+    with pytest.raises(VALIDATOR.ValidationError):
+        VALIDATOR.validate(path)
+
+
+def test_rejects_extra_csv_field(tmp_path: Path) -> None:
+    path = tmp_path / "extra.csv"
+    path.write_text(
+        ",".join(VALIDATOR.HEADER) + "\n"
+        + ",".join(valid_row()[key] for key in VALIDATOR.HEADER)
+        + ",unexpected\n",
+        encoding="utf-8",
     )
-    validation_json = json.loads(
-        validation_json_path.read_text(encoding="utf-8")
+    with pytest.raises(VALIDATOR.ValidationError):
+        VALIDATOR.validate(path)
+
+
+def test_rejects_duplicate_run_id(tmp_path: Path) -> None:
+    path = tmp_path / "duplicates.csv"
+    write_csv(path, [valid_row(), valid_row()])
+    with pytest.raises(VALIDATOR.ValidationError, match="duplicate run_id"):
+        VALIDATOR.validate(path)
+
+
+def test_checks_expected_configuration(tmp_path: Path) -> None:
+    path = tmp_path / "expected.csv"
+    write_csv(path, [valid_row()])
+    result = VALIDATOR.validate(
+        path,
+        {
+            "dimension": 100,
+            "warmup_iterations": 5,
+            "measured_iterations": 10,
+            "threshold": 4096,
+            "parallelism": 2,
+        },
     )
-except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-    raise SystemExit(f"ERROR: Invalid run-specific JSON: {exc}")
+    assert result["validation"] == "PASS"
 
-if benchmark_json.get("run_id") != expected_run_id:
-    raise SystemExit(
-        "ERROR: benchmark-report.json RUN_ID does not match current execution."
-    )
 
-if benchmark_json.get("validation") != "PASS":
-    raise SystemExit(
-        "ERROR: benchmark-report.json does not declare VALIDATION=PASS."
-    )
+def test_rejects_configuration_mismatch(tmp_path: Path) -> None:
+    path = tmp_path / "mismatch.csv"
+    write_csv(path, [valid_row()])
+    with pytest.raises(VALIDATOR.ValidationError, match="expected"):
+        VALIDATOR.validate(path, {"dimension": 12})
 
-if validation_json.get("validation") != "PASS":
-    raise SystemExit(
-        "ERROR: validation-report.json does not declare VALIDATION=PASS."
-    )
 
-latest = validation_json.get("latest_record")
-
-if not isinstance(latest, dict):
-    raise SystemExit(
-        "ERROR: validation-report.json has no latest_record object."
-    )
-
-if latest.get("run_id") != expected_run_id:
-    raise SystemExit(
-        "ERROR: validation-report.json RUN_ID does not match current execution."
-    )
-
-text_content = benchmark_text_path.read_text(encoding="utf-8")
-markdown_content = benchmark_markdown_path.read_text(encoding="utf-8")
-
-if f"RUN_ID={expected_run_id}" not in text_content:
-    raise SystemExit(
-        "ERROR: benchmark-report.txt is not associated with current RUN_ID."
-    )
-
-if expected_run_id not in markdown_content:
-    raise SystemExit(
-        "ERROR: benchmark-report.md is not associated with current RUN_ID."
-    )
-
-if "Validation: **PASS**" not in markdown_content:
-    raise SystemExit(
-        "ERROR: benchmark-report.md does not declare successful validation."
-    )
-
-print("PASS: all run-specific reports are associated with RUN_ID.")
-PY
-
-# Generate run-specific checksums only after all evidence files exist.
-(
-    cd "$P3_DIR"
-
-    sha256sum \
-        "benchmarks/benchmark_results_v2.csv" \
-        "results/raw/$RUN_ID/execution-identity.txt" \
-        "results/raw/$RUN_ID/benchmark-report.json" \
-        "results/raw/$RUN_ID/benchmark-report.md" \
-        "results/raw/$RUN_ID/benchmark-report.txt" \
-        "results/raw/$RUN_ID/validation-report.json" \
-        > "results/raw/$RUN_ID/SHA256SUMS.txt"
-)
-
-if [[ ! -s "$RUN_DIR/SHA256SUMS.txt" || -L "$RUN_DIR/SHA256SUMS.txt" ]]; then
-    echo "ERROR: Run-specific SHA256SUMS.txt was not generated correctly." >&2
-    exit 1
-fi
-
-# Verify the run-specific checksum file before reporting success.
-(
-    cd "$P3_DIR"
-    sha256sum --check "results/raw/$RUN_ID/SHA256SUMS.txt"
-)
-
-SUMMARY_TEXT="$(
-    cat <<EOF
-## P3 Benchmark V2
-
-- Run ID: \`$RUN_ID\`
-- Validation: **PASS**
-- Dimension: $N
-- Warm-up / iterations: $WARMUP / $ITERATIONS
-- CSV: \`P3/benchmarks/benchmark_results_v2.csv\`
-- Run-specific reports: \`P3/results/raw/$RUN_ID/\`
-- Execution identity: \`P3/results/raw/$RUN_ID/execution-identity.txt\`
-- Markdown producer: \`P3/results/generate_benchmark_summary.py\`
-- Run-specific checksums: \`P3/results/raw/$RUN_ID/SHA256SUMS.txt\`
-
-EOF
-)"
-
-if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
-    printf '%s\n' "$SUMMARY_TEXT" >> "$GITHUB_STEP_SUMMARY"
-fi
-
-printf '%s\n' "$SUMMARY_TEXT"
-echo "P3 benchmark evidence generated successfully: $RUN_ID"
+def test_rejects_invalid_utf8(tmp_path: Path) -> None:
+    path = tmp_path / "bad-encoding.csv"
+    path.write_bytes(b"\xff\xfe\xfa")
+    with pytest.raises(VALIDATOR.ValidationError):
+        VALIDATOR.validate(path)
