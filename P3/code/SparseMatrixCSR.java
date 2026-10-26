@@ -10,6 +10,9 @@ import java.util.concurrent.ForkJoinPool;
  *
  * Duplicate column indices are supported. Their values are
  * interpreted additively by get(), multiply() and multiplyParallel().
+ *
+ * The default parallel split policy is ROW_BOUNDARY_SCAN.
+ * Callers may explicitly select another MultiplyTask.SplitPolicy.
  */
 public final class SparseMatrixCSR {
 
@@ -125,7 +128,6 @@ public final class SparseMatrixCSR {
         int[] compactRowPointers = new int[rows + 1];
 
         compactRowPointers[0] = 0;
-
         int writeIndex = 0;
 
         for (int row = 0; row < rows; row++) {
@@ -236,48 +238,129 @@ public final class SparseMatrixCSR {
         return multiplyParallel(
                 x,
                 DEFAULT_PARALLEL_THRESHOLD,
-                Math.max(1, Runtime.getRuntime().availableProcessors()));
+                Math.max(1, Runtime.getRuntime().availableProcessors()),
+                MultiplyTask.SplitPolicy.ROW_BOUNDARY_SCAN);
     }
 
+    /**
+     * Backward-compatible API.
+     * The default split policy is ROW_BOUNDARY_SCAN.
+     */
     public double[] multiplyParallel(
             double[] x,
             int threshold,
             int parallelism) {
 
+        return multiplyParallel(
+                x,
+                threshold,
+                parallelism,
+                MultiplyTask.SplitPolicy.ROW_BOUNDARY_SCAN);
+    }
+
+    /**
+     * Parallel multiplication with an explicitly selected split policy.
+     */
+    public double[] multiplyParallel(
+            double[] x,
+            int threshold,
+            int parallelism,
+            MultiplyTask.SplitPolicy splitPolicy) {
+
         validateInputVector(x);
         validateParallelConfiguration(threshold, parallelism);
+        Objects.requireNonNull(splitPolicy, "splitPolicy cannot be null");
 
         double[] y = new double[rows];
 
-        multiplyParallelInto(x, y, threshold, parallelism);
+        multiplyParallelInto(
+                x,
+                y,
+                threshold,
+                parallelism,
+                splitPolicy);
 
         return y;
     }
 
+    /**
+     * Backward-compatible API.
+     * The default split policy is ROW_BOUNDARY_SCAN.
+     */
     public void multiplyParallelInto(
             double[] x,
             double[] y,
             int threshold,
             int parallelism) {
 
+        multiplyParallelInto(
+                x,
+                y,
+                threshold,
+                parallelism,
+                MultiplyTask.SplitPolicy.ROW_BOUNDARY_SCAN);
+    }
+
+    /**
+     * Parallel multiplication with an explicitly selected split policy.
+     * A new ForkJoinPool is created and shut down by this method.
+     */
+    public void multiplyParallelInto(
+            double[] x,
+            double[] y,
+            int threshold,
+            int parallelism,
+            MultiplyTask.SplitPolicy splitPolicy) {
+
         validateInputVector(x);
         validateOutputVector(y);
         validateParallelConfiguration(threshold, parallelism);
+        Objects.requireNonNull(splitPolicy, "splitPolicy cannot be null");
 
         ForkJoinPool pool = new ForkJoinPool(parallelism);
 
         try {
-            multiplyParallelInto(x, y, threshold, pool);
+            multiplyParallelInto(
+                    x,
+                    y,
+                    threshold,
+                    pool,
+                    splitPolicy);
         } finally {
             pool.shutdown();
         }
     }
 
+    /**
+     * Backward-compatible overload using ROW_BOUNDARY_SCAN.
+     */
     public void multiplyParallelInto(
             double[] x,
             double[] y,
             int threshold,
             ForkJoinPool pool) {
+
+        multiplyParallelInto(
+                x,
+                y,
+                threshold,
+                pool,
+                MultiplyTask.SplitPolicy.ROW_BOUNDARY_SCAN);
+    }
+
+    /**
+     * Parallel multiplication using a caller-owned ForkJoinPool and an
+     * explicit split policy. The pool is not shut down by this method.
+     *
+     * The input vector is snapshotted once by MultiplyTask.forValidatedCsr.
+     * This preserves correctness when x and y are the same array.
+     */
+    public void multiplyParallelInto(
+            double[] x,
+            double[] y,
+            int threshold,
+            ForkJoinPool pool,
+            MultiplyTask.SplitPolicy splitPolicy) {
 
         validateInputVector(x);
         validateOutputVector(y);
@@ -285,6 +368,10 @@ public final class SparseMatrixCSR {
         Objects.requireNonNull(
                 pool,
                 "ForkJoinPool cannot be null.");
+
+        Objects.requireNonNull(
+                splitPolicy,
+                "splitPolicy cannot be null.");
 
         if (threshold <= 0) {
             throw new IllegalArgumentException(
@@ -296,12 +383,6 @@ public final class SparseMatrixCSR {
                     "ForkJoinPool is already shut down.");
         }
 
-        /*
-         * Lot 7:
-         * The factory reuses the matrix-owned CSR arrays without cloning
-         * or revalidating them. It creates exactly one input snapshot.
-         * This also preserves correctness when x == y.
-         */
         MultiplyTask task = MultiplyTask.forValidatedCsr(
                 values,
                 columnIndices,
@@ -310,7 +391,8 @@ public final class SparseMatrixCSR {
                 y,
                 0,
                 rows,
-                threshold);
+                threshold,
+                splitPolicy);
 
         pool.invoke(task);
     }
