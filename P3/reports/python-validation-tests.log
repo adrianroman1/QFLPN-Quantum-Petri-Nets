@@ -2,7 +2,7 @@
 platform linux -- Python 3.12.15, pytest-9.1.1, pluggy-1.7.0 -- /opt/hostedtoolcache/Python/3.12.15/x64/bin/python
 cachedir: .pytest_cache
 rootdir: /home/runner/work/QFLPN-Quantum-Petri-Nets/QFLPN-Quantum-Petri-Nets
-collecting ... collected 191 items
+collecting ... collected 183 items
 
 P3/results/test_validate_benchmark.py::test_accepts_valid_v2_record PASSED [  0%]
 P3/results/test_validate_benchmark.py::test_rejects_invalid_fields[speedup-3] PASSED [  1%]
@@ -14,326 +14,312 @@ P3/results/test_validate_benchmark.py::test_rejects_invalid_fields[timestamp-202
 P3/results/test_validate_benchmark.py::test_rejects_invalid_fields[dimension-100.0] PASSED [  4%]
 P3/results/test_validate_benchmark.py::test_rejects_invalid_fields[dimension--100] PASSED [  4%]
 P3/results/test_validate_benchmark.py::test_rejects_invalid_fields[non_zero_count-199] PASSED [  5%]
-P3/results/test_validate_benchmark.py::test_rejects_invalid_fields[benchmark_id-WRONG] PASSED [  5%]
+P3/results/test_validate_benchmark.py::test_rejects_invalid_fields[benchmark_id-WRONG] PASSED [  6%]
 P3/results/test_validate_benchmark.py::test_rejects_invalid_fields[parallelism-0] PASSED [  6%]
-P3/results/test_validate_benchmark.py::test_rejects_invalid_fields[threshold-0] PASSED [  6%]
+P3/results/test_validate_benchmark.py::test_rejects_invalid_fields[threshold-0] PASSED [  7%]
 P3/results/test_validate_benchmark.py::test_rejects_invalid_fields[warmup_iterations--1] PASSED [  7%]
-P3/results/test_validate_benchmark.py::test_rejects_invalid_fields[measured_iterations-0] PASSED [  7%]
+P3/results/test_validate_benchmark.py::test_rejects_invalid_fields[measured_iterations-0] PASSED [  8%]
 P3/results/test_validate_benchmark.py::test_rejects_invalid_fields[max_jvm_memory_bytes-0] PASSED [  8%]
-P3/results/test_validate_benchmark.py::test_rejects_invalid_fields[free_jvm_heap_bytes-5000000000] PASSED [  8%]
+P3/results/test_validate_benchmark.py::test_rejects_invalid_fields[free_jvm_heap_bytes-5000000000] PASSED [  9%]
 P3/results/test_validate_benchmark.py::test_rejects_invalid_fields[cpu-] PASSED [  9%]
-P3/results/test_validate_benchmark.py::test_rejects_invalid_fields[operating_system-] PASSED [  9%]
+P3/results/test_validate_benchmark.py::test_rejects_invalid_fields[operating_system-] PASSED [ 10%]
 P3/results/test_validate_benchmark.py::test_rejects_legacy_header PASSED [ 10%]
-P3/results/test_validate_benchmark.py::test_rejects_header_only_csv PASSED [ 10%]
-P3/results/test_validate_benchmark.py::test_rejects_empty_file PASSED    [ 11%]
+P3/results/test_validate_benchmark.py::test_rejects_header_only_csv PASSED [ 11%]
+P3/results/test_validate_benchmark.py::test_rejects_empty_file PASSED    [ 12%]
 P3/results/test_validate_benchmark.py::test_rejects_missing_column_value PASSED [ 12%]
-P3/results/test_validate_benchmark.py::test_rejects_extra_csv_field PASSED [ 12%]
+P3/results/test_validate_benchmark.py::test_rejects_extra_csv_field PASSED [ 13%]
 P3/results/test_validate_benchmark.py::test_rejects_duplicate_run_id PASSED [ 13%]
-P3/results/test_validate_benchmark.py::test_checks_expected_configuration PASSED [ 13%]
+P3/results/test_validate_benchmark.py::test_checks_expected_configuration PASSED [ 14%]
 P3/results/test_validate_benchmark.py::test_rejects_configuration_mismatch PASSED [ 14%]
-P3/results/test_validate_benchmark.py::test_rejects_invalid_utf8 PASSED  [ 14%]
+P3/results/test_validate_benchmark.py::test_rejects_invalid_utf8 PASSED  [ 15%]
 P3/tests/test_record_environment.py::test_validate_accepts_complete_environment PASSED [ 15%]
-P3/tests/test_record_environment.py::test_validate_rejects_missing_required_fields[repository-commit] PASSED [ 15%]
+P3/tests/test_record_environment.py::test_validate_rejects_missing_required_fields[repository-commit] PASSED [ 16%]
 P3/tests/test_record_environment.py::test_validate_rejects_missing_required_fields[repository-remote_origin] PASSED [ 16%]
-P3/tests/test_record_environment.py::test_validate_rejects_missing_required_fields[runner-os] PASSED [ 16%]
-P3/tests/test_record_environment.py::test_validate_rejects_missing_required_fields[runner-machine] PASSED [ 17%]
-P3/tests/test_record_environment.py::test_validate_rejects_missing_required_fields[runtime-java] PASSED [ 17%]
-P3/tests/test_record_environment.py::test_validate_rejects_missing_required_fields[runtime-maven] PASSED [ 18%]
-P3/tests/test_record_environment.py::test_validate_rejects_missing_required_fields[runtime-python] PASSED [ 18%]
-P3/tests/test_record_environment.py::test_validate_rejects_missing_required_fields[runtime-git] PASSED [ 19%]
-P3/tests/test_record_environment.py::test_validate_rejects_invalid_benchmark_integer[0] PASSED [ 19%]
-P3/tests/test_record_environment.py::test_validate_rejects_invalid_benchmark_integer[-1] PASSED [ 20%]
-P3/tests/test_record_environment.py::test_validate_rejects_invalid_benchmark_integer[True] PASSED [ 20%]
-P3/tests/test_record_environment.py::test_validate_rejects_invalid_benchmark_integer[1.5] PASSED [ 21%]
-P3/tests/test_record_environment.py::test_validate_rejects_invalid_benchmark_integer[None] PASSED [ 21%]
-P3/tests/test_record_environment.py::test_validate_rejects_invalid_benchmark_integer[100] PASSED [ 22%]
-P3/tests/test_record_environment.py::test_validate_rejects_wrong_schema PASSED [ 23%]
-P3/tests/test_record_environment.py::test_validate_rejects_unavailable_runtime PASSED [ 23%]
-P3/tests/test_record_environment.py::test_render_text_contains_run_and_configuration PASSED [ 24%]
-P3/tests/test_record_environment.py::test_capture_environment_records_actual_metadata PASSED [ 24%]
-P3/tests/test_record_environment.py::test_capture_environment_rejects_missing_repository PASSED [ 25%]
-P3/tests/test_record_environment.py::test_atomic_write_creates_parent_and_exact_content PASSED [ 25%]
-P3/tests/test_record_environment.py::test_atomic_write_refuses_symlink PASSED [ 26%]
-P3/tests/test_record_environment.py::test_json_output_is_valid_and_round_trips PASSED [ 26%]
-P3/tests/test_verify_remote_integrity.py::test_verify_remote_checks_every_blob_and_provenance PASSED [ 27%]
-P3/tests/test_verify_remote_integrity.py::test_remote_publication_commit_is_not_source_commit PASSED [ 27%]
-P3/tests/test_verify_remote_integrity.py::test_verify_remote_rejects_different_run_id PASSED [ 28%]
-P3/tests/test_verify_remote_integrity.py::test_verify_remote_rejects_different_source_commit PASSED [ 28%]
-P3/tests/test_verify_remote_integrity.py::test_verify_remote_rejects_invalid_provenance_in_published_report[p3-987654321-1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-PASS-RUN_ID mismatch] PASSED [ 29%]
-P3/tests/test_verify_remote_integrity.py::test_verify_remote_rejects_invalid_provenance_in_published_report[p3-123456789-1-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-PASS-SOURCE_COMMIT mismatch] PASSED [ 29%]
-P3/tests/test_verify_remote_integrity.py::test_verify_remote_rejects_invalid_provenance_in_published_report[p3-123456789-1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-NOT_RUN-not PASS] PASSED [ 30%]
-P3/tests/test_verify_remote_integrity.py::test_verify_remote_rejects_missing_evidence_consistency_report PASSED [ 30%]
-P3/tests/test_verify_remote_integrity.py::test_integrity_only_accepts_package_without_evidence_consistency PASSED [ 31%]
-P3/tests/test_verify_remote_integrity.py::test_integrity_only_still_rejects_remote_blob_hash_mismatch PASSED [ 31%]
-P3/tests/test_verify_remote_integrity.py::test_integrity_only_does_not_parse_malformed_evidence_json PASSED [ 32%]
-P3/tests/test_verify_remote_integrity.py::test_verify_remote_fails_when_remote_blob_hash_is_wrong PASSED [ 32%]
-P3/tests/test_verify_remote_integrity.py::test_verify_remote_fails_when_manifest_blob_is_missing PASSED [ 33%]
-P3/tests/test_verify_remote_integrity.py::test_parse_manifest_rejects_duplicate_paths PASSED [ 34%]
-P3/tests/test_verify_remote_integrity.py::test_parse_manifest_rejects_unsorted_paths PASSED [ 34%]
-P3/tests/test_verify_remote_integrity.py::test_parse_manifest_rejects_missing_final_newline PASSED [ 35%]
-P3/tests/test_verify_remote_integrity.py::test_validate_relative_path_rejects_unsafe_paths[../outside.txt] PASSED [ 35%]
-P3/tests/test_verify_remote_integrity.py::test_validate_relative_path_rejects_unsafe_paths[/absolute.txt] PASSED [ 36%]
-P3/tests/test_verify_remote_integrity.py::test_validate_relative_path_rejects_unsafe_paths[P3/../outside.txt] PASSED [ 36%]
-P3/tests/test_verify_remote_integrity.py::test_validate_relative_path_rejects_unsafe_paths[P3\\windows.txt] PASSED [ 37%]
-P3/tests/test_verify_remote_integrity.py::test_validate_relative_path_rejects_unsafe_paths[P3/MANIFEST.txt] PASSED [ 37%]
-P3/tests/test_verify_remote_integrity.py::test_validate_relative_path_rejects_unsafe_paths[P3/SHA256SUMS.txt] PASSED [ 38%]
-P3/tests/test_verify_remote_integrity.py::test_validate_relative_path_rejects_unsafe_paths[other/file.txt] PASSED [ 38%]
-P3/tests/test_verify_remote_integrity.py::test_validate_relative_path_rejects_unsafe_paths[P3//double-separator.txt] PASSED [ 39%]
-P3/tests/test_verify_remote_integrity.py::test_validate_relative_path_rejects_unsafe_paths[ P3/leading-space.txt] PASSED [ 39%]
-P3/tests/test_verify_remote_integrity.py::test_validate_relative_path_rejects_unsafe_paths[P3/trailing-space.txt ] PASSED [ 40%]
-P3/tests/test_verify_remote_integrity.py::test_parse_checksums_rejects_invalid_digest PASSED [ 40%]
-P3/tests/test_verify_remote_integrity.py::test_parse_checksums_rejects_duplicate_paths PASSED [ 41%]
-P3/tests/test_verify_remote_integrity.py::test_parse_checksums_rejects_missing_final_newline PASSED [ 41%]
-P3/tests/test_verify_remote_integrity.py::test_parse_checksums_rejects_empty_inventory PASSED [ 42%]
-P3/tests/test_verify_remote_integrity.py::test_parse_checksums_rejects_manifest_checksum_set_mismatch PASSED [ 42%]
-P3/tests/test_verify_remote_integrity.py::test_verify_remote_rejects_invalid_expected_identity[-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa] PASSED [ 43%]
-P3/tests/test_verify_remote_integrity.py::test_verify_remote_rejects_invalid_expected_identity[not-a-p3-run-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa] PASSED [ 43%]
-P3/tests/test_verify_remote_integrity.py::test_verify_remote_rejects_invalid_expected_identity[p3-123-abc-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa] PASSED [ 44%]
-P3/tests/test_verify_remote_integrity.py::test_verify_remote_rejects_invalid_expected_identity[p3-123456789-1-] PASSED [ 45%]
-P3/tests/test_verify_remote_integrity.py::test_verify_remote_rejects_invalid_expected_identity[p3-123456789-1-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA] PASSED [ 45%]
-P3/tests/test_verify_remote_integrity.py::test_verify_remote_rejects_invalid_expected_identity[p3-123456789-1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa] PASSED [ 46%]
-P3/tests/test_verify_remote_integrity.py::test_verify_remote_rejects_invalid_expected_identity[p3-123456789-1-gggggggggggggggggggggggggggggggggggggggg] PASSED [ 46%]
-P3/tests/test_verify_remote_integrity.py::test_parse_evidence_consistency_rejects_invalid_json PASSED [ 47%]
-P3/tests/test_verify_remote_integrity.py::test_parse_evidence_consistency_rejects_wrong_schema PASSED [ 47%]
-P3/tests/test_verify_remote_integrity.py::test_parse_evidence_consistency_rejects_non_object_json PASSED [ 48%]
-P3/tests/test_verify_remote_integrity.py::test_atomic_write_json_writes_valid_json PASSED [ 48%]
-P3/tests/test_verify_remote_integrity.py::test_atomic_write_json_rejects_symlink PASSED [ 49%]
-P3/tests/test_verify_evidence_consistency.py::test_v3_csv_has_exact_46_column_contract PASSED [ 49%]
-P3/tests/test_verify_evidence_consistency.py::test_v3_matrix_has_192_records PASSED [ 50%]
-P3/tests/test_verify_evidence_consistency.py::test_v3_legacy_matrix_has_96_records PASSED [ 50%]
-P3/tests/test_verify_evidence_consistency.py::test_v3_validator_accepts_complete_ab_matrix PASSED [ 51%]
-P3/tests/test_verify_evidence_consistency.py::test_v3_rejects_wrong_commit PASSED [ 51%]
-P3/tests/test_verify_evidence_consistency.py::test_v3_rejects_wrong_workflow_id PASSED [ 52%]
-P3/tests/test_verify_evidence_consistency.py::test_v3_rejects_tampered_csv PASSED [ 52%]
-P3/tests/test_verify_evidence_consistency.py::test_v3_rejects_tampered_persistent_report PASSED [ 53%]
-P3/tests/test_verify_evidence_consistency.py::test_run_id_validation PASSED [ 53%]
-P3/tests/test_verify_evidence_consistency.py::test_source_commit_validation PASSED [ 54%]
-P3/tests/test_verify_evidence_consistency.py::test_checksum_parser_rejects_duplicate_entries PASSED [ 54%]
-P3/tests/test_verify_evidence_consistency.py::test_checksum_parser_rejects_path_traversal PASSED [ 55%]
-P3/tests/test_verify_evidence_consistency.py::test_checksum_parser_rejects_tampering PASSED [ 56%]
-P3/tests/test_generate_benchmark_summary.py::test_summary_accepts_matching_csv_and_json PASSED [ 56%]
-P3/tests/test_generate_benchmark_summary.py::test_summary_rejects_csv_run_id_mismatch PASSED [ 57%]
-P3/tests/test_generate_benchmark_summary.py::test_summary_rejects_json_run_id_mismatch PASSED [ 57%]
-P3/tests/test_generate_benchmark_summary.py::test_summary_rejects_csv_json_metric_mismatch[dimension-101] PASSED [ 58%]
-P3/tests/test_generate_benchmark_summary.py::test_summary_rejects_csv_json_metric_mismatch[nnz-201] PASSED [ 58%]
-P3/tests/test_generate_benchmark_summary.py::test_summary_rejects_csv_json_metric_mismatch[speedup-3.0] PASSED [ 59%]
-P3/tests/test_generate_benchmark_summary.py::test_summary_rejects_csv_json_metric_mismatch[sequential_mean_ms-11.0] PASSED [ 59%]
-P3/tests/test_generate_benchmark_summary.py::test_summary_rejects_csv_json_metric_mismatch[parallel_mean_ms-6.0] PASSED [ 60%]
-P3/tests/test_generate_benchmark_summary.py::test_summary_rejects_csv_json_metric_mismatch[max_error-1e-05] PASSED [ 60%]
-P3/tests/test_generate_benchmark_summary.py::test_summary_rejects_duplicate_csv_run_id PASSED [ 61%]
-P3/tests/test_generate_benchmark_summary.py::test_summary_rejects_failed_validation_json PASSED [ 61%]
-P3/tests/test_generate_benchmark_summary.py::test_summary_rejects_nonfinite_csv_metric PASSED [ 62%]
-P3/tests/test_generate_benchmark_summary.py::test_summary_rejects_symlinked_csv PASSED [ 62%]
-P3/tests/test_write_github_summary.py::test_producer_string_statuses_are_accepted PASSED [ 63%]
-P3/tests/test_write_github_summary.py::test_object_status_representation_is_also_accepted PASSED [ 63%]
-P3/tests/test_write_github_summary.py::test_evidence_consistency_rejects_non_pass_status[FAIL] PASSED [ 64%]
-P3/tests/test_write_github_summary.py::test_evidence_consistency_rejects_non_pass_status[NOT_APPLICABLE] PASSED [ 64%]
-P3/tests/test_write_github_summary.py::test_evidence_consistency_rejects_non_pass_status[None] PASSED [ 65%]
-P3/tests/test_write_github_summary.py::test_evidence_consistency_rejects_non_pass_status[bad_status3] PASSED [ 65%]
-P3/tests/test_write_github_summary.py::test_evidence_consistency_rejects_non_pass_status[bad_status4] PASSED [ 66%]
-P3/tests/test_write_github_summary.py::test_evidence_consistency_rejects_wrong_run_id PASSED [ 67%]
-P3/tests/test_write_github_summary.py::test_evidence_consistency_rejects_source_commit_mismatch PASSED [ 67%]
-P3/tests/test_write_github_summary.py::test_evidence_consistency_rejects_wrong_schema PASSED [ 68%]
-P3/tests/test_write_github_summary.py::test_remote_result_accepts_complete_inventory PASSED [ 68%]
-P3/tests/test_write_github_summary.py::test_remote_result_rejects_invalid_inventory[overrides0-main] PASSED [ 69%]
-P3/tests/test_write_github_summary.py::test_remote_result_rejects_invalid_inventory[overrides1-main] PASSED [ 69%]
-P3/tests/test_write_github_summary.py::test_remote_result_rejects_invalid_inventory[overrides2-main] PASSED [ 70%]
-P3/tests/test_write_github_summary.py::test_remote_result_rejects_invalid_inventory[overrides3-main] PASSED [ 70%]
-P3/tests/test_write_github_summary.py::test_remote_result_rejects_invalid_inventory[overrides4-main] PASSED [ 71%]
-P3/tests/test_write_github_summary.py::test_remote_result_rejects_invalid_inventory[overrides5-main] PASSED [ 71%]
-P3/tests/test_write_github_summary.py::test_remote_result_rejects_invalid_inventory[overrides6-main] PASSED [ 72%]
-P3/tests/test_write_github_summary.py::test_remote_result_rejects_invalid_inventory[overrides7-main] PASSED [ 72%]
-P3/tests/test_write_github_summary.py::test_remote_result_rejects_invalid_inventory[overrides8-main] PASSED [ 73%]
-P3/tests/test_write_github_summary.py::test_remote_result_rejects_old_schema PASSED [ 73%]
-P3/tests/test_write_github_summary.py::test_remote_result_rejects_manifest_path_set_mismatch PASSED [ 74%]
-P3/tests/test_write_github_summary.py::test_remote_result_rejects_checksum_mismatch PASSED [ 74%]
-P3/tests/test_write_github_summary.py::test_effective_verdict_requires_every_gate PASSED [ 75%]
-P3/tests/test_write_github_summary.py::test_build_summary_accepts_local_and_remote_pass PASSED [ 75%]
-P3/tests/test_write_github_summary.py::test_build_summary_rejects_remote_failure PASSED [ 76%]
-P3/tests/test_write_github_summary.py::test_build_summary_rejects_missing_mandatory_evidence PASSED [ 76%]
-P3/tests/test_write_github_summary.py::test_build_summary_rejects_environment_run_id_mismatch PASSED [ 77%]
-P3/tests/test_write_github_summary.py::test_build_summary_rejects_benchmark_run_id_mismatch PASSED [ 78%]
-P3/tests/test_write_github_summary.py::test_build_summary_rejects_local_checksum_tampering PASSED [ 78%]
-P3/tests/test_write_github_summary.py::test_pull_request_reports_pending_publication PASSED [ 79%]
-P3/tests/test_write_github_summary.py::test_pull_request_rejects_invalid_remote_status PASSED [ 79%]
-P3/tests/test_write_github_summary.py::test_build_summary_rejects_invalid_local_integrity_inventory PASSED [ 80%]
-P3/tests/test_compute_checksums.py::test_inventory_contains_repository_relative_p3_paths PASSED [ 80%]
-P3/tests/test_compute_checksums.py::test_manifest_contains_only_sorted_paths PASSED [ 81%]
-P3/tests/test_compute_checksums.py::test_manifest_has_no_header_or_count_metadata PASSED [ 81%]
-P3/tests/test_compute_checksums.py::test_integrity_files_are_excluded_from_manifest PASSED [ 82%]
-P3/tests/test_compute_checksums.py::test_checksum_paths_match_manifest_paths_exactly PASSED [ 82%]
-P3/tests/test_compute_checksums.py::test_checksum_file_does_not_hash_manifest PASSED [ 83%]
-P3/tests/test_compute_checksums.py::test_source_hash_matches_standard_library PASSED [ 83%]
-P3/tests/test_compute_checksums.py::test_every_checksum_line_uses_gnu_sha256_format PASSED [ 84%]
-P3/tests/test_compute_checksums.py::test_generation_is_deterministic PASSED [ 84%]
-P3/tests/test_compute_checksums.py::test_source_change_changes_corresponding_checksum PASSED [ 85%]
-P3/tests/test_compute_checksums.py::test_new_file_is_added_to_both_inventories PASSED [ 85%]
-P3/tests/test_compute_checksums.py::test_cache_and_build_directories_are_excluded PASSED [ 86%]
-P3/tests/test_compute_checksums.py::test_python_bytecode_files_are_excluded PASSED [ 86%]
-P3/tests/test_compute_checksums.py::test_symlinked_files_are_not_inventoried PASSED [ 87%]
-P3/tests/test_compute_checksums.py::test_symlinked_directories_are_not_traversed PASSED [ 87%]
-P3/tests/test_compute_checksums.py::test_empty_inventory_is_rejected PASSED [ 88%]
-P3/tests/test_compute_checksums.py::test_path_outside_repository_is_rejected PASSED [ 89%]
-P3/tests/test_compute_checksums.py::test_path_outside_p3_is_rejected PASSED [ 89%]
-P3/tests/test_verify_final_package.py::test_complete_valid_package_is_accepted FAILED [ 90%]
-P3/tests/test_verify_final_package.py::test_manifest_must_contain_paths_only FAILED [ 90%]
-P3/tests/test_verify_final_package.py::test_manifest_must_not_contain_integrity_files FAILED [ 91%]
-P3/tests/test_verify_final_package.py::test_modified_source_file_fails_global_hash_check FAILED [ 91%]
-P3/tests/test_verify_final_package.py::test_missing_manifest_fails_closed FAILED [ 92%]
-P3/tests/test_verify_final_package.py::test_missing_checksum_file_fails_closed FAILED [ 92%]
-P3/tests/test_verify_final_package.py::test_checksum_path_set_must_equal_manifest_path_set FAILED [ 93%]
-P3/tests/test_verify_final_package.py::test_wrong_run_id_fails_benchmark_verification FAILED [ 93%]
-P3/tests/test_verify_final_package.py::test_csv_json_run_id_mismatch_fails FAILED [ 94%]
-P3/tests/test_verify_final_package.py::test_invalid_benchmark_report_status_fails FAILED [ 94%]
-P3/tests/test_verify_final_package.py::test_missing_run_evidence_fails FAILED [ 95%]
-P3/tests/test_verify_final_package.py::test_modified_run_evidence_fails_its_checksum FAILED [ 95%]
-P3/tests/test_verify_final_package.py::test_failed_ci_stage_rejects_package FAILED [ 96%]
-P3/tests/test_verify_final_package.py::test_missing_ci_stage_rejects_package FAILED [ 96%]
-P3/tests/test_verify_final_package.py::test_invalid_run_id_is_rejected FAILED [ 97%]
-P3/tests/test_verify_final_package.py::test_invalid_ci_outcomes_json_fails FAILED [ 97%]
-P3/tests/test_verify_final_package.py::test_unexpected_csv_record_fails_authoritative_validation FAILED [ 98%]
-P3/tests/test_verify_final_package.py::test_duplicate_csv_run_id_fails_authoritative_validation FAILED [ 98%]
-P3/tests/test_verify_final_package.py::test_missing_required_package_file_fails FAILED [ 99%]
-P3/tests/test_verify_final_package.py::test_corrupted_run_checksum_file_fails FAILED [100%]
+P3/tests/test_record_environment.py::test_validate_rejects_missing_required_fields[runner-os] PASSED [ 17%]
+P3/tests/test_record_environment.py::test_validate_rejects_missing_required_fields[runner-machine] PASSED [ 18%]
+P3/tests/test_record_environment.py::test_validate_rejects_missing_required_fields[runtime-java] PASSED [ 18%]
+P3/tests/test_record_environment.py::test_validate_rejects_missing_required_fields[runtime-maven] PASSED [ 19%]
+P3/tests/test_record_environment.py::test_validate_rejects_missing_required_fields[runtime-python] PASSED [ 19%]
+P3/tests/test_record_environment.py::test_validate_rejects_missing_required_fields[runtime-git] PASSED [ 20%]
+P3/tests/test_record_environment.py::test_validate_rejects_invalid_benchmark_integer[0] PASSED [ 20%]
+P3/tests/test_record_environment.py::test_validate_rejects_invalid_benchmark_integer[-1] PASSED [ 21%]
+P3/tests/test_record_environment.py::test_validate_rejects_invalid_benchmark_integer[True] PASSED [ 21%]
+P3/tests/test_record_environment.py::test_validate_rejects_invalid_benchmark_integer[1.5] PASSED [ 22%]
+P3/tests/test_record_environment.py::test_validate_rejects_invalid_benchmark_integer[None] PASSED [ 22%]
+P3/tests/test_record_environment.py::test_validate_rejects_invalid_benchmark_integer[100] PASSED [ 23%]
+P3/tests/test_record_environment.py::test_validate_rejects_wrong_schema PASSED [ 24%]
+P3/tests/test_record_environment.py::test_validate_rejects_unavailable_runtime PASSED [ 24%]
+P3/tests/test_record_environment.py::test_render_text_contains_run_and_configuration PASSED [ 25%]
+P3/tests/test_record_environment.py::test_capture_environment_records_actual_metadata PASSED [ 25%]
+P3/tests/test_record_environment.py::test_capture_environment_rejects_missing_repository PASSED [ 26%]
+P3/tests/test_record_environment.py::test_atomic_write_creates_parent_and_exact_content PASSED [ 26%]
+P3/tests/test_record_environment.py::test_atomic_write_refuses_symlink PASSED [ 27%]
+P3/tests/test_record_environment.py::test_json_output_is_valid_and_round_trips PASSED [ 27%]
+P3/tests/test_verify_remote_integrity.py::test_verify_remote_checks_every_blob_and_provenance PASSED [ 28%]
+P3/tests/test_verify_remote_integrity.py::test_remote_publication_commit_is_not_source_commit PASSED [ 28%]
+P3/tests/test_verify_remote_integrity.py::test_verify_remote_rejects_different_run_id PASSED [ 29%]
+P3/tests/test_verify_remote_integrity.py::test_verify_remote_rejects_different_source_commit PASSED [ 30%]
+P3/tests/test_verify_remote_integrity.py::test_verify_remote_rejects_invalid_provenance_in_published_report[p3-987654321-1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-PASS-RUN_ID mismatch] PASSED [ 30%]
+P3/tests/test_verify_remote_integrity.py::test_verify_remote_rejects_invalid_provenance_in_published_report[p3-123456789-1-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-PASS-SOURCE_COMMIT mismatch] PASSED [ 31%]
+P3/tests/test_verify_remote_integrity.py::test_verify_remote_rejects_invalid_provenance_in_published_report[p3-123456789-1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-NOT_RUN-not PASS] PASSED [ 31%]
+P3/tests/test_verify_remote_integrity.py::test_verify_remote_rejects_missing_evidence_consistency_report PASSED [ 32%]
+P3/tests/test_verify_remote_integrity.py::test_integrity_only_accepts_package_without_evidence_consistency PASSED [ 32%]
+P3/tests/test_verify_remote_integrity.py::test_integrity_only_still_rejects_remote_blob_hash_mismatch PASSED [ 33%]
+P3/tests/test_verify_remote_integrity.py::test_integrity_only_does_not_parse_malformed_evidence_json PASSED [ 33%]
+P3/tests/test_verify_remote_integrity.py::test_verify_remote_fails_when_remote_blob_hash_is_wrong PASSED [ 34%]
+P3/tests/test_verify_remote_integrity.py::test_verify_remote_fails_when_manifest_blob_is_missing PASSED [ 34%]
+P3/tests/test_verify_remote_integrity.py::test_parse_manifest_rejects_duplicate_paths PASSED [ 35%]
+P3/tests/test_verify_remote_integrity.py::test_parse_manifest_rejects_unsorted_paths PASSED [ 36%]
+P3/tests/test_verify_remote_integrity.py::test_parse_manifest_rejects_missing_final_newline PASSED [ 36%]
+P3/tests/test_verify_remote_integrity.py::test_validate_relative_path_rejects_unsafe_paths[../outside.txt] PASSED [ 37%]
+P3/tests/test_verify_remote_integrity.py::test_validate_relative_path_rejects_unsafe_paths[/absolute.txt] PASSED [ 37%]
+P3/tests/test_verify_remote_integrity.py::test_validate_relative_path_rejects_unsafe_paths[P3/../outside.txt] PASSED [ 38%]
+P3/tests/test_verify_remote_integrity.py::test_validate_relative_path_rejects_unsafe_paths[P3\\windows.txt] PASSED [ 38%]
+P3/tests/test_verify_remote_integrity.py::test_validate_relative_path_rejects_unsafe_paths[P3/MANIFEST.txt] PASSED [ 39%]
+P3/tests/test_verify_remote_integrity.py::test_validate_relative_path_rejects_unsafe_paths[P3/SHA256SUMS.txt] PASSED [ 39%]
+P3/tests/test_verify_remote_integrity.py::test_validate_relative_path_rejects_unsafe_paths[other/file.txt] PASSED [ 40%]
+P3/tests/test_verify_remote_integrity.py::test_validate_relative_path_rejects_unsafe_paths[P3//double-separator.txt] PASSED [ 40%]
+P3/tests/test_verify_remote_integrity.py::test_validate_relative_path_rejects_unsafe_paths[ P3/leading-space.txt] PASSED [ 41%]
+P3/tests/test_verify_remote_integrity.py::test_validate_relative_path_rejects_unsafe_paths[P3/trailing-space.txt ] PASSED [ 42%]
+P3/tests/test_verify_remote_integrity.py::test_parse_checksums_rejects_invalid_digest PASSED [ 42%]
+P3/tests/test_verify_remote_integrity.py::test_parse_checksums_rejects_duplicate_paths PASSED [ 43%]
+P3/tests/test_verify_remote_integrity.py::test_parse_checksums_rejects_missing_final_newline PASSED [ 43%]
+P3/tests/test_verify_remote_integrity.py::test_parse_checksums_rejects_empty_inventory PASSED [ 44%]
+P3/tests/test_verify_remote_integrity.py::test_parse_checksums_rejects_manifest_checksum_set_mismatch PASSED [ 44%]
+P3/tests/test_verify_remote_integrity.py::test_verify_remote_rejects_invalid_expected_identity[-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa] PASSED [ 45%]
+P3/tests/test_verify_remote_integrity.py::test_verify_remote_rejects_invalid_expected_identity[not-a-p3-run-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa] PASSED [ 45%]
+P3/tests/test_verify_remote_integrity.py::test_verify_remote_rejects_invalid_expected_identity[p3-123-abc-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa] PASSED [ 46%]
+P3/tests/test_verify_remote_integrity.py::test_verify_remote_rejects_invalid_expected_identity[p3-123456789-1-] PASSED [ 46%]
+P3/tests/test_verify_remote_integrity.py::test_verify_remote_rejects_invalid_expected_identity[p3-123456789-1-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA] PASSED [ 47%]
+P3/tests/test_verify_remote_integrity.py::test_verify_remote_rejects_invalid_expected_identity[p3-123456789-1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa] PASSED [ 48%]
+P3/tests/test_verify_remote_integrity.py::test_verify_remote_rejects_invalid_expected_identity[p3-123456789-1-gggggggggggggggggggggggggggggggggggggggg] PASSED [ 48%]
+P3/tests/test_verify_remote_integrity.py::test_parse_evidence_consistency_rejects_invalid_json PASSED [ 49%]
+P3/tests/test_verify_remote_integrity.py::test_parse_evidence_consistency_rejects_wrong_schema PASSED [ 49%]
+P3/tests/test_verify_remote_integrity.py::test_parse_evidence_consistency_rejects_non_object_json PASSED [ 50%]
+P3/tests/test_verify_remote_integrity.py::test_atomic_write_json_writes_valid_json PASSED [ 50%]
+P3/tests/test_verify_remote_integrity.py::test_atomic_write_json_rejects_symlink PASSED [ 51%]
+P3/tests/test_verify_evidence_consistency.py::test_v3_csv_has_exact_46_column_contract PASSED [ 51%]
+P3/tests/test_verify_evidence_consistency.py::test_v3_matrix_has_192_records PASSED [ 52%]
+P3/tests/test_verify_evidence_consistency.py::test_v3_legacy_matrix_has_96_records PASSED [ 53%]
+P3/tests/test_verify_evidence_consistency.py::test_v3_validator_accepts_complete_ab_matrix PASSED [ 53%]
+P3/tests/test_verify_evidence_consistency.py::test_v3_rejects_wrong_commit PASSED [ 54%]
+P3/tests/test_verify_evidence_consistency.py::test_v3_rejects_wrong_workflow_id PASSED [ 54%]
+P3/tests/test_verify_evidence_consistency.py::test_v3_rejects_tampered_csv PASSED [ 55%]
+P3/tests/test_verify_evidence_consistency.py::test_v3_rejects_tampered_persistent_report PASSED [ 55%]
+P3/tests/test_verify_evidence_consistency.py::test_run_id_validation PASSED [ 56%]
+P3/tests/test_verify_evidence_consistency.py::test_source_commit_validation PASSED [ 56%]
+P3/tests/test_verify_evidence_consistency.py::test_checksum_parser_rejects_duplicate_entries PASSED [ 57%]
+P3/tests/test_verify_evidence_consistency.py::test_checksum_parser_rejects_path_traversal PASSED [ 57%]
+P3/tests/test_verify_evidence_consistency.py::test_checksum_parser_rejects_tampering PASSED [ 58%]
+P3/tests/test_generate_benchmark_summary.py::test_summary_accepts_matching_csv_and_json PASSED [ 59%]
+P3/tests/test_generate_benchmark_summary.py::test_summary_rejects_csv_run_id_mismatch PASSED [ 59%]
+P3/tests/test_generate_benchmark_summary.py::test_summary_rejects_json_run_id_mismatch PASSED [ 60%]
+P3/tests/test_generate_benchmark_summary.py::test_summary_rejects_csv_json_metric_mismatch[dimension-101] PASSED [ 60%]
+P3/tests/test_generate_benchmark_summary.py::test_summary_rejects_csv_json_metric_mismatch[nnz-201] PASSED [ 61%]
+P3/tests/test_generate_benchmark_summary.py::test_summary_rejects_csv_json_metric_mismatch[speedup-3.0] PASSED [ 61%]
+P3/tests/test_generate_benchmark_summary.py::test_summary_rejects_csv_json_metric_mismatch[sequential_mean_ms-11.0] PASSED [ 62%]
+P3/tests/test_generate_benchmark_summary.py::test_summary_rejects_csv_json_metric_mismatch[parallel_mean_ms-6.0] PASSED [ 62%]
+P3/tests/test_generate_benchmark_summary.py::test_summary_rejects_csv_json_metric_mismatch[max_error-1e-05] PASSED [ 63%]
+P3/tests/test_generate_benchmark_summary.py::test_summary_rejects_duplicate_csv_run_id PASSED [ 63%]
+P3/tests/test_generate_benchmark_summary.py::test_summary_rejects_failed_validation_json PASSED [ 64%]
+P3/tests/test_generate_benchmark_summary.py::test_summary_rejects_nonfinite_csv_metric PASSED [ 65%]
+P3/tests/test_generate_benchmark_summary.py::test_summary_rejects_symlinked_csv PASSED [ 65%]
+P3/tests/test_write_github_summary.py::test_producer_string_statuses_are_accepted PASSED [ 66%]
+P3/tests/test_write_github_summary.py::test_object_status_representation_is_also_accepted PASSED [ 66%]
+P3/tests/test_write_github_summary.py::test_evidence_consistency_rejects_non_pass_status[FAIL] PASSED [ 67%]
+P3/tests/test_write_github_summary.py::test_evidence_consistency_rejects_non_pass_status[NOT_APPLICABLE] PASSED [ 67%]
+P3/tests/test_write_github_summary.py::test_evidence_consistency_rejects_non_pass_status[None] PASSED [ 68%]
+P3/tests/test_write_github_summary.py::test_evidence_consistency_rejects_non_pass_status[bad_status3] PASSED [ 68%]
+P3/tests/test_write_github_summary.py::test_evidence_consistency_rejects_non_pass_status[bad_status4] PASSED [ 69%]
+P3/tests/test_write_github_summary.py::test_evidence_consistency_rejects_wrong_run_id PASSED [ 69%]
+P3/tests/test_write_github_summary.py::test_evidence_consistency_rejects_source_commit_mismatch PASSED [ 70%]
+P3/tests/test_write_github_summary.py::test_evidence_consistency_rejects_wrong_schema PASSED [ 71%]
+P3/tests/test_write_github_summary.py::test_remote_result_accepts_complete_inventory PASSED [ 71%]
+P3/tests/test_write_github_summary.py::test_remote_result_rejects_invalid_inventory[overrides0-main] PASSED [ 72%]
+P3/tests/test_write_github_summary.py::test_remote_result_rejects_invalid_inventory[overrides1-main] PASSED [ 72%]
+P3/tests/test_write_github_summary.py::test_remote_result_rejects_invalid_inventory[overrides2-main] PASSED [ 73%]
+P3/tests/test_write_github_summary.py::test_remote_result_rejects_invalid_inventory[overrides3-main] PASSED [ 73%]
+P3/tests/test_write_github_summary.py::test_remote_result_rejects_invalid_inventory[overrides4-main] PASSED [ 74%]
+P3/tests/test_write_github_summary.py::test_remote_result_rejects_invalid_inventory[overrides5-main] PASSED [ 74%]
+P3/tests/test_write_github_summary.py::test_remote_result_rejects_invalid_inventory[overrides6-main] PASSED [ 75%]
+P3/tests/test_write_github_summary.py::test_remote_result_rejects_invalid_inventory[overrides7-main] PASSED [ 75%]
+P3/tests/test_write_github_summary.py::test_remote_result_rejects_invalid_inventory[overrides8-main] PASSED [ 76%]
+P3/tests/test_write_github_summary.py::test_remote_result_rejects_old_schema PASSED [ 77%]
+P3/tests/test_write_github_summary.py::test_remote_result_rejects_manifest_path_set_mismatch PASSED [ 77%]
+P3/tests/test_write_github_summary.py::test_remote_result_rejects_checksum_mismatch PASSED [ 78%]
+P3/tests/test_write_github_summary.py::test_effective_verdict_requires_every_gate PASSED [ 78%]
+P3/tests/test_write_github_summary.py::test_build_summary_accepts_local_and_remote_pass PASSED [ 79%]
+P3/tests/test_write_github_summary.py::test_build_summary_rejects_remote_failure PASSED [ 79%]
+P3/tests/test_write_github_summary.py::test_build_summary_rejects_missing_mandatory_evidence PASSED [ 80%]
+P3/tests/test_write_github_summary.py::test_build_summary_rejects_environment_run_id_mismatch PASSED [ 80%]
+P3/tests/test_write_github_summary.py::test_build_summary_rejects_benchmark_run_id_mismatch PASSED [ 81%]
+P3/tests/test_write_github_summary.py::test_build_summary_rejects_local_checksum_tampering PASSED [ 81%]
+P3/tests/test_write_github_summary.py::test_pull_request_reports_pending_publication PASSED [ 82%]
+P3/tests/test_write_github_summary.py::test_pull_request_rejects_invalid_remote_status PASSED [ 83%]
+P3/tests/test_write_github_summary.py::test_build_summary_rejects_invalid_local_integrity_inventory PASSED [ 83%]
+P3/tests/test_compute_checksums.py::test_inventory_contains_repository_relative_p3_paths PASSED [ 84%]
+P3/tests/test_compute_checksums.py::test_manifest_contains_only_sorted_paths PASSED [ 84%]
+P3/tests/test_compute_checksums.py::test_manifest_has_no_header_or_count_metadata PASSED [ 85%]
+P3/tests/test_compute_checksums.py::test_integrity_files_are_excluded_from_manifest PASSED [ 85%]
+P3/tests/test_compute_checksums.py::test_checksum_paths_match_manifest_paths_exactly PASSED [ 86%]
+P3/tests/test_compute_checksums.py::test_checksum_file_does_not_hash_manifest PASSED [ 86%]
+P3/tests/test_compute_checksums.py::test_source_hash_matches_standard_library PASSED [ 87%]
+P3/tests/test_compute_checksums.py::test_every_checksum_line_uses_gnu_sha256_format PASSED [ 87%]
+P3/tests/test_compute_checksums.py::test_generation_is_deterministic PASSED [ 88%]
+P3/tests/test_compute_checksums.py::test_source_change_changes_corresponding_checksum PASSED [ 89%]
+P3/tests/test_compute_checksums.py::test_new_file_is_added_to_both_inventories PASSED [ 89%]
+P3/tests/test_compute_checksums.py::test_cache_and_build_directories_are_excluded PASSED [ 90%]
+P3/tests/test_compute_checksums.py::test_python_bytecode_files_are_excluded PASSED [ 90%]
+P3/tests/test_compute_checksums.py::test_symlinked_files_are_not_inventoried PASSED [ 91%]
+P3/tests/test_compute_checksums.py::test_symlinked_directories_are_not_traversed PASSED [ 91%]
+P3/tests/test_compute_checksums.py::test_empty_inventory_is_rejected PASSED [ 92%]
+P3/tests/test_compute_checksums.py::test_path_outside_repository_is_rejected PASSED [ 92%]
+P3/tests/test_compute_checksums.py::test_path_outside_p3_is_rejected PASSED [ 93%]
+P3/tests/test_verify_final_package.py::test_valid_package_is_accepted FAILED [ 93%]
+P3/tests/test_verify_final_package.py::test_missing_ci_stage_is_rejected FAILED [ 94%]
+P3/tests/test_verify_final_package.py::test_missing_v2_csv_is_rejected FAILED [ 95%]
+P3/tests/test_verify_final_package.py::test_tampered_run_checksum_is_rejected FAILED [ 95%]
+P3/tests/test_verify_final_package.py::test_wrong_run_id_is_rejected FAILED [ 96%]
+P3/tests/test_verify_final_package.py::test_missing_environment_evidence_is_rejected FAILED [ 96%]
+P3/tests/test_verify_final_package.py::test_global_manifest_is_required FAILED [ 97%]
+P3/tests/test_verify_final_package.py::test_global_sha256_file_is_required FAILED [ 97%]
+P3/tests/test_verify_final_package.py::test_global_integrity_rejects_tampered_file FAILED [ 98%]
+P3/tests/test_verify_final_package.py::test_global_integrity_files_are_not_self_referential FAILED [ 98%]
+P3/tests/test_verify_final_package.py::test_symlink_evidence_is_rejected_when_supported FAILED [ 99%]
+P3/tests/test_verify_final_package.py::test_manifest_inventory_is_deterministic FAILED [100%]
 
 =================================== FAILURES ===================================
-___________________ test_complete_valid_package_is_accepted ____________________
-P3/tests/test_verify_final_package.py:428: in test_complete_valid_package_is_accepted
-    result = MODULE.verify_package(
-E   TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
-____________________ test_manifest_must_contain_paths_only _____________________
-P3/tests/test_verify_final_package.py:464: in test_manifest_must_contain_paths_only
-    expect_verification_failure(
-P3/tests/test_verify_final_package.py:408: in expect_verification_failure
-    MODULE.verify_package(
-E   TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
-________________ test_manifest_must_not_contain_integrity_files ________________
-P3/tests/test_verify_final_package.py:491: in test_manifest_must_not_contain_integrity_files
-    expect_verification_failure(
-P3/tests/test_verify_final_package.py:408: in expect_verification_failure
-    MODULE.verify_package(
-E   TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
-______________ test_modified_source_file_fails_global_hash_check _______________
-P3/tests/test_verify_final_package.py:510: in test_modified_source_file_fails_global_hash_check
-    expect_verification_failure(
-P3/tests/test_verify_final_package.py:408: in expect_verification_failure
-    MODULE.verify_package(
-E   TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
-______________________ test_missing_manifest_fails_closed ______________________
-P3/tests/test_verify_final_package.py:525: in test_missing_manifest_fails_closed
-    expect_verification_failure(
-P3/tests/test_verify_final_package.py:408: in expect_verification_failure
-    MODULE.verify_package(
-E   TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
-___________________ test_missing_checksum_file_fails_closed ____________________
-P3/tests/test_verify_final_package.py:540: in test_missing_checksum_file_fails_closed
-    expect_verification_failure(
-P3/tests/test_verify_final_package.py:408: in expect_verification_failure
-    MODULE.verify_package(
-E   TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
-_____________ test_checksum_path_set_must_equal_manifest_path_set ______________
-P3/tests/test_verify_final_package.py:559: in test_checksum_path_set_must_equal_manifest_path_set
-    expect_verification_failure(
-P3/tests/test_verify_final_package.py:408: in expect_verification_failure
-    MODULE.verify_package(
-E   TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
-________________ test_wrong_run_id_fails_benchmark_verification ________________
-P3/tests/test_verify_final_package.py:572: in test_wrong_run_id_fails_benchmark_verification
-    expect_verification_failure(
-P3/tests/test_verify_final_package.py:408: in expect_verification_failure
-    MODULE.verify_package(
-E   TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
-_____________________ test_csv_json_run_id_mismatch_fails ______________________
-P3/tests/test_verify_final_package.py:604: in test_csv_json_run_id_mismatch_fails
-    expect_verification_failure(
-P3/tests/test_verify_final_package.py:408: in expect_verification_failure
-    MODULE.verify_package(
-E   TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
-__________________ test_invalid_benchmark_report_status_fails __________________
-P3/tests/test_verify_final_package.py:632: in test_invalid_benchmark_report_status_fails
-    expect_verification_failure(
-P3/tests/test_verify_final_package.py:408: in expect_verification_failure
-    MODULE.verify_package(
-E   TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
-_______________________ test_missing_run_evidence_fails ________________________
-P3/tests/test_verify_final_package.py:655: in test_missing_run_evidence_fails
-    expect_verification_failure(
-P3/tests/test_verify_final_package.py:408: in expect_verification_failure
-    MODULE.verify_package(
-E   TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
-________________ test_modified_run_evidence_fails_its_checksum _________________
-P3/tests/test_verify_final_package.py:681: in test_modified_run_evidence_fails_its_checksum
-    expect_verification_failure(
-P3/tests/test_verify_final_package.py:408: in expect_verification_failure
-    MODULE.verify_package(
-E   TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
-_____________________ test_failed_ci_stage_rejects_package _____________________
-P3/tests/test_verify_final_package.py:701: in test_failed_ci_stage_rejects_package
-    expect_verification_failure(
-P3/tests/test_verify_final_package.py:408: in expect_verification_failure
-    MODULE.verify_package(
-E   TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
-____________________ test_missing_ci_stage_rejects_package _____________________
-P3/tests/test_verify_final_package.py:721: in test_missing_ci_stage_rejects_package
-    expect_verification_failure(
-P3/tests/test_verify_final_package.py:408: in expect_verification_failure
-    MODULE.verify_package(
-E   TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
-_______________________ test_invalid_run_id_is_rejected ________________________
-P3/tests/test_verify_final_package.py:734: in test_invalid_run_id_is_rejected
-    expect_verification_failure(
-P3/tests/test_verify_final_package.py:408: in expect_verification_failure
-    MODULE.verify_package(
-E   TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
-_____________________ test_invalid_ci_outcomes_json_fails ______________________
-P3/tests/test_verify_final_package.py:753: in test_invalid_ci_outcomes_json_fails
-    expect_verification_failure(
-P3/tests/test_verify_final_package.py:408: in expect_verification_failure
-    MODULE.verify_package(
-E   TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
-__________ test_unexpected_csv_record_fails_authoritative_validation ___________
-P3/tests/test_verify_final_package.py:778: in test_unexpected_csv_record_fails_authoritative_validation
-    expect_verification_failure(
-P3/tests/test_verify_final_package.py:408: in expect_verification_failure
-    MODULE.verify_package(
-E   TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
-___________ test_duplicate_csv_run_id_fails_authoritative_validation ___________
-P3/tests/test_verify_final_package.py:811: in test_duplicate_csv_run_id_fails_authoritative_validation
-    expect_verification_failure(
-P3/tests/test_verify_final_package.py:408: in expect_verification_failure
-    MODULE.verify_package(
-E   TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
-___________________ test_missing_required_package_file_fails ___________________
-P3/tests/test_verify_final_package.py:825: in test_missing_required_package_file_fails
-    expect_verification_failure(
-P3/tests/test_verify_final_package.py:408: in expect_verification_failure
-    MODULE.verify_package(
-E   TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
-____________________ test_corrupted_run_checksum_file_fails ____________________
-P3/tests/test_verify_final_package.py:852: in test_corrupted_run_checksum_file_fails
-    expect_verification_failure(
-P3/tests/test_verify_final_package.py:408: in expect_verification_failure
-    MODULE.verify_package(
-E   TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
+________________________ test_valid_package_is_accepted ________________________
+P3/tests/test_verify_final_package.py:271: in test_valid_package_is_accepted
+    root, outcomes = make_valid_package(tmp_path)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+P3/tests/test_verify_final_package.py:250: in make_valid_package
+    write_global_integrity(root)
+P3/tests/test_verify_final_package.py:227: in write_global_integrity
+    f"{entry['path']}  {entry['sha256']}"
+       ^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+______________________ test_missing_ci_stage_is_rejected _______________________
+P3/tests/test_verify_final_package.py:280: in test_missing_ci_stage_is_rejected
+    root, outcomes = make_valid_package(tmp_path)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+P3/tests/test_verify_final_package.py:250: in make_valid_package
+    write_global_integrity(root)
+P3/tests/test_verify_final_package.py:227: in write_global_integrity
+    f"{entry['path']}  {entry['sha256']}"
+       ^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+_______________________ test_missing_v2_csv_is_rejected ________________________
+P3/tests/test_verify_final_package.py:294: in test_missing_v2_csv_is_rejected
+    root, outcomes = make_valid_package(tmp_path)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+P3/tests/test_verify_final_package.py:250: in make_valid_package
+    write_global_integrity(root)
+P3/tests/test_verify_final_package.py:227: in write_global_integrity
+    f"{entry['path']}  {entry['sha256']}"
+       ^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+____________________ test_tampered_run_checksum_is_rejected ____________________
+P3/tests/test_verify_final_package.py:303: in test_tampered_run_checksum_is_rejected
+    root, outcomes = make_valid_package(tmp_path)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+P3/tests/test_verify_final_package.py:250: in make_valid_package
+    write_global_integrity(root)
+P3/tests/test_verify_final_package.py:227: in write_global_integrity
+    f"{entry['path']}  {entry['sha256']}"
+       ^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+________________________ test_wrong_run_id_is_rejected _________________________
+P3/tests/test_verify_final_package.py:315: in test_wrong_run_id_is_rejected
+    root, outcomes = make_valid_package(tmp_path)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+P3/tests/test_verify_final_package.py:250: in make_valid_package
+    write_global_integrity(root)
+P3/tests/test_verify_final_package.py:227: in write_global_integrity
+    f"{entry['path']}  {entry['sha256']}"
+       ^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+________________ test_missing_environment_evidence_is_rejected _________________
+P3/tests/test_verify_final_package.py:329: in test_missing_environment_evidence_is_rejected
+    root, outcomes = make_valid_package(tmp_path)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+P3/tests/test_verify_final_package.py:250: in make_valid_package
+    write_global_integrity(root)
+P3/tests/test_verify_final_package.py:227: in write_global_integrity
+    f"{entry['path']}  {entry['sha256']}"
+       ^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+_______________________ test_global_manifest_is_required _______________________
+P3/tests/test_verify_final_package.py:341: in test_global_manifest_is_required
+    root, outcomes = make_valid_package(tmp_path)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+P3/tests/test_verify_final_package.py:250: in make_valid_package
+    write_global_integrity(root)
+P3/tests/test_verify_final_package.py:227: in write_global_integrity
+    f"{entry['path']}  {entry['sha256']}"
+       ^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+_____________________ test_global_sha256_file_is_required ______________________
+P3/tests/test_verify_final_package.py:350: in test_global_sha256_file_is_required
+    root, outcomes = make_valid_package(tmp_path)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+P3/tests/test_verify_final_package.py:250: in make_valid_package
+    write_global_integrity(root)
+P3/tests/test_verify_final_package.py:227: in write_global_integrity
+    f"{entry['path']}  {entry['sha256']}"
+       ^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+_________________ test_global_integrity_rejects_tampered_file __________________
+P3/tests/test_verify_final_package.py:359: in test_global_integrity_rejects_tampered_file
+    root, outcomes = make_valid_package(tmp_path)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+P3/tests/test_verify_final_package.py:250: in make_valid_package
+    write_global_integrity(root)
+P3/tests/test_verify_final_package.py:227: in write_global_integrity
+    f"{entry['path']}  {entry['sha256']}"
+       ^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+_____________ test_global_integrity_files_are_not_self_referential _____________
+P3/tests/test_verify_final_package.py:373: in test_global_integrity_files_are_not_self_referential
+    root, _ = make_valid_package(tmp_path)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+P3/tests/test_verify_final_package.py:250: in make_valid_package
+    write_global_integrity(root)
+P3/tests/test_verify_final_package.py:227: in write_global_integrity
+    f"{entry['path']}  {entry['sha256']}"
+       ^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+_______________ test_symlink_evidence_is_rejected_when_supported _______________
+P3/tests/test_verify_final_package.py:389: in test_symlink_evidence_is_rejected_when_supported
+    root, outcomes = make_valid_package(tmp_path)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+P3/tests/test_verify_final_package.py:250: in make_valid_package
+    write_global_integrity(root)
+P3/tests/test_verify_final_package.py:227: in write_global_integrity
+    f"{entry['path']}  {entry['sha256']}"
+       ^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+___________________ test_manifest_inventory_is_deterministic ___________________
+P3/tests/test_verify_final_package.py:404: in test_manifest_inventory_is_deterministic
+    root, _ = make_valid_package(tmp_path)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+P3/tests/test_verify_final_package.py:250: in make_valid_package
+    write_global_integrity(root)
+P3/tests/test_verify_final_package.py:227: in write_global_integrity
+    f"{entry['path']}  {entry['sha256']}"
+       ^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
 =========================== short test summary info ============================
-FAILED P3/tests/test_verify_final_package.py::test_complete_valid_package_is_accepted - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
-FAILED P3/tests/test_verify_final_package.py::test_manifest_must_contain_paths_only - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
-FAILED P3/tests/test_verify_final_package.py::test_manifest_must_not_contain_integrity_files - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
-FAILED P3/tests/test_verify_final_package.py::test_modified_source_file_fails_global_hash_check - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
-FAILED P3/tests/test_verify_final_package.py::test_missing_manifest_fails_closed - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
-FAILED P3/tests/test_verify_final_package.py::test_missing_checksum_file_fails_closed - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
-FAILED P3/tests/test_verify_final_package.py::test_checksum_path_set_must_equal_manifest_path_set - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
-FAILED P3/tests/test_verify_final_package.py::test_wrong_run_id_fails_benchmark_verification - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
-FAILED P3/tests/test_verify_final_package.py::test_csv_json_run_id_mismatch_fails - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
-FAILED P3/tests/test_verify_final_package.py::test_invalid_benchmark_report_status_fails - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
-FAILED P3/tests/test_verify_final_package.py::test_missing_run_evidence_fails - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
-FAILED P3/tests/test_verify_final_package.py::test_modified_run_evidence_fails_its_checksum - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
-FAILED P3/tests/test_verify_final_package.py::test_failed_ci_stage_rejects_package - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
-FAILED P3/tests/test_verify_final_package.py::test_missing_ci_stage_rejects_package - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
-FAILED P3/tests/test_verify_final_package.py::test_invalid_run_id_is_rejected - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
-FAILED P3/tests/test_verify_final_package.py::test_invalid_ci_outcomes_json_fails - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
-FAILED P3/tests/test_verify_final_package.py::test_unexpected_csv_record_fails_authoritative_validation - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
-FAILED P3/tests/test_verify_final_package.py::test_duplicate_csv_run_id_fails_authoritative_validation - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
-FAILED P3/tests/test_verify_final_package.py::test_missing_required_package_file_fails - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
-FAILED P3/tests/test_verify_final_package.py::test_corrupted_run_checksum_file_fails - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
-======================== 20 failed, 171 passed in 2.93s ========================
+FAILED P3/tests/test_verify_final_package.py::test_valid_package_is_accepted - TypeError: string indices must be integers, not 'str'
+FAILED P3/tests/test_verify_final_package.py::test_missing_ci_stage_is_rejected - TypeError: string indices must be integers, not 'str'
+FAILED P3/tests/test_verify_final_package.py::test_missing_v2_csv_is_rejected - TypeError: string indices must be integers, not 'str'
+FAILED P3/tests/test_verify_final_package.py::test_tampered_run_checksum_is_rejected - TypeError: string indices must be integers, not 'str'
+FAILED P3/tests/test_verify_final_package.py::test_wrong_run_id_is_rejected - TypeError: string indices must be integers, not 'str'
+FAILED P3/tests/test_verify_final_package.py::test_missing_environment_evidence_is_rejected - TypeError: string indices must be integers, not 'str'
+FAILED P3/tests/test_verify_final_package.py::test_global_manifest_is_required - TypeError: string indices must be integers, not 'str'
+FAILED P3/tests/test_verify_final_package.py::test_global_sha256_file_is_required - TypeError: string indices must be integers, not 'str'
+FAILED P3/tests/test_verify_final_package.py::test_global_integrity_rejects_tampered_file - TypeError: string indices must be integers, not 'str'
+FAILED P3/tests/test_verify_final_package.py::test_global_integrity_files_are_not_self_referential - TypeError: string indices must be integers, not 'str'
+FAILED P3/tests/test_verify_final_package.py::test_symlink_evidence_is_rejected_when_supported - TypeError: string indices must be integers, not 'str'
+FAILED P3/tests/test_verify_final_package.py::test_manifest_inventory_is_deterministic - TypeError: string indices must be integers, not 'str'
+======================== 12 failed, 171 passed in 3.90s ========================
