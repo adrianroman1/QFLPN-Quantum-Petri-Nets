@@ -1,9 +1,9 @@
 package hpc.csr;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
-import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -12,6 +12,7 @@ import java.util.Objects;
 
 /**
  * Independent CSV writer for QFLPN Benchmark V3.
+ * Preserves the existing 46-column schema and append-only evidence.
  * Does not read, append to, or modify the V2 result file.
  */
 public final class BenchmarkV3ResultWriter {
@@ -53,7 +54,6 @@ public final class BenchmarkV3ResultWriter {
 
     public static void append(Path path, String[] fields)
             throws IOException {
-
         Objects.requireNonNull(path, "path must not be null");
         Objects.requireNonNull(fields, "fields must not be null");
 
@@ -72,7 +72,6 @@ public final class BenchmarkV3ResultWriter {
 
         Path absolute = path.toAbsolutePath().normalize();
         Path parent = absolute.getParent();
-
         if (parent != null) {
             Files.createDirectories(parent);
         }
@@ -89,7 +88,6 @@ public final class BenchmarkV3ResultWriter {
             }
 
             long size = channel.size();
-
             if (size == 0L) {
                 writeFully(channel, ByteBuffer.wrap(
                         (headerLine() + "\n")
@@ -107,23 +105,20 @@ public final class BenchmarkV3ResultWriter {
     }
 
     private static void validateExistingHeader(
-            FileChannel channel,
-            long size) throws IOException {
-
+            FileChannel channel, long size) throws IOException {
         if (size > Integer.MAX_VALUE) {
-            throw new IOException("V3 CSV is too large for header validation");
+            throw new IOException(
+                    "V3 CSV is too large for header validation");
         }
 
         ByteBuffer buffer = ByteBuffer.allocate((int) size);
         channel.position(0);
-
         while (buffer.hasRemaining()) {
             int count = channel.read(buffer);
             if (count < 0) {
                 break;
             }
         }
-
         buffer.flip();
 
         String content = StandardCharsets.UTF_8.decode(buffer).toString();
@@ -133,10 +128,11 @@ public final class BenchmarkV3ResultWriter {
 
         String normalized = content.replace("\r\n", "\n")
                 .replace('\r', '\n');
-
         int newline = normalized.indexOf('\n');
+
         if (newline < 0) {
-            throw new IOException("Existing V3 CSV has no complete header");
+            throw new IOException(
+                    "Existing V3 CSV has no complete header");
         }
 
         String actualHeader = normalized.substring(0, newline);
@@ -183,9 +179,7 @@ public final class BenchmarkV3ResultWriter {
     }
 
     private static void writeFully(
-            FileChannel channel,
-            ByteBuffer buffer) throws IOException {
-
+            FileChannel channel, ByteBuffer buffer) throws IOException {
         while (buffer.hasRemaining()) {
             channel.write(buffer);
         }
