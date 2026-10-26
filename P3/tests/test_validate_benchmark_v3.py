@@ -52,13 +52,6 @@ def make_row(
         "BLOCK": 8,
     }.get(workload)
 
-    if density is None:
-        # Deterministic POWERLAW row-count model used by the Java runner.
-        density = sum(
-            min(dimension, 1 + int(32.0 / (row + 1.0) ** 0.5))
-            for row in range(dimension)
-        ) // dimension
-
     if workload == "POWERLAW":
         row_counts = [
             min(dimension, 1 + int(32.0 / (row + 1.0) ** 0.5))
@@ -69,6 +62,7 @@ def make_row(
         nnz_max = max(row_counts)
         nnz_avg = nnz / dimension
     else:
+        assert density is not None
         nnz = dimension * density
         nnz_min = float(density)
         nnz_max = float(density)
@@ -83,9 +77,7 @@ def make_row(
         "run_id": RUN_ID,
         "workflow_run_id": WORKFLOW_RUN_ID,
         "commit_sha": COMMIT_SHA,
-        "benchmark_id": (
-            f"QFLPN-V3-{workload}-{split_policy}"
-        ),
+        "benchmark_id": f"QFLPN-V3-{workload}-{split_policy}",
         "workload_id": workload,
         "matrix_family": {
             "UNIFORM_2": "UNIFORM",
@@ -160,12 +152,7 @@ def make_matrix(
     policies: tuple[str, ...],
 ) -> list[dict[str, str]]:
     return [
-        make_row(
-            workload,
-            parallelism,
-            threshold,
-            policy,
-        )
+        make_row(workload, parallelism, threshold, policy)
         for workload in VALIDATOR.WORKLOADS
         for policy in policies
         for parallelism in VALIDATOR.PARALLELISMS
@@ -187,11 +174,7 @@ def write_csv(
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    with path.open(
-        "w",
-        newline="",
-        encoding="utf-8",
-    ) as stream:
+    with path.open("w", newline="", encoding="utf-8") as stream:
         writer = csv.DictWriter(
             stream,
             fieldnames=VALIDATOR.HEADER,
@@ -239,105 +222,71 @@ def test_ab_contract_contains_192_configurations() -> None:
     assert len(VALIDATOR.AB_KEYS) == EXPECTED_AB_ROWS
 
 
-def test_accepts_complete_legacy_96_matrix(
-    tmp_path: Path,
-) -> None:
+def test_accepts_complete_legacy_96_matrix(tmp_path: Path) -> None:
     path = tmp_path / "legacy-96.csv"
     write_csv(path, legacy_matrix())
 
-    result = validate_file(
-        path,
-        EXPECTED_LEGACY_ROWS,
-        "LEGACY_96",
-    )
+    result = validate_file(path, EXPECTED_LEGACY_ROWS, "LEGACY_96")
 
     assert result["split_policies"] == [LEGACY_POLICY]
     assert result["verdict_counts"]["IMPROVEMENT"] == 96
 
 
-def test_accepts_complete_ab_192_matrix(
-    tmp_path: Path,
-) -> None:
+def test_accepts_complete_ab_192_matrix(tmp_path: Path) -> None:
     path = tmp_path / "ab-192.csv"
     write_csv(path, ab_matrix())
 
-    result = validate_file(
-        path,
-        EXPECTED_AB_ROWS,
-        "AB_192",
-    )
+    result = validate_file(path, EXPECTED_AB_ROWS, "AB_192")
 
     assert result["split_policies"] == sorted(AB_POLICIES)
     assert result["verdict_counts"]["IMPROVEMENT"] == 192
 
 
-def test_rejects_incomplete_legacy_matrix(
-    tmp_path: Path,
-) -> None:
+def test_rejects_incomplete_legacy_matrix(tmp_path: Path) -> None:
     rows = legacy_matrix()
     rows.pop()
 
     path = tmp_path / "legacy-missing.csv"
     write_csv(path, rows)
 
-    with pytest.raises(
-        VALIDATOR.ValidationError,
-        match="expected 96",
-    ):
+    with pytest.raises(VALIDATOR.ValidationError, match="expected 96"):
         VALIDATOR.validate(path, run_id=RUN_ID)
 
 
-def test_rejects_incomplete_ab_matrix(
-    tmp_path: Path,
-) -> None:
+def test_rejects_incomplete_ab_matrix(tmp_path: Path) -> None:
     rows = ab_matrix()
     rows.pop()
 
     path = tmp_path / "ab-missing.csv"
     write_csv(path, rows)
 
-    with pytest.raises(
-        VALIDATOR.ValidationError,
-        match="expected 192",
-    ):
+    with pytest.raises(VALIDATOR.ValidationError, match="expected 192"):
         VALIDATOR.validate(path, run_id=RUN_ID)
 
 
-def test_rejects_duplicate_legacy_configuration(
-    tmp_path: Path,
-) -> None:
+def test_rejects_duplicate_legacy_configuration(tmp_path: Path) -> None:
     rows = legacy_matrix()
     rows[-1] = dict(rows[0])
 
     path = tmp_path / "legacy-duplicate.csv"
     write_csv(path, rows)
 
-    with pytest.raises(
-        VALIDATOR.ValidationError,
-        match="duplicate",
-    ):
+    with pytest.raises(VALIDATOR.ValidationError, match="duplicate"):
         VALIDATOR.validate(path, run_id=RUN_ID)
 
 
-def test_rejects_duplicate_ab_configuration(
-    tmp_path: Path,
-) -> None:
+def test_rejects_duplicate_ab_configuration(tmp_path: Path) -> None:
     rows = ab_matrix()
     rows[-1] = dict(rows[0])
 
     path = tmp_path / "ab-duplicate.csv"
     write_csv(path, rows)
 
-    with pytest.raises(
-        VALIDATOR.ValidationError,
-        match="duplicate",
-    ):
+    with pytest.raises(VALIDATOR.ValidationError, match="duplicate"):
         VALIDATOR.validate(path, run_id=RUN_ID)
 
 
-def test_rejects_mixed_run_ids(
-    tmp_path: Path,
-) -> None:
+def test_rejects_mixed_run_ids(tmp_path: Path) -> None:
     rows = legacy_matrix()
     rows[-1]["run_id"] = "another-run"
 
@@ -348,9 +297,7 @@ def test_rejects_mixed_run_ids(
         VALIDATOR.validate(path, run_id=RUN_ID)
 
 
-def test_rejects_mixed_workflow_run_ids(
-    tmp_path: Path,
-) -> None:
+def test_rejects_mixed_workflow_run_ids(tmp_path: Path) -> None:
     rows = legacy_matrix()
     rows[-1]["workflow_run_id"] = "999999"
 
@@ -364,9 +311,7 @@ def test_rejects_mixed_workflow_run_ids(
         VALIDATOR.validate(path, run_id=RUN_ID)
 
 
-def test_rejects_mixed_commit_sha(
-    tmp_path: Path,
-) -> None:
+def test_rejects_mixed_commit_sha(tmp_path: Path) -> None:
     rows = legacy_matrix()
     rows[-1]["commit_sha"] = "b" * 40
 
@@ -390,23 +335,11 @@ def test_rejects_mixed_commit_sha(
         ("non_zero_count", "0", "non_zero_count must be positive"),
         ("commit_sha", "invalid", "40-character lowercase SHA-1"),
         ("workflow_run_id", "run-123", "decimal digits only"),
-        (
-            "timestamp",
-            "2026-10-25T10:00:00",
-            "timezone",
-        ),
+        ("timestamp", "2026-10-25T10:00:00", "timezone"),
         ("status", "FAIL", "row status must be PASS"),
         ("sequential_mean_ms", "nan", "must be finite"),
-        (
-            "parallel_mean_ms",
-            "0",
-            "parallel_mean_ms must be positive",
-        ),
-        (
-            "max_absolute_error",
-            "1e-4",
-            "numerical error exceeds",
-        ),
+        ("parallel_mean_ms", "0", "parallel_mean_ms must be positive"),
+        ("max_absolute_error", "1e-4", "numerical error exceeds"),
         ("free_jvm_heap_bytes", "5000000000", "exceeds"),
     ],
 )
@@ -422,32 +355,22 @@ def test_rejects_invalid_row_fields(
     path = tmp_path / f"invalid-{field}.csv"
     write_csv(path, rows)
 
-    with pytest.raises(
-        VALIDATOR.ValidationError,
-        match=message,
-    ):
+    with pytest.raises(VALIDATOR.ValidationError, match=message):
         VALIDATOR.validate(path, run_id=RUN_ID)
 
 
-def test_rejects_incorrect_speedup(
-    tmp_path: Path,
-) -> None:
+def test_rejects_incorrect_speedup(tmp_path: Path) -> None:
     rows = legacy_matrix()
     rows[0]["speedup"] = "3.0"
 
     path = tmp_path / "wrong-speedup.csv"
     write_csv(path, rows)
 
-    with pytest.raises(
-        VALIDATOR.ValidationError,
-        match="speedup mismatch",
-    ):
+    with pytest.raises(VALIDATOR.ValidationError, match="speedup mismatch"):
         VALIDATOR.validate(path, run_id=RUN_ID)
 
 
-def test_rejects_incorrect_throughput(
-    tmp_path: Path,
-) -> None:
+def test_rejects_incorrect_throughput(tmp_path: Path) -> None:
     rows = legacy_matrix()
     rows[0]["sequential_nnz_per_second"] = "123"
 
@@ -470,32 +393,22 @@ def test_rejects_incorrect_throughput(
         (1.05, "IMPROVEMENT"),
     ],
 )
-def test_verdict_boundaries(
-    speedup: float,
-    expected: str,
-) -> None:
+def test_verdict_boundaries(speedup: float, expected: str) -> None:
     assert VALIDATOR.expected_verdict(speedup) == expected
 
 
-def test_rejects_incorrect_verdict(
-    tmp_path: Path,
-) -> None:
+def test_rejects_incorrect_verdict(tmp_path: Path) -> None:
     rows = legacy_matrix()
     rows[0]["verdict"] = "REGRESSION"
 
     path = tmp_path / "wrong-verdict.csv"
     write_csv(path, rows)
 
-    with pytest.raises(
-        VALIDATOR.ValidationError,
-        match="verdict mismatch",
-    ):
+    with pytest.raises(VALIDATOR.ValidationError, match="verdict mismatch"):
         VALIDATOR.validate(path, run_id=RUN_ID)
 
 
-def test_rejects_wrong_csv_header(
-    tmp_path: Path,
-) -> None:
+def test_rejects_wrong_csv_header(tmp_path: Path) -> None:
     path = tmp_path / "wrong-header.csv"
     path.write_text(
         "timestamp,run_id,dimension\n"
@@ -510,25 +423,18 @@ def test_rejects_wrong_csv_header(
         VALIDATOR.validate(path)
 
 
-def test_rejects_uniform_workload_with_wrong_nnz(
-    tmp_path: Path,
-) -> None:
+def test_rejects_uniform_workload_with_wrong_nnz(tmp_path: Path) -> None:
     rows = legacy_matrix()
     rows[0]["non_zero_count"] = "201"
 
     path = tmp_path / "wrong-uniform-nnz.csv"
     write_csv(path, rows)
 
-    with pytest.raises(
-        VALIDATOR.ValidationError,
-        match="requires NNZ",
-    ):
+    with pytest.raises(VALIDATOR.ValidationError, match="requires NNZ"):
         VALIDATOR.validate(path, run_id=RUN_ID)
 
 
-def test_rejects_symlink_csv(
-    tmp_path: Path,
-) -> None:
+def test_rejects_symlink_csv(tmp_path: Path) -> None:
     target = tmp_path / "target.csv"
     write_csv(target, legacy_matrix())
 
@@ -538,8 +444,5 @@ def test_rejects_symlink_csv(
     except (OSError, NotImplementedError):
         pytest.skip("Symlink creation is unavailable.")
 
-    with pytest.raises(
-        VALIDATOR.ValidationError,
-        match="symlink",
-    ):
+    with pytest.raises(VALIDATOR.ValidationError, match="symlink"):
         VALIDATOR.validate(link)
