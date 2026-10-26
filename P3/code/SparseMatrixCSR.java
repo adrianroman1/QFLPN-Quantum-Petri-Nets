@@ -1,7 +1,6 @@
 package hpc.csr;
 
 import java.util.Arrays;
-import java.util.Comparator;
 import java.util.Objects;
 import java.util.concurrent.ForkJoinPool;
 
@@ -11,12 +10,15 @@ import java.util.concurrent.ForkJoinPool;
  * Duplicate column indices are supported. Their values are
  * interpreted additively by get(), multiply() and multiplyParallel().
  *
- * The default parallel split policy is ROW_BOUNDARY_SCAN.
- * Callers may explicitly select another MultiplyTask.SplitPolicy.
+ * The default parallel split policy is BINARY_NNZ_SPLIT.
+ * ROW_BOUNDARY_SCAN remains available as an explicit baseline.
  */
 public final class SparseMatrixCSR {
 
     private static final int DEFAULT_PARALLEL_THRESHOLD = 4096;
+
+    private static final MultiplyTask.SplitPolicy DEFAULT_SPLIT_POLICY =
+            MultiplyTask.SplitPolicy.BINARY_NNZ_SPLIT;
 
     private final int rows;
     private final int columns;
@@ -38,7 +40,12 @@ public final class SparseMatrixCSR {
         Objects.requireNonNull(rowPointers, "rowPointers cannot be null");
 
         NormalizedCSR normalized =
-                normalizeAndValidate(values, columnIndices, rowPointers, rows, columns);
+                normalizeAndValidate(
+                        values,
+                        columnIndices,
+                        rowPointers,
+                        rows,
+                        columns);
 
         this.values = normalized.values();
         this.columnIndices = normalized.columns();
@@ -58,12 +65,22 @@ public final class SparseMatrixCSR {
             throw new IllegalArgumentException(
                     "Number of rows cannot be negative.");
         }
+
         if (columns < 0) {
             throw new IllegalArgumentException(
                     "Number of columns cannot be negative.");
         }
     }
 
+    /**
+     * Validates and normalizes CSR input.
+     *
+     * Each row is sorted by column index using primitive long keys.
+     * The low 32 bits retain the original input position, so equal
+     * column indices preserve their original order during aggregation.
+     *
+     * This avoids allocating one Integer object per nonzero entry.
+     */
     private static NormalizedCSR normalizeAndValidate(
             double[] values,
             int[] columnIndices,
@@ -87,6 +104,7 @@ public final class SparseMatrixCSR {
         }
 
         int previous = 0;
+
         for (int i = 0; i < rowPointers.length; i++) {
             int current = rowPointers[i];
 
@@ -94,10 +112,12 @@ public final class SparseMatrixCSR {
                 throw new IllegalArgumentException(
                         "rowPointers must be non-negative and monotonically non-decreasing.");
             }
+
             if (current > values.length) {
                 throw new IllegalArgumentException(
                         "rowPointers value exceeds NNZ at index " + i + ".");
             }
+
             previous = current;
         }
 
@@ -108,6 +128,7 @@ public final class SparseMatrixCSR {
 
         for (int i = 0; i < columnIndices.length; i++) {
             int column = columnIndices[i];
+
             if (column < 0 || column >= columns) {
                 throw new IllegalArgumentException(
                         "Column index out of bounds at position "
@@ -128,6 +149,7 @@ public final class SparseMatrixCSR {
         int[] compactRowPointers = new int[rows + 1];
 
         compactRowPointers[0] = 0;
+
         int writeIndex = 0;
 
         for (int row = 0; row < rows; row++) {
@@ -140,20 +162,34 @@ public final class SparseMatrixCSR {
                 continue;
             }
 
-            Integer[] order = new Integer[count];
+            /*
+             * Key layout:
+             *
+             * bits 63..32: column index
+             * bits 31..0 : original absolute input index
+             *
+             * Column indices are non-negative, so signed long sorting
+             * preserves ascending column order. The original index
+             * provides deterministic ordering for duplicate columns.
+             */
+            long[] order = new long[count];
 
             for (int i = 0; i < count; i++) {
-                order[i] = rowStart + i;
+                int originalIndex = rowStart + i;
+                int column = columnIndices[originalIndex];
+
+                order[i] =
+                        ((long) column << 32)
+                                | (originalIndex & 0xffffffffL);
             }
 
-            Arrays.sort(
-                    order,
-                    Comparator.comparingInt(index -> columnIndices[index]));
+            Arrays.sort(order);
 
             int rowWrite = 0;
 
             for (int pos = 0; pos < order.length; pos++) {
-                int index = order[pos];
+                int index = (int) order[pos];
+
                 int currentColumn = columnIndices[index];
                 double currentValue = values[index];
 
@@ -161,7 +197,8 @@ public final class SparseMatrixCSR {
                         && compactColumns[writeIndex + rowWrite - 1]
                         == currentColumn) {
 
-                    int duplicatePosition = writeIndex + rowWrite - 1;
+                    int duplicatePosition =
+                            writeIndex + rowWrite - 1;
 
                     double aggregatedValue =
                             compactValues[duplicatePosition] + currentValue;
@@ -203,6 +240,9 @@ public final class SparseMatrixCSR {
                 normalizedRowPointers);
     }
 
+    /**
+     * Sequential CSR matrix-vector multiplication.
+     */
     public double[] multiply(double[] x) {
         validateInputVector(x);
 
@@ -212,6 +252,13 @@ public final class SparseMatrixCSR {
         return y;
     }
 
+    /**
+     * Sequential CSR matrix-vector multiplication into a caller-owned
+     * output array.
+     *
+     * If x and y are the same array, x is snapshotted before any output
+     * element is overwritten.
+     */
     public void multiplyInto(double[] x, double[] y) {
         validateInputVector(x);
         validateOutputVector(y);
@@ -223,10 +270,10 @@ public final class SparseMatrixCSR {
         for (int row = 0; row < rows; row++) {
             double sum = 0.0;
 
-            for (int index = rowPointers[row];
-                 index < rowPointers[row + 1];
-                 index++) {
+            int begin = rowPointers[row];
+            int end = rowPointers[row + 1];
 
+            for (int index = begin; index < end; index++) {
                 sum += values[index] * input[columnIndices[index]];
             }
 
@@ -234,17 +281,22 @@ public final class SparseMatrixCSR {
         }
     }
 
+    /**
+     * Parallel multiplication using the default threshold, available
+     * processor count and BINARY_NNZ_SPLIT policy.
+     */
     public double[] multiplyParallel(double[] x) {
         return multiplyParallel(
                 x,
                 DEFAULT_PARALLEL_THRESHOLD,
                 Math.max(1, Runtime.getRuntime().availableProcessors()),
-                MultiplyTask.SplitPolicy.ROW_BOUNDARY_SCAN);
+                DEFAULT_SPLIT_POLICY);
     }
 
     /**
      * Backward-compatible API.
-     * The default split policy is ROW_BOUNDARY_SCAN.
+     *
+     * The default split policy is BINARY_NNZ_SPLIT.
      */
     public double[] multiplyParallel(
             double[] x,
@@ -255,7 +307,7 @@ public final class SparseMatrixCSR {
                 x,
                 threshold,
                 parallelism,
-                MultiplyTask.SplitPolicy.ROW_BOUNDARY_SCAN);
+                DEFAULT_SPLIT_POLICY);
     }
 
     /**
@@ -269,7 +321,10 @@ public final class SparseMatrixCSR {
 
         validateInputVector(x);
         validateParallelConfiguration(threshold, parallelism);
-        Objects.requireNonNull(splitPolicy, "splitPolicy cannot be null");
+
+        Objects.requireNonNull(
+                splitPolicy,
+                "splitPolicy cannot be null");
 
         double[] y = new double[rows];
 
@@ -285,7 +340,8 @@ public final class SparseMatrixCSR {
 
     /**
      * Backward-compatible API.
-     * The default split policy is ROW_BOUNDARY_SCAN.
+     *
+     * The default split policy is BINARY_NNZ_SPLIT.
      */
     public void multiplyParallelInto(
             double[] x,
@@ -298,11 +354,12 @@ public final class SparseMatrixCSR {
                 y,
                 threshold,
                 parallelism,
-                MultiplyTask.SplitPolicy.ROW_BOUNDARY_SCAN);
+                DEFAULT_SPLIT_POLICY);
     }
 
     /**
      * Parallel multiplication with an explicitly selected split policy.
+     *
      * A new ForkJoinPool is created and shut down by this method.
      */
     public void multiplyParallelInto(
@@ -315,7 +372,10 @@ public final class SparseMatrixCSR {
         validateInputVector(x);
         validateOutputVector(y);
         validateParallelConfiguration(threshold, parallelism);
-        Objects.requireNonNull(splitPolicy, "splitPolicy cannot be null");
+
+        Objects.requireNonNull(
+                splitPolicy,
+                "splitPolicy cannot be null");
 
         ForkJoinPool pool = new ForkJoinPool(parallelism);
 
@@ -332,7 +392,7 @@ public final class SparseMatrixCSR {
     }
 
     /**
-     * Backward-compatible overload using ROW_BOUNDARY_SCAN.
+     * Backward-compatible overload using BINARY_NNZ_SPLIT.
      */
     public void multiplyParallelInto(
             double[] x,
@@ -345,15 +405,20 @@ public final class SparseMatrixCSR {
                 y,
                 threshold,
                 pool,
-                MultiplyTask.SplitPolicy.ROW_BOUNDARY_SCAN);
+                DEFAULT_SPLIT_POLICY);
     }
 
     /**
      * Parallel multiplication using a caller-owned ForkJoinPool and an
-     * explicit split policy. The pool is not shut down by this method.
+     * explicit split policy.
      *
-     * The input vector is snapshotted once by MultiplyTask.forValidatedCsr.
-     * This preserves correctness when x and y are the same array.
+     * The pool is not shut down by this method.
+     *
+     * MultiplyTask.forValidatedCsr reuses the input vector when it is
+     * distinct from the output vector. When x == y, it snapshots the
+     * input to preserve in-place multiplication semantics.
+     *
+     * When x != y, callers must not mutate x concurrently with this call.
      */
     public void multiplyParallelInto(
             double[] x,
