@@ -66,8 +66,8 @@ REQUIRED_PACKAGE_FILES = (
     "P3/reports/evidence-consistency.json",
 )
 
-# These identifiers are the canonical p3_validation stage contract.
-# The workflow must record every identifier in outcomes["stages"].
+# Canonical stage identifiers. The p3_validation workflow must record
+# every stage in outcomes["stages"] using the exact identifiers below.
 REQUIRED_CI_STAGES = (
     "p3_environment",
     "p3_required_files",
@@ -135,8 +135,8 @@ def safe_relative_path(value: str) -> bool:
 def independent_inventory(root: Path) -> list[str]:
     """Return sorted repository-relative P3 file paths.
 
-    The return type is list[str]. Each item is a path string, not a
-    dictionary. MANIFEST.txt and SHA256SUMS.txt are excluded.
+    Each inventory item is a path string, not a dictionary.
+    Global integrity files are excluded to prevent self-reference.
     """
     root = Path(root).resolve()
     p3_root = root / "P3"
@@ -175,10 +175,12 @@ def independent_inventory(root: Path) -> list[str]:
                 continue
 
             relative = path.relative_to(root).as_posix()
+
             require(
                 safe_relative_path(relative),
                 f"Unsafe filesystem path: {relative}",
             )
+
             found.append(relative)
 
     found.sort()
@@ -310,6 +312,7 @@ def verify_global_integrity(root: Path) -> dict[str, int]:
         regular_file(target, f"Manifest target {relative}")
 
         actual_digest = sha256_file(target)
+
         require(
             actual_digest == checksums[relative],
             f"SHA-256 mismatch: {relative}",
@@ -403,15 +406,18 @@ def verify_ci_outcomes(
         )
 
     stages = outcomes.get("stages")
+
     require(
         isinstance(stages, dict),
         "CI outcomes must contain a stages JSON object",
     )
 
     missing = [
-        stage for stage in REQUIRED_CI_STAGES
+        stage
+        for stage in REQUIRED_CI_STAGES
         if stage not in stages
     ]
+
     require(
         not missing,
         "Missing mandatory p3_validation stages: "
@@ -423,13 +429,17 @@ def verify_ci_outcomes(
         for stage in REQUIRED_CI_STAGES
         if stages.get(stage) != "success"
     }
+
     require(
         not failed,
         "Mandatory p3_validation stages did not succeed: "
         + json.dumps(failed, sort_keys=True),
     )
 
-    return {stage: "success" for stage in REQUIRED_CI_STAGES}
+    return {
+        stage: "success"
+        for stage in REQUIRED_CI_STAGES
+    }
 
 
 def verify_required_files(root: Path) -> None:
@@ -472,7 +482,10 @@ def verify_v2(
             f"Authoritative V2 validator failed: {exc}"
         ) from exc
 
-    require(isinstance(result, dict), "V2 validator result is not an object")
+    require(
+        isinstance(result, dict),
+        "V2 validator result is not an object",
+    )
     require(
         result.get("schema") == "qflpn-benchmark-v2",
         "V2 validator schema mismatch",
@@ -484,6 +497,7 @@ def verify_v2(
     )
 
     latest = result.get("latest_record")
+
     require(
         isinstance(latest, dict),
         "V2 validator latest_record is missing",
@@ -501,19 +515,24 @@ def verify_v2(
         reader = csv.DictReader(stream, strict=True)
         rows = list(reader)
 
-    matches = [row for row in rows if row.get("run_id") == run_id]
+    matches = [
+        row
+        for row in rows
+        if row.get("run_id") == run_id
+    ]
+
     require(
         len(matches) == 1,
-        f"V2 expected exactly one row for RUN_ID={run_id}; got {len(matches)}",
+        f"V2 expected exactly one row for RUN_ID={run_id}; "
+        f"got {len(matches)}",
     )
 
     row = matches[0]
 
-    integer_fields = (
+    for csv_key, result_key in (
         ("dimension", "dimension"),
         ("non_zero_count", "nnz"),
-    )
-    for csv_key, result_key in integer_fields:
+    ):
         try:
             csv_value = int(row[csv_key])
             result_value = int(latest[result_key])
@@ -527,13 +546,12 @@ def verify_v2(
             f"V2 CSV/validator mismatch: {csv_key}",
         )
 
-    numeric_fields = (
+    for csv_key, result_key in (
         ("speedup", "speedup"),
         ("sequential_mean_ms", "sequential_mean_ms"),
         ("parallel_mean_ms", "parallel_mean_ms"),
         ("max_absolute_error", "max_error"),
-    )
-    for csv_key, result_key in numeric_fields:
+    ):
         csv_value = finite_number(row.get(csv_key), csv_key)
         result_value = finite_number(latest.get(result_key), result_key)
 
@@ -573,6 +591,8 @@ def verify_v3(
         "p3_final_v3_validator",
     )
 
+    regular_file(csv_path, "V3 canonical CSV")
+
     try:
         result = validator.validate(
             csv_path,
@@ -585,7 +605,10 @@ def verify_v3(
             f"Authoritative V3 validator failed: {exc}"
         ) from exc
 
-    require(isinstance(result, dict), "V3 validator result is not an object")
+    require(
+        isinstance(result, dict),
+        "V3 validator result is not an object",
+    )
     require(
         result.get("schema") == "qflpn-benchmark-v3-validation-v2",
         "V3 validator schema mismatch",
@@ -599,7 +622,10 @@ def verify_v3(
         result.get("configuration_matrix_complete") is True,
         "V3 configuration matrix is incomplete",
     )
-    require(result.get("run_id") == run_id, "V3 RUN_ID mismatch")
+    require(
+        result.get("run_id") == run_id,
+        "V3 RUN_ID mismatch",
+    )
     require(
         result.get("commit_sha") == source_commit,
         "V3 source commit mismatch",
@@ -613,12 +639,17 @@ def verify_v3(
         )
 
     contract = result.get("run_contract")
+
     require(
         contract in {"LEGACY_96", "AB_192"},
         f"Unsupported V3 run contract: {contract!r}",
     )
 
-    expected_records = 96 if contract == "LEGACY_96" else 192
+    expected_records = (
+        96
+        if contract == "LEGACY_96"
+        else 192
+    )
 
     require(
         result.get("expected_records") == expected_records,
@@ -630,6 +661,7 @@ def verify_v3(
     )
 
     policies = result.get("split_policies")
+
     require(
         isinstance(policies, list) and bool(policies),
         "V3 split_policies is missing or invalid",
@@ -637,17 +669,23 @@ def verify_v3(
 
     if contract == "LEGACY_96":
         require(
-            len(policies) == 1,
-            "LEGACY_96 must contain exactly one split policy",
+            policies == ["ROW_BOUNDARY_SCAN"],
+            "LEGACY_96 must contain only ROW_BOUNDARY_SCAN",
         )
     else:
         require(
-            set(policies) == {"ROW_BOUNDARY_SCAN", "BINARY_NNZ_SPLIT"},
+            set(policies)
+            == {"ROW_BOUNDARY_SCAN", "BINARY_NNZ_SPLIT"},
             "AB_192 must contain both A/B split policies",
         )
 
-    report_path = p3 / "reports" / "benchmark-v3-validation.json"
-    report = load_json(report_path, "Persistent V3 validation report")
+    report_path = (
+        p3 / "reports" / "benchmark-v3-validation.json"
+    )
+    report = load_json(
+        report_path,
+        "Persistent V3 validation report",
+    )
 
     for key, expected_value in (
         ("schema", result["schema"]),
@@ -665,8 +703,13 @@ def verify_v3(
             f"Persistent V3 report mismatch: {key}",
         )
 
-    checksum_path = p3 / "reports" / "benchmark-v3-SHA256SUMS.txt"
-    regular_file(checksum_path, "V3 run-specific SHA256SUMS")
+    checksum_path = (
+        p3 / "reports" / "benchmark-v3-SHA256SUMS.txt"
+    )
+    regular_file(
+        checksum_path,
+        "V3 run-specific SHA256SUMS",
+    )
 
     try:
         checksum_lines = checksum_path.read_text(
@@ -686,7 +729,11 @@ def verify_v3(
         r"([0-9a-f]{64})  benchmarks/benchmark_results_v3\.csv",
         checksum_lines[0],
     )
-    require(match is not None, "V3 checksum entry is malformed")
+
+    require(
+        match is not None,
+        "V3 checksum entry is malformed",
+    )
     assert match is not None
 
     require(
@@ -704,7 +751,9 @@ def verify_v3(
         "expected_records": expected_records,
         "validated_records": expected_records,
         "split_policies": policies,
-        "maximum_absolute_error": result.get("maximum_absolute_error"),
+        "maximum_absolute_error": result.get(
+            "maximum_absolute_error"
+        ),
     }
 
 
@@ -752,7 +801,12 @@ def verify_evidence_consistency(
         "p3_final_evidence_consistency",
     )
 
-    verify_function = getattr(module, "verify_evidence", None)
+    verify_function = getattr(
+        module,
+        "verify_evidence",
+        None,
+    )
+
     require(
         callable(verify_function),
         "Evidence consistency module has no verify_evidence() function",
@@ -780,6 +834,7 @@ def verify_evidence_consistency(
     )
 
     details = report.get("evidence")
+
     require(
         isinstance(details, dict),
         "Evidence consistency report has no evidence object",
@@ -819,7 +874,10 @@ def verify_package(
     """Verify all acceptance gates for one P3 execution."""
     root = Path(root).resolve()
 
-    require(root.is_dir(), f"Repository root does not exist: {root}")
+    require(
+        root.is_dir(),
+        f"Repository root does not exist: {root}",
+    )
     require(
         RUN_ID_RE.fullmatch(run_id or "") is not None,
         "Invalid RUN_ID",
@@ -842,6 +900,7 @@ def verify_package(
         "threshold",
         "parallelism",
     }
+
     require(
         set(expected) == required_expected,
         "V2 expected-configuration keys mismatch: "
@@ -850,9 +909,13 @@ def verify_package(
     )
 
     for key, value in expected.items():
+        minimum = 0 if key == "warmup_iterations" else 1
+
         require(
-            isinstance(value, int) and not isinstance(value, bool) and value > 0,
-            f"V2 expected value must be a positive integer: {key}",
+            isinstance(value, int)
+            and not isinstance(value, bool)
+            and value >= minimum,
+            f"Invalid V2 expected value: {key}",
         )
 
     outcomes = verify_ci_outcomes(
@@ -864,19 +927,26 @@ def verify_package(
 
     verify_required_files(root)
 
-    v2 = verify_v2(root, run_id, expected)
+    v2 = verify_v2(
+        root,
+        run_id,
+        expected,
+    )
+
     v3 = verify_v3(
         root,
         run_id,
         source_commit,
         workflow_run_id,
     )
+
     evidence = verify_evidence_consistency(
         root,
         run_id,
         source_commit,
         workflow_run_id,
     )
+
     integrity = verify_global_integrity(root)
 
     return {
@@ -957,6 +1027,7 @@ def main() -> int:
             allow_nan=False,
         )
     )
+
     return 0
 
 
