@@ -187,25 +187,165 @@ P3/tests/test_compute_checksums.py::test_symlinked_directories_are_not_traversed
 P3/tests/test_compute_checksums.py::test_empty_inventory_is_rejected PASSED [ 89%]
 P3/tests/test_compute_checksums.py::test_path_outside_repository_is_rejected PASSED [ 89%]
 P3/tests/test_compute_checksums.py::test_path_outside_p3_is_rejected PASSED [ 90%]
-P3/tests/test_verify_final_package.py::test_complete_valid_package_is_accepted PASSED [ 90%]
-P3/tests/test_verify_final_package.py::test_manifest_must_contain_paths_only PASSED [ 91%]
-P3/tests/test_verify_final_package.py::test_manifest_must_not_contain_integrity_files PASSED [ 91%]
-P3/tests/test_verify_final_package.py::test_modified_source_file_fails_global_hash_check PASSED [ 92%]
-P3/tests/test_verify_final_package.py::test_missing_manifest_fails_closed PASSED [ 92%]
-P3/tests/test_verify_final_package.py::test_missing_checksum_file_fails_closed PASSED [ 93%]
-P3/tests/test_verify_final_package.py::test_checksum_path_set_must_equal_manifest_path_set PASSED [ 93%]
-P3/tests/test_verify_final_package.py::test_wrong_run_id_fails_benchmark_verification PASSED [ 94%]
-P3/tests/test_verify_final_package.py::test_csv_json_run_id_mismatch_fails PASSED [ 94%]
-P3/tests/test_verify_final_package.py::test_invalid_benchmark_report_status_fails PASSED [ 95%]
-P3/tests/test_verify_final_package.py::test_missing_run_evidence_fails PASSED [ 95%]
-P3/tests/test_verify_final_package.py::test_modified_run_evidence_fails_its_checksum PASSED [ 96%]
-P3/tests/test_verify_final_package.py::test_failed_ci_stage_rejects_package PASSED [ 96%]
-P3/tests/test_verify_final_package.py::test_missing_ci_stage_rejects_package PASSED [ 97%]
-P3/tests/test_verify_final_package.py::test_invalid_run_id_is_rejected PASSED [ 97%]
-P3/tests/test_verify_final_package.py::test_invalid_ci_outcomes_json_fails PASSED [ 98%]
-P3/tests/test_verify_final_package.py::test_unexpected_csv_record_fails_authoritative_validation PASSED [ 98%]
-P3/tests/test_verify_final_package.py::test_duplicate_csv_run_id_fails_authoritative_validation PASSED [ 99%]
-P3/tests/test_verify_final_package.py::test_missing_required_package_file_fails PASSED [ 99%]
-P3/tests/test_verify_final_package.py::test_corrupted_run_checksum_file_fails PASSED [100%]
+P3/tests/test_verify_final_package.py::test_complete_valid_package_is_accepted FAILED [ 90%]
+P3/tests/test_verify_final_package.py::test_manifest_must_contain_paths_only FAILED [ 91%]
+P3/tests/test_verify_final_package.py::test_manifest_must_not_contain_integrity_files FAILED [ 91%]
+P3/tests/test_verify_final_package.py::test_modified_source_file_fails_global_hash_check FAILED [ 92%]
+P3/tests/test_verify_final_package.py::test_missing_manifest_fails_closed FAILED [ 92%]
+P3/tests/test_verify_final_package.py::test_missing_checksum_file_fails_closed FAILED [ 93%]
+P3/tests/test_verify_final_package.py::test_checksum_path_set_must_equal_manifest_path_set FAILED [ 93%]
+P3/tests/test_verify_final_package.py::test_wrong_run_id_fails_benchmark_verification FAILED [ 94%]
+P3/tests/test_verify_final_package.py::test_csv_json_run_id_mismatch_fails FAILED [ 94%]
+P3/tests/test_verify_final_package.py::test_invalid_benchmark_report_status_fails FAILED [ 95%]
+P3/tests/test_verify_final_package.py::test_missing_run_evidence_fails FAILED [ 95%]
+P3/tests/test_verify_final_package.py::test_modified_run_evidence_fails_its_checksum FAILED [ 96%]
+P3/tests/test_verify_final_package.py::test_failed_ci_stage_rejects_package FAILED [ 96%]
+P3/tests/test_verify_final_package.py::test_missing_ci_stage_rejects_package FAILED [ 97%]
+P3/tests/test_verify_final_package.py::test_invalid_run_id_is_rejected FAILED [ 97%]
+P3/tests/test_verify_final_package.py::test_invalid_ci_outcomes_json_fails FAILED [ 98%]
+P3/tests/test_verify_final_package.py::test_unexpected_csv_record_fails_authoritative_validation FAILED [ 98%]
+P3/tests/test_verify_final_package.py::test_duplicate_csv_run_id_fails_authoritative_validation FAILED [ 99%]
+P3/tests/test_verify_final_package.py::test_missing_required_package_file_fails FAILED [ 99%]
+P3/tests/test_verify_final_package.py::test_corrupted_run_checksum_file_fails FAILED [100%]
 
-============================= 203 passed in 2.43s ==============================
+=================================== FAILURES ===================================
+___________________ test_complete_valid_package_is_accepted ____________________
+P3/tests/test_verify_final_package.py:428: in test_complete_valid_package_is_accepted
+    result = MODULE.verify_package(
+E   TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
+____________________ test_manifest_must_contain_paths_only _____________________
+P3/tests/test_verify_final_package.py:464: in test_manifest_must_contain_paths_only
+    expect_verification_failure(
+P3/tests/test_verify_final_package.py:408: in expect_verification_failure
+    MODULE.verify_package(
+E   TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
+________________ test_manifest_must_not_contain_integrity_files ________________
+P3/tests/test_verify_final_package.py:491: in test_manifest_must_not_contain_integrity_files
+    expect_verification_failure(
+P3/tests/test_verify_final_package.py:408: in expect_verification_failure
+    MODULE.verify_package(
+E   TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
+______________ test_modified_source_file_fails_global_hash_check _______________
+P3/tests/test_verify_final_package.py:510: in test_modified_source_file_fails_global_hash_check
+    expect_verification_failure(
+P3/tests/test_verify_final_package.py:408: in expect_verification_failure
+    MODULE.verify_package(
+E   TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
+______________________ test_missing_manifest_fails_closed ______________________
+P3/tests/test_verify_final_package.py:525: in test_missing_manifest_fails_closed
+    expect_verification_failure(
+P3/tests/test_verify_final_package.py:408: in expect_verification_failure
+    MODULE.verify_package(
+E   TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
+___________________ test_missing_checksum_file_fails_closed ____________________
+P3/tests/test_verify_final_package.py:540: in test_missing_checksum_file_fails_closed
+    expect_verification_failure(
+P3/tests/test_verify_final_package.py:408: in expect_verification_failure
+    MODULE.verify_package(
+E   TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
+_____________ test_checksum_path_set_must_equal_manifest_path_set ______________
+P3/tests/test_verify_final_package.py:559: in test_checksum_path_set_must_equal_manifest_path_set
+    expect_verification_failure(
+P3/tests/test_verify_final_package.py:408: in expect_verification_failure
+    MODULE.verify_package(
+E   TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
+________________ test_wrong_run_id_fails_benchmark_verification ________________
+P3/tests/test_verify_final_package.py:572: in test_wrong_run_id_fails_benchmark_verification
+    expect_verification_failure(
+P3/tests/test_verify_final_package.py:408: in expect_verification_failure
+    MODULE.verify_package(
+E   TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
+_____________________ test_csv_json_run_id_mismatch_fails ______________________
+P3/tests/test_verify_final_package.py:604: in test_csv_json_run_id_mismatch_fails
+    expect_verification_failure(
+P3/tests/test_verify_final_package.py:408: in expect_verification_failure
+    MODULE.verify_package(
+E   TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
+__________________ test_invalid_benchmark_report_status_fails __________________
+P3/tests/test_verify_final_package.py:632: in test_invalid_benchmark_report_status_fails
+    expect_verification_failure(
+P3/tests/test_verify_final_package.py:408: in expect_verification_failure
+    MODULE.verify_package(
+E   TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
+_______________________ test_missing_run_evidence_fails ________________________
+P3/tests/test_verify_final_package.py:655: in test_missing_run_evidence_fails
+    expect_verification_failure(
+P3/tests/test_verify_final_package.py:408: in expect_verification_failure
+    MODULE.verify_package(
+E   TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
+________________ test_modified_run_evidence_fails_its_checksum _________________
+P3/tests/test_verify_final_package.py:681: in test_modified_run_evidence_fails_its_checksum
+    expect_verification_failure(
+P3/tests/test_verify_final_package.py:408: in expect_verification_failure
+    MODULE.verify_package(
+E   TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
+_____________________ test_failed_ci_stage_rejects_package _____________________
+P3/tests/test_verify_final_package.py:701: in test_failed_ci_stage_rejects_package
+    expect_verification_failure(
+P3/tests/test_verify_final_package.py:408: in expect_verification_failure
+    MODULE.verify_package(
+E   TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
+____________________ test_missing_ci_stage_rejects_package _____________________
+P3/tests/test_verify_final_package.py:721: in test_missing_ci_stage_rejects_package
+    expect_verification_failure(
+P3/tests/test_verify_final_package.py:408: in expect_verification_failure
+    MODULE.verify_package(
+E   TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
+_______________________ test_invalid_run_id_is_rejected ________________________
+P3/tests/test_verify_final_package.py:734: in test_invalid_run_id_is_rejected
+    expect_verification_failure(
+P3/tests/test_verify_final_package.py:408: in expect_verification_failure
+    MODULE.verify_package(
+E   TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
+_____________________ test_invalid_ci_outcomes_json_fails ______________________
+P3/tests/test_verify_final_package.py:753: in test_invalid_ci_outcomes_json_fails
+    expect_verification_failure(
+P3/tests/test_verify_final_package.py:408: in expect_verification_failure
+    MODULE.verify_package(
+E   TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
+__________ test_unexpected_csv_record_fails_authoritative_validation ___________
+P3/tests/test_verify_final_package.py:778: in test_unexpected_csv_record_fails_authoritative_validation
+    expect_verification_failure(
+P3/tests/test_verify_final_package.py:408: in expect_verification_failure
+    MODULE.verify_package(
+E   TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
+___________ test_duplicate_csv_run_id_fails_authoritative_validation ___________
+P3/tests/test_verify_final_package.py:811: in test_duplicate_csv_run_id_fails_authoritative_validation
+    expect_verification_failure(
+P3/tests/test_verify_final_package.py:408: in expect_verification_failure
+    MODULE.verify_package(
+E   TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
+___________________ test_missing_required_package_file_fails ___________________
+P3/tests/test_verify_final_package.py:825: in test_missing_required_package_file_fails
+    expect_verification_failure(
+P3/tests/test_verify_final_package.py:408: in expect_verification_failure
+    MODULE.verify_package(
+E   TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
+____________________ test_corrupted_run_checksum_file_fails ____________________
+P3/tests/test_verify_final_package.py:852: in test_corrupted_run_checksum_file_fails
+    expect_verification_failure(
+P3/tests/test_verify_final_package.py:408: in expect_verification_failure
+    MODULE.verify_package(
+E   TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
+=========================== short test summary info ============================
+FAILED P3/tests/test_verify_final_package.py::test_complete_valid_package_is_accepted - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
+FAILED P3/tests/test_verify_final_package.py::test_manifest_must_contain_paths_only - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
+FAILED P3/tests/test_verify_final_package.py::test_manifest_must_not_contain_integrity_files - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
+FAILED P3/tests/test_verify_final_package.py::test_modified_source_file_fails_global_hash_check - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
+FAILED P3/tests/test_verify_final_package.py::test_missing_manifest_fails_closed - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
+FAILED P3/tests/test_verify_final_package.py::test_missing_checksum_file_fails_closed - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
+FAILED P3/tests/test_verify_final_package.py::test_checksum_path_set_must_equal_manifest_path_set - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
+FAILED P3/tests/test_verify_final_package.py::test_wrong_run_id_fails_benchmark_verification - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
+FAILED P3/tests/test_verify_final_package.py::test_csv_json_run_id_mismatch_fails - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
+FAILED P3/tests/test_verify_final_package.py::test_invalid_benchmark_report_status_fails - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
+FAILED P3/tests/test_verify_final_package.py::test_missing_run_evidence_fails - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
+FAILED P3/tests/test_verify_final_package.py::test_modified_run_evidence_fails_its_checksum - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
+FAILED P3/tests/test_verify_final_package.py::test_failed_ci_stage_rejects_package - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
+FAILED P3/tests/test_verify_final_package.py::test_missing_ci_stage_rejects_package - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
+FAILED P3/tests/test_verify_final_package.py::test_invalid_run_id_is_rejected - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
+FAILED P3/tests/test_verify_final_package.py::test_invalid_ci_outcomes_json_fails - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
+FAILED P3/tests/test_verify_final_package.py::test_unexpected_csv_record_fails_authoritative_validation - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
+FAILED P3/tests/test_verify_final_package.py::test_duplicate_csv_run_id_fails_authoritative_validation - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
+FAILED P3/tests/test_verify_final_package.py::test_missing_required_package_file_fails - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
+FAILED P3/tests/test_verify_final_package.py::test_corrupted_run_checksum_file_fails - TypeError: verify_package() missing 1 required keyword-only argument: 'source_commit'
+======================== 20 failed, 183 passed in 2.91s ========================
