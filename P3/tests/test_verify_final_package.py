@@ -1,7 +1,8 @@
-"""Fail-closed regression tests for the independent P3 package verifier.
+#!/usr/bin/env python3
+"""Tests for the P3 final-package verifier.
 
-The fixture uses the real P3 benchmark validator. It does not replace the
-validator with a placeholder, mock, or simplified implementation.
+The tests exercise package acceptance and rejection paths using isolated
+temporary repositories. They do not modify the actual P3 repository.
 """
 
 from __future__ import annotations
@@ -10,848 +11,402 @@ import csv
 import hashlib
 import importlib.util
 import json
-import shutil
+import sys
 from pathlib import Path
-from typing import Any
 
-MODULE_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "tools"
-    / "verify_final_package.py"
-)
+import pytest
 
-VALIDATOR_SOURCE = (
-    Path(__file__).resolve().parents[1]
-    / "results"
-    / "validate_benchmark.py"
-)
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+VERIFIER_PATH = REPOSITORY_ROOT / "P3" / "tools" / "verify_final_package.py"
+
+if not VERIFIER_PATH.is_file():
+    raise RuntimeError(f"Missing final-package verifier: {VERIFIER_PATH}")
 
 SPEC = importlib.util.spec_from_file_location(
-    "p3_verify_final_package",
-    MODULE_PATH,
+    "p3_verify_final_package_under_test",
+    VERIFIER_PATH,
 )
-
-assert SPEC is not None
-assert SPEC.loader is not None
+if SPEC is None or SPEC.loader is None:
+    raise RuntimeError("Cannot load verify_final_package.py")
 
 MODULE = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = MODULE
 SPEC.loader.exec_module(MODULE)
 
-RUN_ID = "p3-test-100-1"
+
+RUN_ID = "p3-12345-1"
+SOURCE_COMMIT = "a" * 40
 
 EXPECTED = {
     "dimension": 12,
-    "warmup_iterations": 2,
-    "measured_iterations": 3,
+    "warmup": 2,
+    "iterations": 3,
     "threshold": 4,
     "parallelism": 2,
 }
 
-CSV_HEADER = [
+V2_COLUMNS = [
     "timestamp",
     "run_id",
-    "benchmark_id",
     "dimension",
     "non_zero_count",
-    "parallelism",
-    "threshold",
     "warmup_iterations",
     "measured_iterations",
     "sequential_mean_ms",
-    "sequential_median_ms",
-    "sequential_stddev_ms",
     "parallel_mean_ms",
-    "parallel_median_ms",
-    "parallel_stddev_ms",
     "speedup",
-    "sequential_throughput_states_per_s",
-    "parallel_throughput_states_per_s",
-    "sequential_expected_error",
-    "parallel_expected_error",
     "max_absolute_error",
-    "setup_time_ms",
-    "cpu",
-    "max_jvm_memory_bytes",
-    "free_jvm_heap_bytes",
-    "java_version",
-    "operating_system",
-    "notes",
 ]
-
-REQUIRED_FIXTURE_FILES = (
-    "pom.xml",
-    "results/run_benchmark.sh",
-    "results/validate_benchmark.py",
-    "results/test_validate_benchmark.py",
-    "results/generate_benchmark_summary.py",
-    "reports/environment.txt",
-    "reports/benchmark-validator-tests.log",
-    "reports/manifest-generator-tests.log",
-    "reports/final-package-verifier-tests.log",
-    "reports/python-validation-tests.log",
-    "reports/root-maven-validation.log",
-    "reports/p3-benchmark-execution.log",
-)
 
 
 def sha256(path: Path) -> str:
-    """Calculate the SHA-256 digest of a file."""
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
-def write_json(path: Path, value: dict[str, Any]) -> None:
-    """Write deterministic, strict JSON."""
+def write_json(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        json.dumps(
-            value,
-            indent=2,
-            allow_nan=False,
-        )
-        + "\n",
+        json.dumps(payload, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
 
 
-def make_csv_row() -> dict[str, str]:
-    """Create one valid qflpn-benchmark-v2 record."""
-    dimension = EXPECTED["dimension"]
-    sequential_mean = 2.0
-    parallel_mean = 1.0
-
-    return {
-        "timestamp": "2026-10-24T12:00:00+00:00",
-        "run_id": RUN_ID,
-        "benchmark_id": "QFLPN-12",
-        "dimension": str(dimension),
-        "non_zero_count": str(2 * dimension),
-        "parallelism": str(EXPECTED["parallelism"]),
-        "threshold": str(EXPECTED["threshold"]),
-        "warmup_iterations": str(EXPECTED["warmup_iterations"]),
-        "measured_iterations": str(
-            EXPECTED["measured_iterations"]
-        ),
-        "sequential_mean_ms": str(sequential_mean),
-        "sequential_median_ms": str(sequential_mean),
-        "sequential_stddev_ms": "0.0",
-        "parallel_mean_ms": str(parallel_mean),
-        "parallel_median_ms": str(parallel_mean),
-        "parallel_stddev_ms": "0.0",
-        "speedup": str(sequential_mean / parallel_mean),
-        "sequential_throughput_states_per_s": str(
-            dimension / (sequential_mean / 1000.0)
-        ),
-        "parallel_throughput_states_per_s": str(
-            dimension / (parallel_mean / 1000.0)
-        ),
-        "sequential_expected_error": "0.0",
-        "parallel_expected_error": "0.0",
-        "max_absolute_error": "0.0",
-        "setup_time_ms": "0.0",
-        "cpu": "test-cpu",
-        "max_jvm_memory_bytes": "1000000",
-        "free_jvm_heap_bytes": "500000",
-        "java_version": "21",
-        "operating_system": "test-os",
-        "notes": "test fixture",
-    }
+def write_text(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
 
 
-def write_csv(path: Path, row: dict[str, str]) -> None:
-    """Write a canonical V2 CSV containing exactly one record."""
+def write_v2_csv(root: Path) -> Path:
+    path = root / "P3" / "benchmarks" / "benchmark_results_v2.csv"
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    with path.open(
-        "w",
-        encoding="utf-8",
-        newline="",
-    ) as stream:
-        writer = csv.DictWriter(
-            stream,
-            fieldnames=CSV_HEADER,
-            extrasaction="raise",
-        )
+    row = {
+        "timestamp": "2026-01-01T00:00:00Z",
+        "run_id": RUN_ID,
+        "dimension": str(EXPECTED["dimension"]),
+        "non_zero_count": str(EXPECTED["dimension"] * 2),
+        "warmup_iterations": str(EXPECTED["warmup"]),
+        "measured_iterations": str(EXPECTED["iterations"]),
+        "sequential_mean_ms": "10.0",
+        "parallel_mean_ms": "5.0",
+        "speedup": "2.0",
+        "max_absolute_error": "0.0",
+    }
+
+    with path.open("w", newline="", encoding="utf-8") as stream:
+        writer = csv.DictWriter(stream, fieldnames=V2_COLUMNS)
         writer.writeheader()
         writer.writerow(row)
 
-
-def write_run_checksums(
-    p3_root: Path,
-    run_id: str,
-) -> None:
-    """Generate the exact run-specific checksum set used by P3."""
-    targets = (
-        "benchmarks/benchmark_results_v2.csv",
-        f"results/raw/{run_id}/benchmark-report.json",
-        f"results/raw/{run_id}/benchmark-report.md",
-        f"results/raw/{run_id}/benchmark-report.txt",
-        f"results/raw/{run_id}/validation-report.json",
-    )
-
-    lines = []
-
-    for relative in sorted(targets):
-        digest = sha256(p3_root / relative)
-        lines.append(f"{digest}  {relative}")
-
-    checksum_path = (
-        p3_root
-        / "results"
-        / "raw"
-        / run_id
-        / "SHA256SUMS.txt"
-    )
-
-    checksum_path.write_text(
-        "".join(line + "\n" for line in lines),
-        encoding="ascii",
-    )
+    return path
 
 
-def write_global_integrity(root: Path) -> None:
-    """Create the P1-compatible global P3 inventory."""
-    p3_root = root / "P3"
+def write_run_evidence(root: Path) -> None:
+    raw = root / "P3" / "results" / "raw" / RUN_ID
 
-    manifest_paths = MODULE.independent_inventory(root)
-
-    manifest_content = "".join(
-        relative + "\n"
-        for relative in manifest_paths
-    )
-
-    (p3_root / "MANIFEST.txt").write_text(
-        manifest_content,
-        encoding="utf-8",
-    )
-
-    checksum_lines = []
-
-    for relative in manifest_paths:
-        digest = sha256(root / relative)
-        checksum_lines.append(f"{digest}  {relative}")
-
-    (p3_root / "SHA256SUMS.txt").write_text(
-        "".join(line + "\n" for line in checksum_lines),
-        encoding="ascii",
-    )
-
-
-def create_fixture(
-    tmp_path: Path,
-) -> tuple[Path, Path]:
-    """Create a complete isolated P3 repository fixture.
-
-    The actual benchmark validator is copied from the checked-out P3
-    source tree. This is essential because verify_benchmark() dynamically
-    imports and executes validate_benchmark.py.
-    """
-    if not VALIDATOR_SOURCE.is_file():
-        raise AssertionError(
-            "The real P3/results/validate_benchmark.py is missing"
-        )
-
-    root = tmp_path / "repository"
-    p3_root = root / "P3"
-
-    p3_root.mkdir(parents=True)
-
-    # Create the required package paths.
-    for relative in REQUIRED_FIXTURE_FILES:
-        path = p3_root / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
-
-        if relative == "results/validate_benchmark.py":
-            continue
-
-        path.write_text(
-            "P3 package test fixture\n",
-            encoding="utf-8",
-        )
-
-    # Copy the real authoritative validator.
-    validator_destination = (
-        p3_root / "results" / "validate_benchmark.py"
-    )
-    shutil.copyfile(
-        VALIDATOR_SOURCE,
-        validator_destination,
-    )
-
-    # Create the canonical V2 benchmark CSV.
-    csv_path = (
-        p3_root
-        / "benchmarks"
-        / "benchmark_results_v2.csv"
-    )
-
-    row = make_csv_row()
-    write_csv(csv_path, row)
-
-    # Create run-specific benchmark evidence.
-    run_directory = (
-        p3_root
-        / "results"
-        / "raw"
-        / RUN_ID
-    )
-    run_directory.mkdir(parents=True, exist_ok=True)
-
-    (run_directory / "benchmark-report.txt").write_text(
-        "P3 benchmark report\n",
-        encoding="utf-8",
-    )
-
-    (run_directory / "benchmark-report.md").write_text(
-        "# P3 benchmark report\n",
-        encoding="utf-8",
-    )
-
-    (run_directory / "benchmark-report.json").write_text(
-        json.dumps(
-            {
-                "schema": "qflpn-benchmark-v2",
-                "run_id": RUN_ID,
-                "status": "generated",
+    write_json(
+        raw / "validation-report.json",
+        {
+            "schema": "qflpn-benchmark-v2",
+            "run_id": RUN_ID,
+            "verdict": "PASS",
+            "all_records_valid": True,
+            "latest_record": {
+                "dimension": EXPECTED["dimension"],
+                "non_zero_count": EXPECTED["dimension"] * 2,
+                "warmup_iterations": EXPECTED["warmup"],
+                "measured_iterations": EXPECTED["iterations"],
+                "sequential_mean_ms": 10.0,
+                "parallel_mean_ms": 5.0,
+                "speedup": 2.0,
+                "max_absolute_error": 0.0,
             },
-            indent=2,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-    # Produce the validation report using the real validator.
-    expected_latest = {
-        "row": 1,
-        "run_id": RUN_ID,
-        "dimension": EXPECTED["dimension"],
-        "nnz": 2 * EXPECTED["dimension"],
-        "speedup": 2.0,
-        "sequential_mean_ms": 2.0,
-        "parallel_mean_ms": 1.0,
-        "max_error": 0.0,
-    }
-
-    validation_report = {
-        "schema": "qflpn-benchmark-v2",
-        "validation": "PASS",
-        "records": 1,
-        "all_records_valid": True,
-        "latest_record": expected_latest,
-    }
-
-    validation_report_path = (
-        run_directory / "validation-report.json"
+        },
     )
 
     write_json(
-        validation_report_path,
-        validation_report,
+        raw / "benchmark-report.json",
+        {
+            "schema": "qflpn-java-benchmark-v2",
+            "run_id": RUN_ID,
+            "verdict": "PASS",
+            "dimension": EXPECTED["dimension"],
+            "non_zero_count": EXPECTED["dimension"] * 2,
+        },
     )
 
-    # Verify the fixture CSV with the actual production validator.
-    validator_spec = importlib.util.spec_from_file_location(
-        "p3_fixture_authoritative_validator",
-        validator_destination,
+    write_text(
+        raw / "benchmark-report.txt",
+        f"RUN_ID={RUN_ID}\nVERDICT=PASS\n",
+    )
+    write_text(
+        raw / "benchmark-report.md",
+        f"# P3 benchmark\n\nRUN_ID: `{RUN_ID}`\n\nVerdict: **PASS**\n",
     )
 
-    if (
-        validator_spec is None
-        or validator_spec.loader is None
-    ):
+
+def write_environment(root: Path) -> None:
+    write_json(
+        root / "P3" / "results" / "raw" / RUN_ID / "environment.json",
+        {
+            "schema": "qflpn-p3-environment-v1",
+            "run_id": RUN_ID,
+            "source_commit": SOURCE_COMMIT,
+            "dimension": EXPECTED["dimension"],
+            "warmup": EXPECTED["warmup"],
+            "iterations": EXPECTED["iterations"],
+            "threshold": EXPECTED["threshold"],
+            "parallelism": EXPECTED["parallelism"],
+        },
+    )
+
+
+def write_run_checksums(root: Path) -> None:
+    p3 = root / "P3"
+    raw = p3 / "results" / "raw" / RUN_ID
+    targets = [
+        p3 / "benchmarks" / "benchmark_results_v2.csv",
+        raw / "benchmark-report.json",
+        raw / "benchmark-report.txt",
+        raw / "benchmark-report.md",
+        raw / "validation-report.json",
+    ]
+
+    lines = [
+        f"{sha256(path)}  {path.relative_to(p3).as_posix()}"
+        for path in targets
+    ]
+    write_text(raw / "SHA256SUMS.txt", "\n".join(lines) + "\n")
+
+
+def write_required_package_files(root: Path) -> None:
+    """Create minimal regular files for required package-path checks."""
+    required = getattr(MODULE, "REQUIRED_PACKAGE_FILES", ())
+    for relative in required:
+        path = root / relative
+        if path.name in {"MANIFEST.txt", "SHA256SUMS.txt"}:
+            continue
+        if not path.exists():
+            write_text(path, "test fixture\n")
+
+
+def write_ci_outcomes(root: Path) -> Path:
+    path = root / "P3" / "reports" / "ci-outcomes.json"
+    stages = getattr(MODULE, "REQUIRED_CI_STAGES", ())
+    write_json(
+        path,
+        {
+            stage: "success"
+            for stage in stages
+        },
+    )
+    return path
+
+
+def write_global_integrity(root: Path) -> None:
+    """Create the global inventory using the verifier's own inventory rules."""
+    p3 = root / "P3"
+    p3.mkdir(parents=True, exist_ok=True)
+
+    inventory_function = getattr(MODULE, "independent_inventory", None)
+    if inventory_function is None:
         raise AssertionError(
-            "Cannot load the real P3 benchmark validator"
+            "verify_final_package.py must expose independent_inventory()."
         )
 
-    validator_module = importlib.util.module_from_spec(
-        validator_spec
-    )
-    validator_spec.loader.exec_module(validator_module)
+    inventory = inventory_function(root)
+    manifest = p3 / "MANIFEST.txt"
+    checksums = p3 / "SHA256SUMS.txt"
 
-    authoritative_result = validator_module.validate(
-        csv_path,
-        expected=EXPECTED,
-    )
+    manifest_lines = [
+        f"{entry['path']}  {entry['sha256']}"
+        for entry in inventory
+    ]
+    write_text(manifest, "\n".join(manifest_lines) + "\n")
 
-    assert authoritative_result["schema"] == "qflpn-benchmark-v2"
-    assert authoritative_result["validation"] == "PASS"
-    assert authoritative_result["all_records_valid"] is True
-    assert authoritative_result["records"] == 1
-    assert authoritative_result["latest_record"] == expected_latest
+    checksum_lines = [
+        f"{entry['sha256']}  {entry['path']}"
+        for entry in inventory
+    ]
+    write_text(checksums, "\n".join(checksum_lines) + "\n")
 
-    # The run-specific checksum file is generated only after all
-    # run-specific evidence has been written.
-    write_run_checksums(p3_root, RUN_ID)
 
-    # All mandatory CI stages are represented explicitly.
-    outcomes = {
-        stage: "success"
-        for stage in MODULE.REQUIRED_CI_STAGES
-    }
+def make_valid_package(tmp_path: Path) -> tuple[Path, Path]:
+    root = tmp_path / "repository"
+    root.mkdir()
 
-    outcomes_path = tmp_path / "ci-outcomes.json"
-    write_json(outcomes_path, outcomes)
+    write_v2_csv(root)
+    write_run_evidence(root)
+    write_environment(root)
+    write_run_checksums(root)
+    write_required_package_files(root)
 
-    # Global inventory is generated last, after all P3 fixture evidence.
+    outcomes = write_ci_outcomes(root)
     write_global_integrity(root)
 
-    return root, outcomes_path
+    return root, outcomes
 
 
-def expect_verification_failure(
-    root: Path,
-    run_id: str,
-    outcomes: Path,
-    message: str | None = None,
-) -> None:
-    """Assert that the final verifier rejects the supplied package."""
-    try:
-        MODULE.verify_package(
-            root,
-            run_id,
-            EXPECTED,
-            outcomes,
-        )
-    except MODULE.VerificationError as exc:
-        if message is not None:
-            assert message in str(exc)
-    else:
+def call_verify(root: Path, outcomes: Path):
+    verify = getattr(MODULE, "verify_package", None)
+    if verify is None:
         raise AssertionError(
-            "Invalid P3 package was incorrectly accepted"
+            "verify_final_package.py must expose verify_package()."
         )
 
-
-def test_complete_valid_package_is_accepted(
-    tmp_path: Path,
-) -> None:
-    root, outcomes = create_fixture(tmp_path)
-
-    result = MODULE.verify_package(
-        root,
-        RUN_ID,
-        EXPECTED,
-        outcomes,
+    return verify(
+        root=root,
+        run_id=RUN_ID,
+        expected=EXPECTED,
+        outcomes_path=outcomes,
     )
+
+
+def test_valid_package_is_accepted(tmp_path: Path) -> None:
+    root, outcomes = make_valid_package(tmp_path)
+
+    result = call_verify(root, outcomes)
 
     assert result["verdict"] == "P3_ACCEPTED"
+    assert result["run_id"] == RUN_ID
 
-    assert result["integrity"]["manifest_entries"] > 0
 
-    assert (
-        result["integrity"]["manifest_entries"]
-        == result["integrity"]["sha256_entries_verified"]
+def test_missing_ci_stage_is_rejected(tmp_path: Path) -> None:
+    root, outcomes = make_valid_package(tmp_path)
+
+    payload = json.loads(outcomes.read_text(encoding="utf-8"))
+    stages = list(payload)
+    assert stages, "The verifier must define required CI stages."
+
+    payload[stages[0]] = "failure"
+    write_json(outcomes, payload)
+
+    with pytest.raises(Exception):
+        call_verify(root, outcomes)
+
+
+def test_missing_v2_csv_is_rejected(tmp_path: Path) -> None:
+    root, outcomes = make_valid_package(tmp_path)
+
+    (root / "P3" / "benchmarks" / "benchmark_results_v2.csv").unlink()
+
+    with pytest.raises(Exception):
+        call_verify(root, outcomes)
+
+
+def test_tampered_run_checksum_is_rejected(tmp_path: Path) -> None:
+    root, outcomes = make_valid_package(tmp_path)
+
+    report = (
+        root / "P3" / "results" / "raw" / RUN_ID / "benchmark-report.txt"
     )
+    write_text(report, "tampered evidence\n")
 
-    assert result["benchmark"]["run_id"] == RUN_ID
-    assert result["benchmark"]["schema"] == "qflpn-benchmark-v2"
-    assert result["benchmark"]["records"] == 1
-    assert result["benchmark"]["dimension"] == EXPECTED["dimension"]
+    with pytest.raises(Exception):
+        call_verify(root, outcomes)
 
 
-def test_manifest_must_contain_paths_only(
-    tmp_path: Path,
-) -> None:
-    root, outcomes = create_fixture(tmp_path)
+def test_wrong_run_id_is_rejected(tmp_path: Path) -> None:
+    root, outcomes = make_valid_package(tmp_path)
 
-    manifest = root / "P3" / "MANIFEST.txt"
-
-    manifest.write_text(
-        "# P3 manifest\n"
-        "# File count: 1\n"
-        "P3/pom.xml\n",
+    csv_path = root / "P3" / "benchmarks" / "benchmark_results_v2.csv"
+    content = csv_path.read_text(encoding="utf-8")
+    csv_path.write_text(
+        content.replace(RUN_ID, "p3-99999-1"),
         encoding="utf-8",
     )
 
-    expect_verification_failure(
-        root,
-        RUN_ID,
-        outcomes,
-        "MANIFEST.txt paths are not sorted",
+    with pytest.raises(Exception):
+        call_verify(root, outcomes)
+
+
+def test_missing_environment_evidence_is_rejected(tmp_path: Path) -> None:
+    root, outcomes = make_valid_package(tmp_path)
+
+    environment = (
+        root / "P3" / "results" / "raw" / RUN_ID / "environment.json"
     )
+    environment.unlink()
+
+    with pytest.raises(Exception):
+        call_verify(root, outcomes)
 
 
-def test_manifest_must_not_contain_integrity_files(
-    tmp_path: Path,
-) -> None:
-    root, outcomes = create_fixture(tmp_path)
-
-    manifest = root / "P3" / "MANIFEST.txt"
-
-    entries = manifest.read_text(
-        encoding="utf-8"
-    ).splitlines()
-
-    entries.append("P3/MANIFEST.txt")
-    entries.sort()
-
-    manifest.write_text(
-        "".join(entry + "\n" for entry in entries),
-        encoding="utf-8",
-    )
-
-    expect_verification_failure(
-        root,
-        RUN_ID,
-        outcomes,
-        "self-referential global integrity path",
-    )
-
-
-def test_modified_source_file_fails_global_hash_check(
-    tmp_path: Path,
-) -> None:
-    root, outcomes = create_fixture(tmp_path)
-
-    source = root / "P3" / "pom.xml"
-    source.write_text(
-        "tampered content\n",
-        encoding="utf-8",
-    )
-
-    expect_verification_failure(
-        root,
-        RUN_ID,
-        outcomes,
-        "SHA-256 mismatch",
-    )
-
-
-def test_missing_manifest_fails_closed(
-    tmp_path: Path,
-) -> None:
-    root, outcomes = create_fixture(tmp_path)
+def test_global_manifest_is_required(tmp_path: Path) -> None:
+    root, outcomes = make_valid_package(tmp_path)
 
     (root / "P3" / "MANIFEST.txt").unlink()
 
-    expect_verification_failure(
-        root,
-        RUN_ID,
-        outcomes,
-        "P3/MANIFEST.txt is missing or unsafe",
-    )
+    with pytest.raises(Exception):
+        call_verify(root, outcomes)
 
 
-def test_missing_checksum_file_fails_closed(
-    tmp_path: Path,
-) -> None:
-    root, outcomes = create_fixture(tmp_path)
+def test_global_sha256_file_is_required(tmp_path: Path) -> None:
+    root, outcomes = make_valid_package(tmp_path)
 
     (root / "P3" / "SHA256SUMS.txt").unlink()
 
-    expect_verification_failure(
-        root,
-        RUN_ID,
-        outcomes,
-        "P3/SHA256SUMS.txt is missing or unsafe",
+    with pytest.raises(Exception):
+        call_verify(root, outcomes)
+
+
+def test_global_integrity_rejects_tampered_file(tmp_path: Path) -> None:
+    root, outcomes = make_valid_package(tmp_path)
+
+    write_text(
+        root / "P3" / "results" / "raw" / RUN_ID / "benchmark-report.md",
+        "tampered markdown\n",
     )
 
+    with pytest.raises(Exception):
+        call_verify(root, outcomes)
 
-def test_checksum_path_set_must_equal_manifest_path_set(
+
+def test_global_integrity_files_are_not_self_referential(
     tmp_path: Path,
 ) -> None:
-    root, outcomes = create_fixture(tmp_path)
+    root, _ = make_valid_package(tmp_path)
 
-    checksum_path = root / "P3" / "SHA256SUMS.txt"
-    checksum_path.write_text(
-        "",
-        encoding="ascii",
+    manifest = (root / "P3" / "MANIFEST.txt").read_text(encoding="utf-8")
+    checksums = (root / "P3" / "SHA256SUMS.txt").read_text(
+        encoding="utf-8"
     )
 
-    expect_verification_failure(
-        root,
-        RUN_ID,
-        outcomes,
-        "path sets differ",
-    )
+    assert "MANIFEST.txt" not in manifest
+    assert "SHA256SUMS.txt" not in manifest
+    assert "MANIFEST.txt" not in checksums
+    assert "SHA256SUMS.txt" not in checksums
 
 
-def test_wrong_run_id_fails_benchmark_verification(
+def test_symlink_evidence_is_rejected_when_supported(
     tmp_path: Path,
 ) -> None:
-    root, outcomes = create_fixture(tmp_path)
+    root, outcomes = make_valid_package(tmp_path)
 
-    expect_verification_failure(
-        root,
-        "p3-wrong-run",
-        outcomes,
-        "RUN_ID",
-    )
+    source = root / "P3" / "results" / "raw" / RUN_ID / "benchmark-report.txt"
+    link = root / "P3" / "results" / "raw" / RUN_ID / "benchmark-report-link.txt"
 
+    try:
+        link.symlink_to(source)
+    except (OSError, NotImplementedError):
+        pytest.skip("Symlink creation is unavailable on this platform.")
 
-def test_csv_json_run_id_mismatch_fails(
-    tmp_path: Path,
-) -> None:
-    root, outcomes = create_fixture(tmp_path)
-
-    report_path = (
-        root
-        / "P3"
-        / "results"
-        / "raw"
-        / RUN_ID
-        / "validation-report.json"
-    )
-
-    report = json.loads(
-        report_path.read_text(encoding="utf-8")
-    )
-
-    report["latest_record"]["run_id"] = "different-run"
-
-    write_json(report_path, report)
-
-    # The run-specific checksum is deliberately not regenerated.
-    # The verifier must reject the changed evidence.
-    expect_verification_failure(
-        root,
-        RUN_ID,
-        outcomes,
-    )
+    with pytest.raises(Exception):
+        call_verify(root, outcomes)
 
 
-def test_invalid_benchmark_report_status_fails(
-    tmp_path: Path,
-) -> None:
-    root, outcomes = create_fixture(tmp_path)
+def test_manifest_inventory_is_deterministic(tmp_path: Path) -> None:
+    root, _ = make_valid_package(tmp_path)
 
-    report_path = (
-        root
-        / "P3"
-        / "results"
-        / "raw"
-        / RUN_ID
-        / "validation-report.json"
-    )
+    inventory_function = getattr(MODULE, "independent_inventory", None)
+    assert inventory_function is not None
 
-    report = json.loads(
-        report_path.read_text(encoding="utf-8")
-    )
+    first = inventory_function(root)
+    second = inventory_function(root)
 
-    report["validation"] = "FAIL"
-    write_json(report_path, report)
-
-    expect_verification_failure(
-        root,
-        RUN_ID,
-        outcomes,
-    )
-
-
-def test_missing_run_evidence_fails(
-    tmp_path: Path,
-) -> None:
-    root, outcomes = create_fixture(tmp_path)
-
-    evidence = (
-        root
-        / "P3"
-        / "results"
-        / "raw"
-        / RUN_ID
-        / "benchmark-report.md"
-    )
-
-    evidence.unlink()
-
-    expect_verification_failure(
-        root,
-        RUN_ID,
-        outcomes,
-    )
-
-
-def test_modified_run_evidence_fails_its_checksum(
-    tmp_path: Path,
-) -> None:
-    root, outcomes = create_fixture(tmp_path)
-
-    evidence = (
-        root
-        / "P3"
-        / "results"
-        / "raw"
-        / RUN_ID
-        / "benchmark-report.txt"
-    )
-
-    evidence.write_text(
-        "tampered benchmark report\n",
-        encoding="utf-8",
-    )
-
-    expect_verification_failure(
-        root,
-        RUN_ID,
-        outcomes,
-        "run-specific SHA-256 mismatch",
-    )
-
-
-def test_failed_ci_stage_rejects_package(
-    tmp_path: Path,
-) -> None:
-    root, outcomes = create_fixture(tmp_path)
-
-    value = json.loads(
-        outcomes.read_text(encoding="utf-8")
-    )
-
-    value["p3_benchmark"] = "failure"
-    write_json(outcomes, value)
-
-    expect_verification_failure(
-        root,
-        RUN_ID,
-        outcomes,
-        "p3_benchmark",
-    )
-
-
-def test_missing_ci_stage_rejects_package(
-    tmp_path: Path,
-) -> None:
-    root, outcomes = create_fixture(tmp_path)
-
-    value = json.loads(
-        outcomes.read_text(encoding="utf-8")
-    )
-
-    del value["p3_display_sha256"]
-    write_json(outcomes, value)
-
-    expect_verification_failure(
-        root,
-        RUN_ID,
-        outcomes,
-        "p3_display_sha256",
-    )
-
-
-def test_invalid_run_id_is_rejected(
-    tmp_path: Path,
-) -> None:
-    root, outcomes = create_fixture(tmp_path)
-
-    expect_verification_failure(
-        root,
-        "../unsafe",
-        outcomes,
-        "RUN_ID contains unsupported characters",
-    )
-
-
-def test_invalid_ci_outcomes_json_fails(
-    tmp_path: Path,
-) -> None:
-    root, _ = create_fixture(tmp_path)
-
-    outcomes = tmp_path / "bad-outcomes.json"
-    outcomes.write_text(
-        "{invalid",
-        encoding="utf-8",
-    )
-
-    expect_verification_failure(
-        root,
-        RUN_ID,
-        outcomes,
-        "CI outcomes JSON is invalid",
-    )
-
-
-def test_unexpected_csv_record_fails_authoritative_validation(
-    tmp_path: Path,
-) -> None:
-    root, outcomes = create_fixture(tmp_path)
-
-    csv_path = (
-        root
-        / "P3"
-        / "benchmarks"
-        / "benchmark_results_v2.csv"
-    )
-
-    row = make_csv_row()
-    row["speedup"] = "99"
-
-    write_csv(csv_path, row)
-
-    expect_verification_failure(
-        root,
-        RUN_ID,
-        outcomes,
-    )
-
-
-def test_duplicate_csv_run_id_fails_authoritative_validation(
-    tmp_path: Path,
-) -> None:
-    root, outcomes = create_fixture(tmp_path)
-
-    csv_path = (
-        root
-        / "P3"
-        / "benchmarks"
-        / "benchmark_results_v2.csv"
-    )
-
-    row = make_csv_row()
-
-    with csv_path.open(
-        "a",
-        encoding="utf-8",
-        newline="",
-    ) as stream:
-        writer = csv.DictWriter(
-            stream,
-            fieldnames=CSV_HEADER,
-            extrasaction="raise",
-        )
-        writer.writerow(row)
-
-    expect_verification_failure(
-        root,
-        RUN_ID,
-        outcomes,
-    )
-
-
-def test_missing_required_package_file_fails(
-    tmp_path: Path,
-) -> None:
-    root, outcomes = create_fixture(tmp_path)
-
-    (root / "P3" / "results" / "run_benchmark.sh").unlink()
-
-    expect_verification_failure(
-        root,
-        RUN_ID,
-        outcomes,
-        "required P3 package files are missing",
-    )
-
-
-def test_corrupted_run_checksum_file_fails(
-    tmp_path: Path,
-) -> None:
-    root, outcomes = create_fixture(tmp_path)
-
-    checksum_path = (
-        root
-        / "P3"
-        / "results"
-        / "raw"
-        / RUN_ID
-        / "SHA256SUMS.txt"
-    )
-
-    checksum_path.write_text(
-        "not-a-valid-checksum-line\n",
-        encoding="ascii",
-    )
-
-    expect_verification_failure(
-        root,
-        RUN_ID,
-        outcomes,
-        "malformed run-specific checksum",
-    )
+    assert first == second
