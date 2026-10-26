@@ -1,21 +1,17 @@
 #!/usr/bin/env python3
 """Tests for the independent P3 final-package verifier.
 
-The fixture follows the current verifier's actual inventory contract:
-independent_inventory(root) returns sorted repository-relative strings.
+The fixtures follow the current contracts implemented by
+P3/tools/verify_final_package.py:
 
-These tests cover:
-- deterministic and safe global inventory;
-- MANIFEST.txt and SHA256SUMS.txt consistency;
-- exclusion of self-referential integrity files and generated caches;
-- mandatory p3_validation stage outcomes;
-- RUN_ID, source commit and workflow-run provenance;
-- final-package orchestration for V2 and V3;
-- rejection of tampered or incomplete evidence.
+- CI outcomes use qflpn-p3-ci-outcomes-v1;
+- mandatory stages are stored under the "stages" object;
+- RUN_ID, source_commit and workflow_run_id are bound explicitly;
+- evidence consistency uses qflpn-p3-evidence-consistency-v2;
+- global MANIFEST.txt and SHA256SUMS.txt are independently verified.
 
-The V2/V3 orchestration tests replace the benchmark verification functions
-with controlled results. The authoritative V2/V3 validators are tested by
-their dedicated test modules.
+Benchmark and cross-evidence execution are isolated in package-orchestration
+tests. Their authoritative validators have dedicated test modules.
 """
 
 from __future__ import annotations
@@ -29,7 +25,9 @@ from typing import Any
 
 import pytest
 
+
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+
 MODULE_PATH = (
     REPOSITORY_ROOT
     / "P3"
@@ -56,9 +54,14 @@ MODULE = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = MODULE
 SPEC.loader.exec_module(MODULE)
 
+
 RUN_ID = "p3-12345-1"
 SOURCE_COMMIT = "a" * 40
+WRONG_SOURCE_COMMIT = "b" * 40
 WORKFLOW_RUN_ID = "12345"
+
+CI_SCHEMA = "qflpn-p3-ci-outcomes-v1"
+EVIDENCE_SCHEMA = "qflpn-p3-evidence-consistency-v2"
 
 EXPECTED = {
     "dimension": 1_000_000,
@@ -67,6 +70,15 @@ EXPECTED = {
     "threshold": 4096,
     "parallelism": 2,
 }
+
+EVIDENCE_ITEMS = (
+    "environment",
+    "benchmark_v2",
+    "benchmark_v3",
+    "v3_authoritative_validator",
+    "v3_persistent_report",
+    "v3_checksums",
+)
 
 V3_AB_RESULT = {
     "schema": "qflpn-benchmark-v3-validation-v2",
@@ -79,6 +91,10 @@ V3_AB_RESULT = {
     ],
 }
 
+
+# ---------------------------------------------------------------------------
+# Generic fixture helpers
+# ---------------------------------------------------------------------------
 
 def write_text(path: Path, value: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -111,7 +127,7 @@ def sha256_file(path: Path) -> str:
 
 
 def make_required_files(root: Path) -> None:
-    """Create only the structural files required by the package verifier."""
+    """Create the structural files required by the package verifier."""
     for relative in MODULE.REQUIRED_PACKAGE_FILES:
         path = root / relative
 
@@ -119,35 +135,172 @@ def make_required_files(root: Path) -> None:
             write_text(path, "test fixture\n")
 
 
-def make_ci_outcomes(path: Path) -> None:
-    """Create a successful outcome for every mandatory CI stage."""
+# ---------------------------------------------------------------------------
+# Current CI outcomes contract
+# ---------------------------------------------------------------------------
+
+def make_ci_outcomes(
+    path: Path,
+    *,
+    run_id: str = RUN_ID,
+    source_commit: str = SOURCE_COMMIT,
+    workflow_run_id: str = WORKFLOW_RUN_ID,
+) -> None:
+    """Create a valid qflpn-p3-ci-outcomes-v1 envelope."""
     write_json(
         path,
         {
-            stage: "success"
-            for stage in MODULE.REQUIRED_CI_STAGES
+            "schema": CI_SCHEMA,
+            "run_id": run_id,
+            "source_commit": source_commit,
+            "workflow_run_id": workflow_run_id,
+            "stages": {
+                stage: "success"
+                for stage in MODULE.REQUIRED_CI_STAGES
+            },
         },
     )
 
 
-def make_evidence_report(root: Path) -> None:
-    """Create the provenance record consumed by verify_package()."""
+def verify_ci_outcomes_fixture(
+    path: Path,
+    *,
+    expected_run_id: str = RUN_ID,
+    expected_commit: str = SOURCE_COMMIT,
+    expected_workflow_run_id: str = WORKFLOW_RUN_ID,
+) -> dict[str, str]:
+    """Call the production verifier with its complete current signature."""
+    return MODULE.verify_ci_outcomes(
+        path,
+        expected_run_id=expected_run_id,
+        expected_commit=expected_commit,
+        expected_workflow_run_id=expected_workflow_run_id,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Evidence-consistency report fixture
+# ---------------------------------------------------------------------------
+
+def make_evidence_report(
+    root: Path,
+    *,
+    run_id: str = RUN_ID,
+    source_commit: str = SOURCE_COMMIT,
+    workflow_run_id: str = WORKFLOW_RUN_ID,
+) -> None:
+    """Create the current v2 evidence-consistency report contract."""
     write_json(
         root / "P3" / "reports" / "evidence-consistency.json",
         {
-            "schema": "qflpn-p3-evidence-consistency-v1",
+            "schema": EVIDENCE_SCHEMA,
             "validation": "PASS",
-            "run_id": RUN_ID,
-            "source_commit": SOURCE_COMMIT,
+            "run_id": run_id,
+            "source_commit": source_commit,
+            "workflow_run_id": workflow_run_id,
+            "evidence": {
+                item: "PASS"
+                for item in EVIDENCE_ITEMS
+            },
         },
     )
 
 
-def make_global_integrity(root: Path) -> None:
-    """Generate global integrity files from list[str] inventory entries.
+def fake_evidence_consistency(
+    root: Path,
+    run_id: str,
+    source_commit: str,
+    workflow_run_id: str | None,
+) -> dict[str, Any]:
+    """Validate report provenance for isolated orchestration tests.
 
-    The two global integrity files are excluded by independent_inventory(),
-    so neither file hashes itself or the other integrity file.
+    The complete evidence-consistency implementation is tested separately
+    by test_verify_evidence_consistency.py.
+    """
+    report_path = (
+        root
+        / "P3"
+        / "reports"
+        / "evidence-consistency.json"
+    )
+
+    if not report_path.is_file():
+        raise MODULE.VerificationError(
+            "P3 evidence consistency report is missing"
+        )
+
+    try:
+        report = json.loads(
+            report_path.read_text(encoding="utf-8")
+        )
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise MODULE.VerificationError(
+            f"P3 evidence consistency report is invalid: {exc}"
+        ) from exc
+
+    if not isinstance(report, dict):
+        raise MODULE.VerificationError(
+            "P3 evidence consistency report must be a JSON object"
+        )
+
+    if report.get("schema") != EVIDENCE_SCHEMA:
+        raise MODULE.VerificationError(
+            "Evidence consistency schema mismatch"
+        )
+
+    if report.get("validation") != "PASS":
+        raise MODULE.VerificationError(
+            "Evidence consistency report is not PASS"
+        )
+
+    if report.get("run_id") != run_id:
+        raise MODULE.VerificationError(
+            "Evidence consistency RUN_ID mismatch"
+        )
+
+    if report.get("source_commit") != source_commit:
+        raise MODULE.VerificationError(
+            "Evidence consistency source_commit mismatch"
+        )
+
+    if workflow_run_id is not None:
+        if str(report.get("workflow_run_id")) != str(
+            workflow_run_id
+        ):
+            raise MODULE.VerificationError(
+                "Evidence consistency workflow_run_id mismatch"
+            )
+
+    evidence = report.get("evidence")
+
+    if not isinstance(evidence, dict):
+        raise MODULE.VerificationError(
+            "Evidence consistency report has no evidence object"
+        )
+
+    for item in EVIDENCE_ITEMS:
+        if evidence.get(item) != "PASS":
+            raise MODULE.VerificationError(
+                f"Evidence consistency item failed: {item}"
+            )
+
+    return {
+        "validation": "PASS",
+        "run_id": run_id,
+        "source_commit": source_commit,
+        "workflow_run_id": workflow_run_id,
+        "items": sorted(evidence),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Global MANIFEST.txt and SHA256SUMS.txt fixtures
+# ---------------------------------------------------------------------------
+
+def make_global_integrity(root: Path) -> None:
+    """Generate global integrity files from the independent inventory.
+
+    MANIFEST.txt and SHA256SUMS.txt are excluded from the inventory itself.
     """
     p3_root = root / "P3"
     p3_root.mkdir(parents=True, exist_ok=True)
@@ -164,16 +317,30 @@ def make_global_integrity(root: Path) -> None:
         f"{relative}\n"
         for relative in inventory
     )
-    write_text(manifest_path, manifest_content)
+
+    write_text(
+        manifest_path,
+        manifest_content,
+    )
 
     checksum_content = "".join(
         f"{sha256_file(root / relative)}  {relative}\n"
         for relative in inventory
     )
-    write_text(checksums_path, checksum_content)
+
+    write_text(
+        checksums_path,
+        checksum_content,
+    )
 
 
-def make_package(tmp_path: Path) -> tuple[Path, Path]:
+# ---------------------------------------------------------------------------
+# Complete package fixture
+# ---------------------------------------------------------------------------
+
+def make_package(
+    tmp_path: Path,
+) -> tuple[Path, Path]:
     """Create a structurally complete package fixture."""
     root = tmp_path / "repository"
     root.mkdir()
@@ -182,12 +349,17 @@ def make_package(tmp_path: Path) -> tuple[Path, Path]:
     make_evidence_report(root)
 
     outcomes_path = tmp_path / "ci-outcomes.json"
+
     make_ci_outcomes(outcomes_path)
 
     make_global_integrity(root)
 
     return root, outcomes_path
 
+
+# ---------------------------------------------------------------------------
+# Controlled benchmark results
+# ---------------------------------------------------------------------------
 
 def fake_v2(
     root: Path,
@@ -225,16 +397,23 @@ def fake_v3(
 def install_benchmark_stubs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Isolate final-package orchestration from benchmark CSV parsing."""
+    """Isolate orchestration from CSV parsing and external benchmark data."""
     monkeypatch.setattr(
         MODULE,
         "verify_v2",
         fake_v2,
     )
+
     monkeypatch.setattr(
         MODULE,
         "verify_v3",
         fake_v3,
+    )
+
+    monkeypatch.setattr(
+        MODULE,
+        "verify_evidence_consistency",
+        fake_evidence_consistency,
     )
 
 
@@ -278,8 +457,14 @@ def test_inventory_excludes_global_integrity_files(
     root = tmp_path / "repo"
 
     write_text(root / "P3" / "data.txt", "data\n")
-    write_text(root / "P3" / "MANIFEST.txt", "old manifest\n")
-    write_text(root / "P3" / "SHA256SUMS.txt", "old sums\n")
+    write_text(
+        root / "P3" / "MANIFEST.txt",
+        "old manifest\n",
+    )
+    write_text(
+        root / "P3" / "SHA256SUMS.txt",
+        "old sums\n",
+    )
 
     inventory = MODULE.independent_inventory(root)
 
@@ -337,7 +522,7 @@ def test_inventory_rejects_missing_p3_directory(
 
 
 # ---------------------------------------------------------------------------
-# MANIFEST and SHA256SUMS
+# MANIFEST.txt and SHA256SUMS.txt
 # ---------------------------------------------------------------------------
 
 def test_global_integrity_accepts_correct_manifest_and_checksums(
@@ -455,7 +640,7 @@ def test_ci_outcomes_requires_every_mandatory_stage(
 
     make_ci_outcomes(path)
 
-    result = MODULE.verify_ci_outcomes(path)
+    result = verify_ci_outcomes_fixture(path)
 
     assert set(result) == set(MODULE.REQUIRED_CI_STAGES)
     assert all(
@@ -469,16 +654,29 @@ def test_ci_outcomes_rejects_missing_stage(
 ) -> None:
     path = tmp_path / "ci-outcomes.json"
 
-    outcomes = {
+    stages = {
         stage: "success"
         for stage in MODULE.REQUIRED_CI_STAGES
     }
-    outcomes.pop(MODULE.REQUIRED_CI_STAGES[0])
 
-    write_json(path, outcomes)
+    stages.pop(MODULE.REQUIRED_CI_STAGES[0])
 
-    with pytest.raises(MODULE.VerificationError):
-        MODULE.verify_ci_outcomes(path)
+    write_json(
+        path,
+        {
+            "schema": CI_SCHEMA,
+            "run_id": RUN_ID,
+            "source_commit": SOURCE_COMMIT,
+            "workflow_run_id": WORKFLOW_RUN_ID,
+            "stages": stages,
+        },
+    )
+
+    with pytest.raises(
+        MODULE.VerificationError,
+        match="Missing mandatory",
+    ):
+        verify_ci_outcomes_fixture(path)
 
 
 def test_ci_outcomes_rejects_failed_stage(
@@ -486,33 +684,120 @@ def test_ci_outcomes_rejects_failed_stage(
 ) -> None:
     path = tmp_path / "ci-outcomes.json"
 
-    outcomes = {
+    stages = {
         stage: "success"
         for stage in MODULE.REQUIRED_CI_STAGES
     }
-    outcomes[MODULE.REQUIRED_CI_STAGES[0]] = "failure"
 
-    write_json(path, outcomes)
+    stages[MODULE.REQUIRED_CI_STAGES[0]] = "failure"
+
+    write_json(
+        path,
+        {
+            "schema": CI_SCHEMA,
+            "run_id": RUN_ID,
+            "source_commit": SOURCE_COMMIT,
+            "workflow_run_id": WORKFLOW_RUN_ID,
+            "stages": stages,
+        },
+    )
 
     with pytest.raises(
         MODULE.VerificationError,
-        match="failed",
+        match="did not succeed",
     ):
-        MODULE.verify_ci_outcomes(path)
+        verify_ci_outcomes_fixture(path)
 
 
 def test_ci_outcomes_rejects_non_object_json(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "ci-outcomes.json"
-    write_text(path, json.dumps(["success", "success"]))
+
+    write_text(
+        path,
+        json.dumps(["success", "success"]),
+    )
 
     with pytest.raises(MODULE.VerificationError):
-        MODULE.verify_ci_outcomes(path)
+        verify_ci_outcomes_fixture(path)
+
+
+def test_ci_outcomes_rejects_wrong_run_id(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "ci-outcomes.json"
+
+    make_ci_outcomes(
+        path,
+        run_id="p3-other-run",
+    )
+
+    with pytest.raises(
+        MODULE.VerificationError,
+        match="RUN_ID mismatch",
+    ):
+        verify_ci_outcomes_fixture(path)
+
+
+def test_ci_outcomes_rejects_wrong_source_commit(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "ci-outcomes.json"
+
+    make_ci_outcomes(
+        path,
+        source_commit=WRONG_SOURCE_COMMIT,
+    )
+
+    with pytest.raises(
+        MODULE.VerificationError,
+        match="source_commit mismatch",
+    ):
+        verify_ci_outcomes_fixture(path)
+
+
+def test_ci_outcomes_rejects_wrong_workflow_run_id(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "ci-outcomes.json"
+
+    make_ci_outcomes(
+        path,
+        workflow_run_id="99999",
+    )
+
+    with pytest.raises(
+        MODULE.VerificationError,
+        match="workflow_run_id mismatch",
+    ):
+        verify_ci_outcomes_fixture(path)
+
+
+def test_ci_outcomes_rejects_wrong_schema(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "ci-outcomes.json"
+
+    make_ci_outcomes(path)
+
+    outcomes = json.loads(
+        path.read_text(encoding="utf-8")
+    )
+
+    outcomes["schema"] = "obsolete-schema"
+
+    write_json(path, outcomes)
+
+    with pytest.raises(
+        MODULE.VerificationError,
+        match="schema mismatch",
+    ):
+        verify_ci_outcomes_fixture(path)
 
 
 # ---------------------------------------------------------------------------
-# V2 + V3 final package orchestration
+# V2 + V3 final-package orchestration
 # ---------------------------------------------------------------------------
 
 def test_valid_package_orchestration_is_accepted(
@@ -520,6 +805,7 @@ def test_valid_package_orchestration_is_accepted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     root, outcomes_path = make_package(tmp_path)
+
     install_benchmark_stubs(monkeypatch)
 
     result = call_package(root, outcomes_path)
@@ -529,9 +815,14 @@ def test_valid_package_orchestration_is_accepted(
     assert result["source_commit"] == SOURCE_COMMIT
     assert result["workflow_run_id"] == WORKFLOW_RUN_ID
 
-    assert result["benchmark_v2"]["schema"] == "qflpn-benchmark-v2"
-    assert result["benchmark_v3"]["schema"] == (
-        "qflpn-benchmark-v3-validation-v2"
+    assert (
+        result["benchmark_v2"]["schema"]
+        == "qflpn-benchmark-v2"
+    )
+
+    assert (
+        result["benchmark_v3"]["schema"]
+        == "qflpn-benchmark-v3-validation-v2"
     )
 
     assert result["benchmark_v3"]["run_contract"] == "AB_192"
@@ -549,12 +840,17 @@ def test_package_rejects_failed_ci_stage(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     root, outcomes_path = make_package(tmp_path)
+
     install_benchmark_stubs(monkeypatch)
 
     outcomes = json.loads(
         outcomes_path.read_text(encoding="utf-8")
     )
-    outcomes[MODULE.REQUIRED_CI_STAGES[0]] = "failure"
+
+    outcomes["stages"][
+        MODULE.REQUIRED_CI_STAGES[0]
+    ] = "failure"
+
     write_json(outcomes_path, outcomes)
 
     with pytest.raises(MODULE.VerificationError):
@@ -566,6 +862,7 @@ def test_package_rejects_missing_required_file(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     root, outcomes_path = make_package(tmp_path)
+
     install_benchmark_stubs(monkeypatch)
 
     required = root / MODULE.REQUIRED_PACKAGE_FILES[0]
@@ -573,7 +870,7 @@ def test_package_rejects_missing_required_file(
 
     with pytest.raises(
         MODULE.VerificationError,
-        match="Required P3 files",
+        match="Required P3 package files",
     ):
         call_package(root, outcomes_path)
 
@@ -583,21 +880,17 @@ def test_package_rejects_wrong_source_commit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     root, outcomes_path = make_package(tmp_path)
+
     install_benchmark_stubs(monkeypatch)
 
-    write_json(
-        root / "P3" / "reports" / "evidence-consistency.json",
-        {
-            "schema": "qflpn-p3-evidence-consistency-v1",
-            "validation": "PASS",
-            "run_id": RUN_ID,
-            "source_commit": "b" * 40,
-        },
+    make_evidence_report(
+        root,
+        source_commit=WRONG_SOURCE_COMMIT,
     )
 
     with pytest.raises(
         MODULE.VerificationError,
-        match="commit mismatch",
+        match="source_commit mismatch",
     ):
         call_package(root, outcomes_path)
 
@@ -607,16 +900,12 @@ def test_package_rejects_wrong_run_id_in_evidence_report(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     root, outcomes_path = make_package(tmp_path)
+
     install_benchmark_stubs(monkeypatch)
 
-    write_json(
-        root / "P3" / "reports" / "evidence-consistency.json",
-        {
-            "schema": "qflpn-p3-evidence-consistency-v1",
-            "validation": "PASS",
-            "run_id": "p3-other-run",
-            "source_commit": SOURCE_COMMIT,
-        },
+    make_evidence_report(
+        root,
+        run_id="p3-other-run",
     )
 
     with pytest.raises(
@@ -626,11 +915,62 @@ def test_package_rejects_wrong_run_id_in_evidence_report(
         call_package(root, outcomes_path)
 
 
+def test_package_rejects_wrong_workflow_id_in_evidence_report(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, outcomes_path = make_package(tmp_path)
+
+    install_benchmark_stubs(monkeypatch)
+
+    make_evidence_report(
+        root,
+        workflow_run_id="99999",
+    )
+
+    with pytest.raises(
+        MODULE.VerificationError,
+        match="workflow_run_id mismatch",
+    ):
+        call_package(root, outcomes_path)
+
+
+def test_package_rejects_failed_evidence_item(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, outcomes_path = make_package(tmp_path)
+
+    install_benchmark_stubs(monkeypatch)
+
+    report_path = (
+        root
+        / "P3"
+        / "reports"
+        / "evidence-consistency.json"
+    )
+
+    report = json.loads(
+        report_path.read_text(encoding="utf-8")
+    )
+
+    report["evidence"]["benchmark_v3"] = "FAIL"
+
+    write_json(report_path, report)
+
+    with pytest.raises(
+        MODULE.VerificationError,
+        match="Evidence consistency item failed",
+    ):
+        call_package(root, outcomes_path)
+
+
 def test_package_rejects_tampered_global_integrity(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     root, outcomes_path = make_package(tmp_path)
+
     install_benchmark_stubs(monkeypatch)
 
     write_text(
@@ -647,6 +987,7 @@ def test_package_rejects_invalid_run_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     root, outcomes_path = make_package(tmp_path)
+
     install_benchmark_stubs(monkeypatch)
 
     with pytest.raises(
@@ -668,6 +1009,7 @@ def test_package_rejects_invalid_source_commit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     root, outcomes_path = make_package(tmp_path)
+
     install_benchmark_stubs(monkeypatch)
 
     with pytest.raises(
@@ -684,13 +1026,46 @@ def test_package_rejects_invalid_source_commit(
         )
 
 
+def test_package_rejects_invalid_workflow_run_id(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, outcomes_path = make_package(tmp_path)
+
+    install_benchmark_stubs(monkeypatch)
+
+    with pytest.raises(
+        MODULE.VerificationError,
+        match="Invalid workflow_run_id",
+    ):
+        MODULE.verify_package(
+            root,
+            RUN_ID,
+            EXPECTED,
+            outcomes_path,
+            source_commit=SOURCE_COMMIT,
+            workflow_run_id="not-numeric",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Manifest determinism
+# ---------------------------------------------------------------------------
+
 def test_manifest_inventory_is_deterministic(
     tmp_path: Path,
 ) -> None:
     root = tmp_path / "repo"
 
-    write_text(root / "P3" / "nested" / "b.txt", "b\n")
-    write_text(root / "P3" / "a.txt", "a\n")
+    write_text(
+        root / "P3" / "nested" / "b.txt",
+        "b\n",
+    )
+
+    write_text(
+        root / "P3" / "a.txt",
+        "a\n",
+    )
 
     first = MODULE.independent_inventory(root)
     second = MODULE.independent_inventory(root)
