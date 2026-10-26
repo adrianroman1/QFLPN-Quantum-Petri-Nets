@@ -175,8 +175,10 @@ class BenchmarkV3RunnerTest {
                 MultiplyTask.SplitPolicy.BINARY_NNZ_SPLIT.name(),
                 binary[16]);
 
-        assertEquals("PASS", scan[44]);
-        assertEquals("PASS", binary[44]);
+        // CSV index 43 is status; index 44 is verdict.
+        assertEquals("PASS", scan[43]);
+        assertEquals("PASS", binary[43]);
+
         assertEquals(46, scan.length);
         assertEquals(46, binary.length);
     }
