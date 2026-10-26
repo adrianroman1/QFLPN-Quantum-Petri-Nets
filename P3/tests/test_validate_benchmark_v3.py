@@ -574,7 +574,20 @@ def test_rejects_uniform_workload_with_wrong_nnz(
     tmp_path: Path,
 ) -> None:
     rows = legacy_matrix()
-    rows[0]["non_zero_count"] = "201"
+    row = rows[0]
+
+    # UNIFORM_2 has dimension=100 and therefore requires NNZ=200.
+    # Change NNZ to 201, then keep all directly derived fields
+    # internally consistent so validation reaches the workload rule.
+    row["non_zero_count"] = "201"
+    row["nnz_avg_per_row"] = "2.01"
+
+    row["sequential_nnz_per_second"] = str(
+        201 / (float(row["sequential_mean_ms"]) / 1000.0)
+    )
+    row["parallel_nnz_per_second"] = str(
+        201 / (float(row["parallel_mean_ms"]) / 1000.0)
+    )
 
     path = tmp_path / "wrong-uniform-nnz.csv"
     write_csv(path, rows)
