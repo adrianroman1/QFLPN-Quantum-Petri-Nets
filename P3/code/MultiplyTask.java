@@ -12,8 +12,8 @@ import java.util.concurrent.RecursiveAction;
  *  - ROW_BOUNDARY_SCAN: scans every internal row boundary.
  *  - BINARY_NNZ_SPLIT: uses binary search over monotonic CSR row pointers.
  *
- * The default strategy remains ROW_BOUNDARY_SCAN to preserve the
- * existing execution behavior and compatibility.
+ * The default strategy is BINARY_NNZ_SPLIT. ROW_BOUNDARY_SCAN remains
+ * available as an explicit baseline for A/B benchmarking.
  */
 public final class MultiplyTask extends RecursiveAction {
 
@@ -29,7 +29,7 @@ public final class MultiplyTask extends RecursiveAction {
         ROW_BOUNDARY_SCAN,
 
         /**
-         * Experimental strategy: binary search for the NNZ midpoint.
+         * Binary-search strategy for the NNZ midpoint.
          */
         BINARY_NNZ_SPLIT
     }
@@ -48,7 +48,7 @@ public final class MultiplyTask extends RecursiveAction {
     /**
      * Backward-compatible public constructor.
      *
-     * The default partition strategy is ROW_BOUNDARY_SCAN.
+     * The default partition strategy is BINARY_NNZ_SPLIT.
      * Caller-owned arrays are defensively copied.
      */
     public MultiplyTask(
@@ -70,7 +70,7 @@ public final class MultiplyTask extends RecursiveAction {
                 startRow,
                 endRow,
                 threshold,
-                SplitPolicy.ROW_BOUNDARY_SCAN);
+                SplitPolicy.BINARY_NNZ_SPLIT);
     }
 
     /**
@@ -120,9 +120,9 @@ public final class MultiplyTask extends RecursiveAction {
      * Backward-compatible factory for SparseMatrixCSR.
      *
      * CSR arrays are already validated and privately owned by the matrix.
-     * The input vector is snapshotted once.
+     * The input vector is reused unless it aliases output.
      *
-     * The default partition strategy is ROW_BOUNDARY_SCAN.
+     * The default partition strategy is BINARY_NNZ_SPLIT.
      */
     static MultiplyTask forValidatedCsr(
             double[] values,
@@ -143,14 +143,18 @@ public final class MultiplyTask extends RecursiveAction {
                 startRow,
                 endRow,
                 threshold,
-                SplitPolicy.ROW_BOUNDARY_SCAN);
+                SplitPolicy.BINARY_NNZ_SPLIT);
     }
 
     /**
      * Factory for SparseMatrixCSR with an explicit partition strategy.
      *
      * Matrix-owned CSR arrays are reused without cloning.
-     * The input vector is snapshotted once per multiplication.
+     * The input vector is reused when it does not alias output; when
+     * input == output, it is snapshotted to preserve in-place semantics.
+     *
+     * Callers must not mutate a non-aliased input vector concurrently
+     * with the invocation.
      */
     static MultiplyTask forValidatedCsr(
             double[] values,
@@ -194,13 +198,14 @@ public final class MultiplyTask extends RecursiveAction {
 
         /*
          * SparseMatrixCSR guarantees full structural validation and private
-         * ownership of its CSR arrays. Only the input vector is copied.
+         * ownership of its CSR arrays. The input vector is copied only when
+         * it aliases output.
          */
         return new MultiplyTask(
                 values,
                 columns,
                 rowPointers,
-                input.clone(),
+                input == output ? input.clone() : input,
                 output,
                 startRow,
                 endRow,
@@ -466,7 +471,7 @@ public final class MultiplyTask extends RecursiveAction {
     }
 
     /**
-     * Experimental binary-search NNZ partitioning strategy.
+     * Binary-search NNZ partitioning strategy.
      *
      * CSR row pointers are monotonically non-decreasing. Therefore, the
      * internal boundary whose left NNZ count is closest to half of the
