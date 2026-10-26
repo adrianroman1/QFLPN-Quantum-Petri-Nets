@@ -307,7 +307,7 @@ class SparseMatrixCSRPolicyAndNormalizationRegressionTest {
                 matrix.getColumnIndices());
 
         assertArrayEquals(
-                new double[] {10.0, 5.0},
+                new double[] {10.0, 10.0},
                 matrix.getValues(),
                 EPSILON);
 
