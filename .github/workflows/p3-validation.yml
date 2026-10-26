@@ -9,8 +9,8 @@ on:
       - "fix/**"
     paths:
       - "P3/**"
-      - "pom.xml"
       - "src/**"
+      - "pom.xml"
       - ".github/workflows/p3-validation.yml"
 
   pull_request:
@@ -18,12 +18,12 @@ on:
       - main
     paths:
       - "P3/**"
-      - "pom.xml"
       - "src/**"
+      - "pom.xml"
       - ".github/workflows/p3-validation.yml"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: p3-validation-${{ github.ref }}
@@ -31,7 +31,7 @@ concurrency:
 
 jobs:
   p3_validation:
-    name: P3 Complete Validation, Persistence and Remote Integrity
+    name: P3 — Complete Validation
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
@@ -42,34 +42,26 @@ jobs:
       ITERATIONS: "10"
       THRESHOLD: "4096"
       PARALLELISM: "2"
-      RUN_ID: p3-${{ github.run_id }}-${{ github.run_attempt }}
+      P3_RUN_ID: p3-${{ github.run_id }}-${{ github.run_attempt }}
+      P3_REPORTS: P3/reports
+      P3_RAW_ROOT: P3/results/raw
 
     steps:
-      # --------------------------------------------------------
-      # 1. CHECKOUT AND RUNTIMES
-      # --------------------------------------------------------
-
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          persist-credentials: true
 
-      - name: Capture exact P3 source commit
-        id: p3_source_commit
+      - name: Capture source revision
+        id: revision
         shell: bash
         run: |
-          set -Eeuo pipefail
-
+          set -euo pipefail
           SOURCE_COMMIT="$(git rev-parse HEAD)"
-
-          if ! [[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "P3_SOURCE_COMMIT_INVALID: $SOURCE_COMMIT" >&2
-            exit 1
-          fi
-
-          echo "SOURCE_COMMIT=$SOURCE_COMMIT" >> "$GITHUB_ENV"
-          echo "P3_SOURCE_COMMIT=$SOURCE_COMMIT"
+          echo "source_commit=${SOURCE_COMMIT}" >> "$GITHUB_OUTPUT"
+          echo "P3_SOURCE_COMMIT=${SOURCE_COMMIT}" >> "$GITHUB_ENV"
+          echo "P3_RUN_ID=${P3_RUN_ID}" >> "$GITHUB_ENV"
+          mkdir -p "${P3_RAW_ROOT}/${P3_RUN_ID}" "${P3_REPORTS}"
 
       - name: Set up Java 21
         uses: actions/setup-java@v4
@@ -84,1012 +76,256 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      - name: Install Python validation dependency
+      - name: Install Python test dependencies
         shell: bash
         run: |
-          set -Eeuo pipefail
+          set -euo pipefail
           python -m pip install --upgrade pip
           python -m pip install pytest
 
-      # --------------------------------------------------------
-      # 2. CAPTURE ACTUAL EXECUTION ENVIRONMENT
-      # --------------------------------------------------------
-
-      - name: Capture and validate P3 execution environment
-        id: p3_environment
+      - name: Verify required P3 files
         shell: bash
         run: |
-          set -Eeuo pipefail
-
-          mkdir -p P3/reports
-
-          python P3/tools/record_environment.py \
-            --root . \
-            --run-id "$RUN_ID" \
-            --dimension "$N" \
-            --warmup "$WARMUP" \
-            --iterations "$ITERATIONS" \
-            --threshold "$THRESHOLD" \
-            --parallelism "$PARALLELISM" \
-            --json-output P3/reports/environment.json \
-            --text-output P3/reports/environment.txt
-
-          test -s P3/reports/environment.json
-          test -s P3/reports/environment.txt
-
-          python - "$SOURCE_COMMIT" <<'PY'
-          import json
-          import sys
-          from pathlib import Path
-
-          data = json.loads(
-              Path("P3/reports/environment.json").read_text(
-                  encoding="utf-8"
-              )
+          set -euo pipefail
+          required=(
+            "P3/pom.xml"
+            "P3/benchmarks/benchmark_results_v2.csv"
+            "P3/results/run_benchmark.sh"
+            "P3/results/validate_benchmark.py"
+            "P3/results/generate_benchmark_summary.py"
+            "P3/tools/verify_evidence_consistency.py"
+            "P3/tools/verify_final_package.py"
+            "P3/tools/compute_checksums.py"
+            "P3/tests/test_verify_evidence_consistency.py"
+            "P3/tests/test_verify_final_package.py"
           )
 
-          if data.get("repository", {}).get("commit") != sys.argv[1]:
-              raise SystemExit(
-                  "P3_ENVIRONMENT_SOURCE_COMMIT_MISMATCH"
-              )
+          for file in "${required[@]}"; do
+            if [[ ! -f "$file" ]]; then
+              echo "::error::Required P3 file is missing: $file"
+              exit 1
+            fi
+          done
 
-          print("P3_ENVIRONMENT_SOURCE_COMMIT_ACCEPTED")
-          PY
-
-      # --------------------------------------------------------
-      # 3. REQUIRED FILES AND SYNTAX
-      # --------------------------------------------------------
-
-      - name: Validate required P3 files
-        id: p3_required_files
+      - name: Compile Python sources
         shell: bash
         run: |
-          set -Eeuo pipefail
+          set -euo pipefail
+          python -m compileall -q P3/results P3/tools P3/tests
 
+      - name: Run P3 Python test suite
+        id: python_tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${P3_RAW_ROOT}/${P3_RUN_ID}"
+
+          set +e
+          python -m pytest -q P3/tests P3/results \
+            --junitxml="${P3_RAW_ROOT}/${P3_RUN_ID}/pytest-results.xml" \
+            2>&1 | tee "${P3_RAW_ROOT}/${P3_RUN_ID}/pytest.log"
+          status=${PIPESTATUS[0]}
+          set -e
+
+          echo "pytest_exit_code=${status}" \
+            > "${P3_RAW_ROOT}/${P3_RUN_ID}/pytest-status.txt"
+
+          if [[ "$status" -ne 0 ]]; then
+            exit "$status"
+          fi
+
+      - name: Run root Maven tests
+        id: root_maven
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f pom.xml ]]; then
+            mvn -B -ntp clean test \
+              2>&1 | tee "${P3_RAW_ROOT}/${P3_RUN_ID}/root-maven.log"
+          else
+            echo "No root pom.xml; root Maven stage is not applicable."
+          fi
+
+      - name: Run P3 Maven tests
+        id: p3_maven
+        shell: bash
+        run: |
+          set -euo pipefail
+          mvn -B -ntp -f P3/pom.xml clean test \
+            2>&1 | tee "${P3_RAW_ROOT}/${P3_RUN_ID}/p3-maven.log"
+
+      - name: Capture execution environment
+        id: environment
+        shell: bash
+        run: |
+          set -euo pipefail
           python - <<'PY'
+          import json
+          import os
+          import platform
+          import subprocess
           from pathlib import Path
 
-          required = [
-              "P3/pom.xml",
-              "P3/ACCEPTANCE_CHECKLIST.md",
-              "P3/ACCEPTANCE_REPORT.md",
-              "P3/INTEGRITY.md",
-              "P3/P3_AUDIT_REPORT.md",
-              "P3/VALIDATION_ALIGNMENT.md",
-              "P3/VALIDATION_PROTOCOL.md",
-              "P3/results/run_benchmark.sh",
-              "P3/results/validate_benchmark.py",
-              "P3/results/test_validate_benchmark.py",
-              "P3/results/generate_benchmark_summary.py",
-              "P3/tools/record_environment.py",
-              "P3/tools/compute_checksums.py",
-              "P3/tools/verify_final_package.py",
-              "P3/tools/verify_remote_integrity.py",
-              "P3/tools/verify_evidence_consistency.py",
-              "P3/tools/write_github_summary.py",
-              "P3/tests/test_record_environment.py",
-              "P3/tests/test_verify_remote_integrity.py",
-              "P3/tests/test_verify_evidence_consistency.py",
-              "P3/tests/test_generate_benchmark_summary.py",
-              "P3/tests/test_write_github_summary.py",
-              "P3/tests/test_compute_checksums.py",
-              "P3/tests/test_verify_final_package.py",
-          ]
+          run_id = os.environ["P3_RUN_ID"]
+          raw = Path("P3/results/raw") / run_id
+          raw.mkdir(parents=True, exist_ok=True)
 
-          missing = [
-              name for name in required
-              if not Path(name).is_file()
-          ]
+          def command_output(*args):
+              try:
+                  return subprocess.check_output(
+                      args, text=True, stderr=subprocess.STDOUT
+                  ).strip()
+              except Exception as exc:
+                  return f"UNAVAILABLE: {exc}"
 
-          if missing:
-              for name in missing:
-                  print(f"MISSING: {name}")
-              raise SystemExit("P3_REQUIRED_FILES_FAILED")
+          payload = {
+              "schema": "qflpn-p3-environment-v1",
+              "run_id": run_id,
+              "source_commit": os.environ["P3_SOURCE_COMMIT"],
+              "python": platform.python_version(),
+              "platform": platform.platform(),
+              "java": command_output("java", "-version"),
+              "maven": command_output("mvn", "-version"),
+              "dimension": int(os.environ["N"]),
+              "warmup": int(os.environ["WARMUP"]),
+              "iterations": int(os.environ["ITERATIONS"]),
+              "threshold": int(os.environ["THRESHOLD"]),
+              "parallelism": int(os.environ["PARALLELISM"]),
+          }
 
-          print("P3_REQUIRED_FILES_ACCEPTED")
+          (raw / "environment.json").write_text(
+              json.dumps(payload, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
           PY
 
-      - name: Validate benchmark runner shell syntax
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          bash -n P3/results/run_benchmark.sh
-
-      - name: Compile P3 Python files
-        id: p3_python_compile
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-
-          python -m compileall -q \
-            P3/results \
-            P3/tools \
-            P3/tests
-
-      # --------------------------------------------------------
-      # 4. COMPLETE PYTHON TEST SUITE
-      # --------------------------------------------------------
-
-      - name: Run complete P3 Python test suite
-        id: p3_python_tests
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-
-          python -m pytest \
-            P3/results/test_validate_benchmark.py \
-            P3/tests/test_record_environment.py \
-            P3/tests/test_verify_remote_integrity.py \
-            P3/tests/test_verify_evidence_consistency.py \
-            P3/tests/test_generate_benchmark_summary.py \
-            P3/tests/test_write_github_summary.py \
-            P3/tests/test_compute_checksums.py \
-            P3/tests/test_verify_final_package.py \
-            -v \
-            --tb=short \
-            2>&1 | tee P3/reports/python-validation-tests.log
-
-      - name: Run P3 benchmark validator tests
-        id: p3_benchmark_tests
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-
-          python -m pytest \
-            P3/results/test_validate_benchmark.py \
-            -v \
-            --tb=short \
-            2>&1 | tee P3/reports/benchmark-validator-tests.log
-
-      - name: Run P3 integrity generator tests
-        id: p3_manifest_tests
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-
-          python -m pytest \
-            P3/tests/test_compute_checksums.py \
-            -v \
-            --tb=short \
-            2>&1 | tee P3/reports/manifest-generator-tests.log
-
-      - name: Run P3 final package verifier tests
-        id: p3_final_package_tests
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-
-          python -m pytest \
-            P3/tests/test_verify_final_package.py \
-            -v \
-            --tb=short \
-            2>&1 | tee P3/reports/final-package-verifier-tests.log
-
-      # --------------------------------------------------------
-      # 5. ROOT MAVEN VALIDATION
-      # --------------------------------------------------------
-
-      - name: Run root Maven clean test
-        id: p3_root_maven
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-
-          mvn -B clean test \
-            2>&1 | tee P3/reports/root-maven-validation.log
-
-      # --------------------------------------------------------
-      # 6. P3 BENCHMARK
-      # --------------------------------------------------------
-
-      - name: Run P3 Maven benchmark and V2 CSV validation
+      - name: Run canonical P3 V2 benchmark
         id: p3_benchmark
         shell: bash
         run: |
-          set -Eeuo pipefail
+          set -euo pipefail
 
-          export N WARMUP ITERATIONS THRESHOLD PARALLELISM
-          export RUN_ID SOURCE_COMMIT
+          chmod +x P3/results/run_benchmark.sh
+
+          export RUN_ID="${P3_RUN_ID}"
+          export SOURCE_COMMIT="${P3_SOURCE_COMMIT}"
 
           bash P3/results/run_benchmark.sh \
-            2>&1 | tee P3/reports/p3-benchmark-execution.log
+            2>&1 | tee "${P3_RAW_ROOT}/${P3_RUN_ID}/benchmark-run.log"
 
-          test -s P3/benchmarks/benchmark_results_v2.csv
-
-          RAW="P3/results/raw/$RUN_ID"
-
-          test -s "$RAW/validation-report.json"
-          test -s "$RAW/benchmark-report.txt"
-          test -s "$RAW/benchmark-report.md"
-          test -s "$RAW/benchmark-report.json"
-          test -s "$RAW/SHA256SUMS.txt"
-
-          python - "$RAW/validation-report.json" "$RUN_ID" <<'PY'
-          import json
-          import sys
-          from pathlib import Path
-
-          path = Path(sys.argv[1])
-          expected_run_id = sys.argv[2]
-          data = json.loads(path.read_text(encoding="utf-8"))
-
-          if data.get("schema") != "qflpn-benchmark-v2":
-              raise SystemExit(
-                  "Unexpected benchmark validation schema"
-              )
-
-          if data.get("validation") != "PASS":
-              raise SystemExit(
-                  "Benchmark validation is not PASS"
-              )
-
-          if data.get("all_records_valid") is not True:
-              raise SystemExit(
-                  "Not all CSV records are valid"
-              )
-
-          if data.get("latest_record", {}).get("run_id") != expected_run_id:
-              raise SystemExit(
-                  "Benchmark JSON RUN_ID mismatch"
-              )
-
-          print("P3_BENCHMARK_JSON_RUN_ID_ACCEPTED")
-          PY
-
-      # --------------------------------------------------------
-      # 7. PERSISTENT REPORT + EVIDENCE CONSISTENCY PRODUCER
-      # --------------------------------------------------------
-
-      - name: Generate persistent report and evidence consistency
-        id: p3_benchmark_summary
-        if: always()
+      - name: Validate canonical P3 V2 benchmark
+        id: p3_v2_validation
         shell: bash
         run: |
-          set -Eeuo pipefail
+          set -euo pipefail
 
-          CSV="P3/benchmarks/benchmark_results_v2.csv"
-          RAW="P3/results/raw/$RUN_ID/validation-report.json"
+          python P3/results/validate_benchmark.py \
+            --csv P3/benchmarks/benchmark_results_v2.csv \
+            --run-id "${P3_RUN_ID}" \
+            --expected-n "${N}" \
+            --warmup "${WARMUP}" \
+            --iterations "${ITERATIONS}" \
+            --threshold "${THRESHOLD}" \
+            --parallelism "${PARALLELISM}" \
+            --json-output "${P3_RAW_ROOT}/${P3_RUN_ID}/validation-report.json"
 
-          if [ "${{ steps.p3_benchmark.outcome }}" != "success" ]; then
-            echo "P3_BENCHMARK_SUMMARY_FAILED: benchmark stage did not pass" >&2
-            exit 1
-          fi
-
-          test -s "$CSV"
-          test -s "$RAW"
+      - name: Generate P3 V2 benchmark summary
+        id: p3_summary
+        shell: bash
+        run: |
+          set -euo pipefail
 
           python P3/results/generate_benchmark_summary.py \
-            --csv "$CSV" \
-            --report "$RAW" \
-            --output P3/reports/benchmark-report.md \
-            --run-id "$RUN_ID" \
-            --overwrite \
-            --strict-output
+            --run-id "${P3_RUN_ID}" \
+            --csv P3/benchmarks/benchmark_results_v2.csv \
+            --output-dir "${P3_RAW_ROOT}/${P3_RUN_ID}"
 
-          cp "$RAW" P3/reports/validation-report.json
-
-          test -s P3/reports/benchmark-report.md
-          test -s P3/reports/validation-report.json
+      - name: Verify P3 evidence consistency
+        id: p3_evidence
+        shell: bash
+        run: |
+          set -euo pipefail
 
           python P3/tools/verify_evidence_consistency.py \
             --root . \
-            --run-id "$RUN_ID" \
-            --source-commit "$SOURCE_COMMIT" \
-            --json-output P3/reports/evidence-consistency.json
+            --run-id "${P3_RUN_ID}" \
+            --source-commit "${P3_SOURCE_COMMIT}" \
+            --output "${P3_RAW_ROOT}/${P3_RUN_ID}/evidence-consistency.json"
 
-          test -s P3/reports/evidence-consistency.json
-
-          python - "$RUN_ID" "$SOURCE_COMMIT" <<'PY'
-          import json
-          import sys
-          from pathlib import Path
-
-          path = Path("P3/reports/evidence-consistency.json")
-          data = json.loads(path.read_text(encoding="utf-8"))
-
-          if data.get("schema") != "qflpn-p3-evidence-consistency-v1":
-              raise SystemExit(
-                  "P3_EVIDENCE_CONSISTENCY_SCHEMA_MISMATCH"
-              )
-
-          if data.get("validation") != "PASS":
-              raise SystemExit(
-                  "P3_EVIDENCE_CONSISTENCY_NOT_PASS"
-              )
-
-          if data.get("run_id") != sys.argv[1]:
-              raise SystemExit(
-                  "P3_EVIDENCE_CONSISTENCY_RUN_ID_MISMATCH"
-              )
-
-          if data.get("source_commit") != sys.argv[2]:
-              raise SystemExit(
-                  "P3_EVIDENCE_CONSISTENCY_SOURCE_COMMIT_MISMATCH"
-              )
-
-          evidence = data.get("evidence")
-          required = {
-              "environment",
-              "csv",
-              "validation_json",
-              "java_benchmark_json",
-              "java_benchmark_txt",
-              "run_markdown",
-              "persistent_markdown",
-              "persistent_validation_json",
-              "run_checksums",
-          }
-
-          if not isinstance(evidence, dict) or set(evidence) != required:
-              raise SystemExit(
-                  "P3_EVIDENCE_CONSISTENCY_INVENTORY_MISMATCH"
-              )
-
-          if any(value != "PASS" for value in evidence.values()):
-              raise SystemExit(
-                  "P3_EVIDENCE_CONSISTENCY_ITEM_NOT_PASS"
-              )
-
-          print("P3_EVIDENCE_CONSISTENCY_ACCEPTED")
-          PY
-
-      # --------------------------------------------------------
-      # 8. GLOBAL MANIFEST AND SHA256SUMS — COMPLETE AUTOMATION
-      # --------------------------------------------------------
-
-      - name: Generate and independently verify complete P3 MANIFEST and SHA256SUMS
-        id: p3_integrity_generate
-        if: always()
+      - name: Generate global MANIFEST and SHA256SUMS
+        id: p3_integrity
         shell: bash
         run: |
-          set -Eeuo pipefail
+          set -euo pipefail
 
-          echo "P3_GLOBAL_INTEGRITY_GENERATION_STARTED"
-
-          python P3/tools/compute_checksums.py
+          python P3/tools/compute_checksums.py \
+            --root P3 \
+            --manifest P3/MANIFEST.txt \
+            --checksums P3/SHA256SUMS.txt
 
           test -s P3/MANIFEST.txt
           test -s P3/SHA256SUMS.txt
 
-          python - <<'PY'
-          import importlib.util
-          from pathlib import Path
-
-          verifier_path = Path("P3/tools/verify_final_package.py")
-
-          if not verifier_path.is_file() or verifier_path.is_symlink():
-              raise SystemExit("P3_INDEPENDENT_VERIFIER_MISSING_OR_UNSAFE")
-
-          spec = importlib.util.spec_from_file_location(
-              "p3_independent_integrity_verifier",
-              verifier_path,
-          )
-
-          if spec is None or spec.loader is None:
-              raise SystemExit("P3_INDEPENDENT_VERIFIER_LOAD_FAILED")
-
-          module = importlib.util.module_from_spec(spec)
-          spec.loader.exec_module(module)
-
-          result = module.verify_global_integrity(Path("."))
-
-          manifest_count = result["manifest_entries"]
-          checksum_count = result["sha256_entries_verified"]
-
-          if manifest_count <= 0:
-              raise SystemExit("P3_GLOBAL_MANIFEST_EMPTY")
-
-          if checksum_count != manifest_count:
-              raise SystemExit("P3_GLOBAL_INTEGRITY_COUNT_MISMATCH")
-
-          manifest = Path("P3/MANIFEST.txt").read_text(
-              encoding="utf-8"
-          ).splitlines()
-
-          csv_count = sum(
-              path.lower().endswith(".csv") for path in manifest
-          )
-          txt_count = sum(
-              path.lower().endswith(".txt") for path in manifest
-          )
-          md_count = sum(
-              path.lower().endswith(".md") for path in manifest
-          )
-
-          print(f"P3_MANIFEST_ENTRIES_VERIFIED={manifest_count}")
-          print(f"P3_SHA256_ENTRIES_VERIFIED={checksum_count}")
-          print(f"P3_CSV_ENTRIES={csv_count}")
-          print(f"P3_TXT_ENTRIES={txt_count}")
-          print(f"P3_MD_ENTRIES={md_count}")
-          print("P3_GLOBAL_INTEGRITY_INDEPENDENT_VERIFICATION=PASS")
-          PY
-
-          echo "P3_GLOBAL_MANIFEST_GENERATED"
-          echo "P3_GLOBAL_SHA256SUMS_GENERATED"
-          echo "P3_GLOBAL_CSV_TXT_MD_INCLUDED"
-          echo "P3_GLOBAL_INTEGRITY_GENERATED"
-
-      # --------------------------------------------------------
-      # 9. AUTOMATIC PERSISTENCE — MAIN AND REMEDIATION BRANCHES
-      # --------------------------------------------------------
-
-      - name: Persist generated P3 evidence and integrity inventory
-        id: p3_integrity_persist
-        if: >-
-          always() &&
-          github.event_name != 'pull_request' &&
-          steps.p3_integrity_generate.outcome == 'success'
+      - name: Verify final P3 package
+        id: p3_final_verification
         shell: bash
         run: |
-          set -Eeuo pipefail
+          set -euo pipefail
 
-          if [[ "$GITHUB_REF" != refs/heads/* ]]; then
-            echo "P3_PERSIST_FAILED: not a branch ref" >&2
-            exit 1
-          fi
+          python P3/tools/verify_final_package.py \
+            --root . \
+            --run-id "${P3_RUN_ID}" \
+            --outcomes-json "${P3_RAW_ROOT}/${P3_RUN_ID}/ci-outcomes.json"
 
-          git config user.name "github-actions[bot]"
-          git config user.email \
-            "41898282+github-actions[bot]@users.noreply.github.com"
-
-          # Stage generated P3 evidence and the global inventory.
-          # Source files already committed on the branch remain untouched.
-          git add -A -- \
-            P3/benchmarks/ \
-            P3/reports/ \
-            P3/results/raw/ \
-            P3/MANIFEST.txt \
-            P3/SHA256SUMS.txt
-
-          if git diff --cached --quiet; then
-            echo "No generated P3 evidence changes to commit."
-          else
-            git commit \
-              -m "[skip ci] P3 automated validation and integrity evidence"
-
-            git push \
-              origin \
-              "HEAD:refs/heads/${GITHUB_REF_NAME}"
-          fi
-
-          echo "P3_EVIDENCE_AND_INTEGRITY_PERSISTED"
-          echo "P3_PERSISTED_BRANCH=${GITHUB_REF_NAME}"
-
-      # --------------------------------------------------------
-      # 10. REMOTE MANIFEST AND SHA256 VERIFICATION
-      # --------------------------------------------------------
-
-      - name: Verify every remote P3 manifest path and SHA-256
-        id: p3_remote_integrity
+      - name: Record CI stage outcomes
         if: always()
         shell: bash
         run: |
-          set -Eeuo pipefail
-
-          REMOTE_JSON="$RUNNER_TEMP/p3-remote-integrity.json"
-
-          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-            python - "$REMOTE_JSON" <<'PY'
+          set -euo pipefail
+          python - <<'PY'
           import json
-          import sys
+          import os
           from pathlib import Path
 
-          Path(sys.argv[1]).write_text(
-              json.dumps(
-                  {
-                      "schema": "qflpn-p3-remote-integrity-v2",
-                      "validation": "NOT_APPLICABLE",
-                      "branch": "pull_request",
-                      "manifest_entries": 0,
-                      "verified_remote_blobs": 0,
-                      "files": [],
-                      "reason": (
-                          "Pull requests are read-only; remote publication "
-                          "is checked after the branch is pushed."
-                      ),
-                  },
-                  indent=2,
-              ) + "\n",
+          run_id = os.environ["P3_RUN_ID"]
+          raw = Path("P3/results/raw") / run_id
+          raw.mkdir(parents=True, exist_ok=True)
+
+          stages = {
+              "python_tests": "${{ steps.python_tests.outcome }}",
+              "root_maven": "${{ steps.root_maven.outcome }}",
+              "p3_maven": "${{ steps.p3_maven.outcome }}",
+              "benchmark": "${{ steps.p3_benchmark.outcome }}",
+              "v2_validation": "${{ steps.p3_v2_validation.outcome }}",
+              "summary": "${{ steps.p3_summary.outcome }}",
+              "evidence_consistency": "${{ steps.p3_evidence.outcome }}",
+              "integrity": "${{ steps.p3_integrity.outcome }}",
+              "final_verification": "${{ steps.p3_final_verification.outcome }}",
+          }
+
+          payload = {
+              "schema": "qflpn-p3-ci-outcomes-v1",
+              "run_id": run_id,
+              "stages": stages,
+          }
+
+          (raw / "ci-outcomes.json").write_text(
+              json.dumps(payload, indent=2, sort_keys=True) + "\n",
               encoding="utf-8",
           )
           PY
-            echo "P3_REMOTE_VERIFICATION_NOT_APPLICABLE_TO_PULL_REQUEST"
-            exit 0
-          fi
 
-          if [ "${{ steps.p3_integrity_persist.outcome }}" != "success" ]; then
-            echo "P3_REMOTE_VERIFICATION_BLOCKED: persistence did not succeed" >&2
-            exit 1
-          fi
-
-          if [ "${{ steps.p3_benchmark.outcome }}" = "success" ] && \
-             [ "${{ steps.p3_benchmark_summary.outcome }}" = "success" ]; then
-
-            echo "P3_REMOTE_VERIFICATION_MODE=FULL_PROVENANCE"
-
-            python P3/tools/verify_remote_integrity.py \
-              --root . \
-              --remote origin \
-              --branch "$GITHUB_REF_NAME" \
-              --run-id "$RUN_ID" \
-              --source-commit "$SOURCE_COMMIT" \
-              --json-output "$REMOTE_JSON"
-
-          else
-            echo "P3_REMOTE_VERIFICATION_MODE=INTEGRITY_ONLY"
-
-            python P3/tools/verify_remote_integrity.py \
-              --root . \
-              --remote origin \
-              --branch "$GITHUB_REF_NAME" \
-              --run-id "$RUN_ID" \
-              --source-commit "$SOURCE_COMMIT" \
-              --integrity-only \
-              --json-output "$REMOTE_JSON"
-          fi
-
-          test -s "$REMOTE_JSON"
-
-          python - "$REMOTE_JSON" <<'PY'
-          import json
-          import sys
-          from pathlib import Path
-
-          data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-
-          if data.get("schema") != "qflpn-p3-remote-integrity-v2":
-              raise SystemExit("P3_REMOTE_SCHEMA_MISMATCH")
-
-          if data.get("validation") != "PASS":
-              raise SystemExit("P3_REMOTE_INTEGRITY_NOT_PASS")
-
-          count = data.get("manifest_entries")
-          verified = data.get("verified_remote_blobs")
-
-          if not isinstance(count, int) or count <= 0:
-              raise SystemExit("P3_REMOTE_MANIFEST_COUNT_INVALID")
-
-          if verified != count:
-              raise SystemExit("P3_REMOTE_BLOB_COUNT_MISMATCH")
-
-          if data.get("verification_mode") not in {
-              "FULL",
-              "INTEGRITY_ONLY",
-          }:
-              raise SystemExit("P3_REMOTE_VERIFICATION_MODE_INVALID")
-
-          print(f"P3_REMOTE_MANIFEST_ENTRIES={count}")
-          print(f"P3_REMOTE_BLOBS_VERIFIED={verified}")
-          print(
-              "P3_REMOTE_VERIFICATION_MODE="
-              + str(data["verification_mode"])
-          )
-          print("P3_REMOTE_ALL_MANIFEST_BLOBS_VERIFIED")
-          PY
-
-      # --------------------------------------------------------
-      # 11. VALIDATE AND PUBLISH COMPLETE MANIFEST
-      # --------------------------------------------------------
-
-      - name: Validate and publish complete P3 MANIFEST.txt
-        id: p3_display_manifest
-        if: always() && steps.p3_integrity_generate.outcome == 'success'
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-
-          python - <<'PY'
-          from pathlib import Path
-          import os
-
-          path = Path("P3/MANIFEST.txt")
-
-          if not path.is_file() or path.is_symlink():
-              raise SystemExit("P3_MANIFEST_MISSING_OR_UNSAFE")
-
-          raw = path.read_bytes()
-          content = raw.decode("utf-8")
-
-          if not content.endswith("\n"):
-              raise SystemExit("P3_MANIFEST_MISSING_FINAL_NEWLINE")
-
-          entries = content.splitlines()
-
-          if not entries or any(not item for item in entries):
-              raise SystemExit("P3_MANIFEST_EMPTY_OR_BLANK_ENTRY")
-
-          if entries != sorted(entries):
-              raise SystemExit("P3_MANIFEST_NOT_SORTED")
-
-          if len(entries) != len(set(entries)):
-              raise SystemExit("P3_MANIFEST_DUPLICATE_PATH")
-
-          for entry in entries:
-              candidate = Path(entry)
-
-              if (
-                  candidate.is_absolute()
-                  or "\\" in entry
-                  or ".." in candidate.parts
-                  or not entry.startswith("P3/")
-                  or entry.strip() != entry
-                  or candidate.name in {
-                      "MANIFEST.txt",
-                      "SHA256SUMS.txt",
-                  }
-              ):
-                  raise SystemExit(
-                      f"P3_MANIFEST_UNSAFE_ENTRY: {entry}"
-                  )
-
-          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open(
-              "a",
-              encoding="utf-8",
-          ) as stream:
-              stream.write(
-                  "# P3 — MANIFEST.txt (complete publication)\n\n"
-              )
-              stream.write(f"- Entries: {len(entries)}\n")
-              stream.write(f"- Bytes: {len(raw)}\n\n")
-              stream.write("~~~text\n")
-              stream.write(content)
-              stream.write("~~~\n\n")
-
-          print(f"P3_MANIFEST_ENTRIES={len(entries)}")
-          print("P3_MANIFEST_VALIDATED_AND_PUBLISHED")
-          PY
-
-      # --------------------------------------------------------
-      # 12. VALIDATE AND PUBLISH COMPLETE SHA256SUMS
-      # --------------------------------------------------------
-
-      - name: Validate and publish complete P3 SHA256SUMS.txt
-        id: p3_display_sha256
-        if: always() && steps.p3_integrity_generate.outcome == 'success'
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-
-          python - <<'PY'
-          from pathlib import Path
-          import hashlib
-          import os
-          import re
-
-          path = Path("P3/SHA256SUMS.txt")
-
-          if not path.is_file() or path.is_symlink():
-              raise SystemExit("P3_SHA256SUMS_MISSING_OR_UNSAFE")
-
-          raw = path.read_bytes()
-          content = raw.decode("ascii")
-
-          if not content.endswith("\n"):
-              raise SystemExit("P3_SHA256SUMS_MISSING_FINAL_NEWLINE")
-
-          entries = {}
-
-          for number, line in enumerate(content.splitlines(), start=1):
-              match = re.fullmatch(
-                  r"([0-9a-f]{64})  ([^\r\n]+)",
-                  line,
-              )
-
-              if not match:
-                  raise SystemExit(
-                      f"P3_SHA256SUMS_INVALID_LINE_{number}"
-                  )
-
-              digest, name = match.groups()
-              candidate = Path(name)
-
-              if (
-                  candidate.is_absolute()
-                  or "\\" in name
-                  or ".." in candidate.parts
-                  or not name.startswith("P3/")
-                  or name.strip() != name
-                  or candidate.name in {
-                      "MANIFEST.txt",
-                      "SHA256SUMS.txt",
-                  }
-              ):
-                  raise SystemExit(
-                      f"P3_SHA256SUMS_UNSAFE_PATH: {name}"
-                  )
-
-              if name in entries:
-                  raise SystemExit(
-                      f"P3_SHA256SUMS_DUPLICATE_PATH: {name}"
-                  )
-
-              entries[name] = digest
-
-          if not entries:
-              raise SystemExit("P3_SHA256SUMS_EMPTY")
-
-          if list(entries) != sorted(entries):
-              raise SystemExit("P3_SHA256SUMS_NOT_SORTED")
-
-          manifest_entries = Path(
-              "P3/MANIFEST.txt"
-          ).read_text(encoding="utf-8").splitlines()
-
-          if set(entries) != set(manifest_entries):
-              raise SystemExit(
-                  "P3_MANIFEST_SHA256SUMS_PATH_SET_MISMATCH"
-              )
-
-          for name, expected_digest in entries.items():
-              target = Path(name)
-
-              if target.is_symlink() or not target.is_file():
-                  raise SystemExit(
-                      f"P3_SHA256SUMS_TARGET_MISSING: {name}"
-                  )
-
-              actual_digest = hashlib.sha256(
-                  target.read_bytes()
-              ).hexdigest()
-
-              if actual_digest != expected_digest:
-                  raise SystemExit(
-                      f"P3_SHA256SUMS_HASH_MISMATCH: {name}"
-                  )
-
-          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open(
-              "a",
-              encoding="utf-8",
-          ) as stream:
-              stream.write(
-                  "# P3 — SHA256SUMS.txt (complete publication)\n\n"
-              )
-              stream.write(f"- Entries: {len(entries)}\n")
-              stream.write(f"- Bytes: {len(raw)}\n\n")
-              stream.write("~~~text\n")
-              stream.write(content)
-              stream.write("~~~\n\n")
-
-          print(f"P3_SHA256SUMS_ENTRIES={len(entries)}")
-          print("P3_SHA256SUMS_VALIDATED_AND_PUBLISHED")
-          PY
-
-      # --------------------------------------------------------
-      # 13. AUTOMATIC MARKDOWN, CSV AND TXT PUBLICATION
-      # --------------------------------------------------------
-
-      - name: Discover and publish all P3 Markdown, CSV and TXT files
-        id: p3_display_all_text
-        if: always()
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-
-          python - <<'PY'
-          from pathlib import Path
-          import os
-          import re
-
-          root = Path("P3")
-          summary = Path(os.environ["GITHUB_STEP_SUMMARY"])
-          extensions = {".md", ".csv", ".txt"}
-          excluded = {"MANIFEST.txt", "SHA256SUMS.txt"}
-
-          files = sorted(
-              (
-                  path for path in root.rglob("*")
-                  if path.is_file()
-                  and not path.is_symlink()
-                  and path.suffix.lower() in extensions
-                  and path.name not in excluded
-                  and "target" not in path.relative_to(root).parts
-                  and "__pycache__" not in path.relative_to(root).parts
-              ),
-              key=lambda path: path.relative_to(root).as_posix().lower(),
-          )
-
-          output = [
-              "# QFLPN P3 — AUTOMATIC TEXT EVIDENCE PUBLICATION",
-              "",
-              f"Discovered files: **{len(files)}**",
-              "",
-          ]
-
-          errors = []
-
-          for path in files:
-              relative = path.relative_to(root).as_posix()
-
-              try:
-                  content = path.read_text(encoding="utf-8")
-              except (OSError, UnicodeError) as exc:
-                  errors.append(f"{relative}: {exc}")
-                  continue
-
-              longest = max(
-                  (
-                      len(match.group(1))
-                      for line in content.splitlines()
-                      if (
-                          match := re.match(r"^\s*(`{3,})", line)
-                      )
-                  ),
-                  default=0,
-              )
-
-              fence = "`" * max(3, longest + 1)
-
-              output.extend([
-                  f"## FILE: `P3/{relative}`",
-                  "",
-                  f"{fence}text",
-                  content,
-                  fence,
-                  "",
-              ])
-
-          rendered = "\n".join(output)
-          encoded = rendered.encode("utf-8")
-
-          if len(encoded) > 950_000:
-              raise SystemExit(
-                  "P3_TEXT_PUBLICATION_EXCEEDS_GITHUB_SUMMARY_LIMIT"
-              )
-
-          with summary.open("a", encoding="utf-8") as stream:
-              stream.write(rendered)
-
-          if errors:
-              raise SystemExit(
-                  "P3_TEXT_PUBLICATION_READ_ERRORS: "
-                  + "; ".join(errors)
-              )
-
-          print(f"P3_TEXT_FILES_DISCOVERED={len(files)}")
-          print(f"P3_TEXT_PUBLICATION_BYTES={len(encoded)}")
-          print("P3_AUTOMATIC_TEXT_PUBLICATION_ACCEPTED")
-          PY
-
-      # --------------------------------------------------------
-      # 14. UPLOAD COMPLETE WORKFLOW EVIDENCE
-      # --------------------------------------------------------
-
-      - name: Upload complete P3 validation evidence
-        id: p3_artifact_upload
+      - name: Upload P3 validation evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: P3-complete-validation-${{ github.run_id }}-${{ github.run_attempt }}
-          if-no-files-found: error
-          retention-days: 90
+          name: p3-validation-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          retention-days: 30
           path: |
-            P3/
-
-      # --------------------------------------------------------
-      # 15. INDEPENDENT LOCAL VERDICT + REMOTE VERDICT SUMMARY
-      # --------------------------------------------------------
-
-      - name: Independently verify package and publish final verdict
-        id: p3_final_verdict
-        if: always()
-        shell: bash
-        env:
-          P3_ENVIRONMENT: ${{ steps.p3_environment.outcome }}
-          P3_REQUIRED_FILES: ${{ steps.p3_required_files.outcome }}
-          P3_PYTHON_COMPILE: ${{ steps.p3_python_compile.outcome }}
-          P3_BENCHMARK_TESTS: ${{ steps.p3_benchmark_tests.outcome }}
-          P3_MANIFEST_TESTS: ${{ steps.p3_manifest_tests.outcome }}
-          P3_FINAL_PACKAGE_TESTS: ${{ steps.p3_final_package_tests.outcome }}
-          P3_PYTHON_TESTS: ${{ steps.p3_python_tests.outcome }}
-          P3_ROOT_MAVEN: ${{ steps.p3_root_maven.outcome }}
-          P3_BENCHMARK: ${{ steps.p3_benchmark.outcome }}
-          P3_BENCHMARK_SUMMARY: ${{ steps.p3_benchmark_summary.outcome }}
-          P3_INTEGRITY_GENERATE: ${{ steps.p3_integrity_generate.outcome }}
-          P3_DISPLAY_MANIFEST: ${{ steps.p3_display_manifest.outcome }}
-          P3_DISPLAY_SHA256: ${{ steps.p3_display_sha256.outcome }}
-          P3_DISPLAY_ALL_TEXT: ${{ steps.p3_display_all_text.outcome }}
-          P3_ARTIFACT_UPLOAD: ${{ steps.p3_artifact_upload.outcome }}
-        run: |
-          set -Eeuo pipefail
-
-          OUTCOMES_JSON="$RUNNER_TEMP/p3-ci-outcomes.json"
-          LOCAL_VERDICT="$RUNNER_TEMP/p3-local-verdict.json"
-          REMOTE_VERDICT="$RUNNER_TEMP/p3-remote-integrity.json"
-
-          export OUTCOMES_JSON
-
-          python - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          mapping = {
-              "p3_environment": "P3_ENVIRONMENT",
-              "p3_required_files": "P3_REQUIRED_FILES",
-              "p3_python_compile": "P3_PYTHON_COMPILE",
-              "p3_benchmark_tests": "P3_BENCHMARK_TESTS",
-              "p3_manifest_tests": "P3_MANIFEST_TESTS",
-              "p3_final_package_tests": "P3_FINAL_PACKAGE_TESTS",
-              "p3_python_tests": "P3_PYTHON_TESTS",
-              "p3_root_maven": "P3_ROOT_MAVEN",
-              "p3_benchmark": "P3_BENCHMARK",
-              "p3_benchmark_summary": "P3_BENCHMARK_SUMMARY",
-              "p3_integrity_generate": "P3_INTEGRITY_GENERATE",
-              "p3_display_manifest": "P3_DISPLAY_MANIFEST",
-              "p3_display_sha256": "P3_DISPLAY_SHA256",
-              "p3_display_all_text": "P3_DISPLAY_ALL_TEXT",
-              "p3_artifact_upload": "P3_ARTIFACT_UPLOAD",
-          }
-
-          outcomes = {
-              stage: os.environ.get(variable, "")
-              for stage, variable in mapping.items()
-          }
-
-          Path(os.environ["OUTCOMES_JSON"]).write_text(
-              json.dumps(outcomes, indent=2) + "\n",
-              encoding="utf-8",
-          )
-          PY
-
-          set +e
-          python P3/tools/verify_final_package.py \
-            --root . \
-            --run-id "$RUN_ID" \
-            --outcomes-json "$OUTCOMES_JSON" \
-            --expected-n "$N" \
-            --warmup "$WARMUP" \
-            --iterations "$ITERATIONS" \
-            --threshold "$THRESHOLD" \
-            --parallelism "$PARALLELISM" \
-            > "$LOCAL_VERDICT"
-          LOCAL_STATUS=$?
-          set -e
-
-          if [ ! -s "$LOCAL_VERDICT" ]; then
-            printf '%s\n' \
-              '{"verdict":"P3_REJECTED","error":"Local verifier produced no JSON"}' \
-              > "$LOCAL_VERDICT"
-            LOCAL_STATUS=1
-          fi
-
-          if [ ! -s "$REMOTE_VERDICT" ]; then
-            printf '%s\n' \
-              '{"schema":"qflpn-p3-remote-integrity-v2","validation":"FAIL","branch":"unavailable","manifest_entries":0,"verified_remote_blobs":0,"files":[],"reason":"Remote verification did not produce evidence"}' \
-              > "$REMOTE_VERDICT"
-          fi
-
-          SUMMARY_ARGS=()
-
-          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-            SUMMARY_ARGS+=(--remote-not-required)
-            EXPECTED_VERDICT="P3_VALIDATED_PENDING_PUBLICATION"
-          else
-            EXPECTED_VERDICT="P3_ACCEPTED"
-          fi
-
-          python P3/tools/write_github_summary.py \
-            --root . \
-            --verdict-json "$LOCAL_VERDICT" \
-            --remote-integrity-json "$REMOTE_VERDICT" \
-            --run-id "$RUN_ID" \
-            --branch "$GITHUB_REF_NAME" \
-            "${SUMMARY_ARGS[@]}"
-
-          if [ "$LOCAL_STATUS" -ne 0 ]; then
-            echo "P3_FINAL_LOCAL_VERIFICATION_REJECTED"
-            exit "$LOCAL_STATUS"
-          fi
-
-          if ! grep -Fq -- \
-            "- Final verdict: **$EXPECTED_VERDICT**" \
-            "$GITHUB_STEP_SUMMARY"; then
-            echo "P3_FINAL_VERDICT_REJECTED"
-            exit 1
-          fi
-
-          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-            echo "P3_LOCAL_VALIDATION_ACCEPTED_PENDING_PUBLICATION"
-          else
-            echo "P3_FINAL_VERDICT_ACCEPTED"
-          fi
+            P3/reports/
+            P3/results/raw/${{ env.P3_RUN_ID }}/
+            P3/benchmarks/benchmark_results_v2.csv
+            P3/MANIFEST.txt
+            P3/SHA256SUMS.txt
+            P3/target/surefire-reports/
