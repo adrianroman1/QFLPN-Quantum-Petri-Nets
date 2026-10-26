@@ -828,7 +828,15 @@ def test_valid_package_orchestration_is_accepted(
     assert result["benchmark_v3"]["run_contract"] == "AB_192"
     assert result["benchmark_v3"]["validated_records"] == 192
 
-    assert result["evidence_consistency"] == "PASS"
+    evidence_consistency = result["evidence_consistency"]
+
+    assert evidence_consistency["validation"] == "PASS"
+    assert evidence_consistency["run_id"] == RUN_ID
+    assert evidence_consistency["source_commit"] == SOURCE_COMMIT
+    assert (
+        evidence_consistency["workflow_run_id"]
+        == WORKFLOW_RUN_ID
+    )
 
     assert set(result["ci_stages"]) == set(
         MODULE.REQUIRED_CI_STAGES
