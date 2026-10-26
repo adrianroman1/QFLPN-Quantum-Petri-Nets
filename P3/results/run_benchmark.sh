@@ -4,14 +4,17 @@ set -Eeuo pipefail
 # QFLPN P3 — reproducible benchmark execution.
 #
 # The current RUN_ID owns all run-specific evidence:
+#   execution-identity.txt
 #   benchmark-report.json
 #   benchmark-report.txt
 #   benchmark-report.md
 #   validation-report.json
 #   SHA256SUMS.txt
 #
-# Markdown is generated from the CSV row and validation JSON
-# belonging to this exact RUN_ID.
+# A pre-created directory is accepted only when its execution identity
+# matches the current p3_validation execution.
+#
+# Existing evidence from another execution is never overwritten.
 
 N="${N:-1000000}"
 WARMUP="${WARMUP:-5}"
@@ -68,13 +71,52 @@ fi
 export RUN_ID
 
 RUN_DIR="$RAW/$RUN_ID"
+IDENTITY_FILE="$RUN_DIR/execution-identity.txt"
+
+# Resolve execution provenance.
+SOURCE_COMMIT="${SOURCE_COMMIT:-${P3_SOURCE_COMMIT:-$(git -C "$ROOT_DIR" rev-parse HEAD)}}"
+WORKFLOW_RUN_ID="${P3_WORKFLOW_RUN_ID:-${GITHUB_RUN_ID:-local}}"
+V3_DIMENSION="${P3_V3_DIMENSION:-4096}"
+
+if [[ ! "$SOURCE_COMMIT" =~ ^[A-Fa-f0-9]{7,64}$ ]]; then
+    echo "ERROR: SOURCE_COMMIT is missing or invalid." >&2
+    exit 1
+fi
+
+if [[ ! "$WORKFLOW_RUN_ID" =~ ^[A-Za-z0-9._-]+$ ]]; then
+    echo "ERROR: Workflow run ID is invalid." >&2
+    exit 1
+fi
+
+if [[ ! "$V3_DIMENSION" =~ ^[1-9][0-9]*$ ]]; then
+    echo "ERROR: P3_V3_DIMENSION is invalid." >&2
+    exit 1
+fi
+
+export SOURCE_COMMIT
 
 mkdir -p "$RAW" "$P3_DIR/benchmarks"
 
-if [[ -L "$RAW" || -L "$RUN_DIR" ]]; then
-    echo "ERROR: Raw evidence directory must not be a symlink." >&2
+if [[ -L "$RAW" || ! -d "$RAW" ]]; then
+    echo "ERROR: Raw evidence directory must be a real directory." >&2
     exit 1
 fi
+
+if [[ -L "$RUN_DIR" ]]; then
+    echo "ERROR: RUN_ID directory must not be a symlink." >&2
+    exit 1
+fi
+
+# This format must match the identity written by p3_environment
+# in .github/workflows/p3-validation.yml.
+EXPECTED_IDENTITY="$(
+    printf '%s\n' \
+        "P3_RUN_ID=$RUN_ID" \
+        "P3_WORKFLOW_RUN_ID=$WORKFLOW_RUN_ID" \
+        "P3_SOURCE_COMMIT=$SOURCE_COMMIT" \
+        "P3_V2_DIMENSION=$N" \
+        "P3_V3_DIMENSION=$V3_DIMENSION"
+)"
 
 if [[ -e "$RUN_DIR" ]]; then
     if [[ ! -d "$RUN_DIR" ]]; then
@@ -82,12 +124,54 @@ if [[ -e "$RUN_DIR" ]]; then
         exit 1
     fi
 
-    echo "ERROR: RUN_ID directory already exists: $RUN_DIR" >&2
-    echo "A run must not overwrite evidence from an earlier execution." >&2
+    if [[ -L "$IDENTITY_FILE" || ! -f "$IDENTITY_FILE" ]]; then
+        echo "ERROR: Existing RUN_ID directory has no valid execution identity." >&2
+        echo "Refusing to reuse unverified evidence." >&2
+        exit 1
+    fi
+
+    ACTUAL_IDENTITY="$(cat "$IDENTITY_FILE")"
+
+    if [[ "$ACTUAL_IDENTITY" != "$EXPECTED_IDENTITY" ]]; then
+        echo "ERROR: Existing RUN_ID identity does not match this execution." >&2
+        echo "Refusing to overwrite evidence from another execution." >&2
+        exit 1
+    fi
+
+    echo "PASS: pre-created RUN_ID directory matches p3_validation identity."
+else
+    # Atomic directory creation prevents two executions from claiming
+    # the same RUN_ID.
+    if ! mkdir "$RUN_DIR"; then
+        echo "ERROR: Could not exclusively create RUN_ID directory." >&2
+        exit 1
+    fi
+
+    IDENTITY_TMP="$RUN_DIR/.execution-identity.tmp"
+
+    if [[ -e "$IDENTITY_TMP" || -L "$IDENTITY_TMP" ]]; then
+        echo "ERROR: Temporary identity path already exists." >&2
+        exit 1
+    fi
+
+    printf '%s\n' "$EXPECTED_IDENTITY" > "$IDENTITY_TMP"
+    mv "$IDENTITY_TMP" "$IDENTITY_FILE"
+
+    echo "PASS: new RUN_ID directory and execution identity created."
+fi
+
+# Recheck identity immediately before running the benchmark.
+if [[ -L "$IDENTITY_FILE" || ! -f "$IDENTITY_FILE" ]]; then
+    echo "ERROR: execution-identity.txt is missing or unsafe." >&2
     exit 1
 fi
 
-mkdir -p "$RUN_DIR"
+ACTUAL_IDENTITY="$(cat "$IDENTITY_FILE")"
+
+if [[ "$ACTUAL_IDENTITY" != "$EXPECTED_IDENTITY" ]]; then
+    echo "ERROR: Execution identity changed during initialization." >&2
+    exit 1
+fi
 
 if [[ -L "$CSV" ]]; then
     echo "ERROR: Benchmark CSV must not be a symlink." >&2
@@ -101,6 +185,8 @@ fi
 
 echo "P3 benchmark configuration"
 echo "RUN_ID=$RUN_ID"
+echo "SOURCE_COMMIT=$SOURCE_COMMIT"
+echo "WORKFLOW_RUN_ID=$WORKFLOW_RUN_ID"
 echo "N=$N"
 echo "WARMUP=$WARMUP"
 echo "ITERATIONS=$ITERATIONS"
@@ -164,11 +250,7 @@ if [[ ! -s "$VALIDATION_REPORT" || -L "$VALIDATION_REPORT" ]]; then
     exit 1
 fi
 
-# Produce benchmark-report.md inside this RUN_ID directory.
-#
-# --overwrite prevents accidental concatenation with an earlier report.
-# --strict-output prevents a failure message from being mistaken for
-# a valid run-specific Markdown report.
+# Generate the Markdown summary from the exact CSV row and JSON report.
 python3 "$SUMMARY_GENERATOR" \
     --csv "$CSV" \
     --report "$VALIDATION_REPORT" \
@@ -177,7 +259,7 @@ python3 "$SUMMARY_GENERATOR" \
     --overwrite \
     --strict-output
 
-# Verify that all three benchmark reports belong to this execution.
+# Verify that all reports belong to this exact RUN_ID.
 python3 - "$RUN_DIR" "$RUN_ID" <<'PY'
 import json
 import sys
@@ -268,7 +350,7 @@ if "Validation: **PASS**" not in markdown_content:
 print("PASS: all run-specific reports are associated with RUN_ID.")
 PY
 
-# Generate run-specific checksums only after all five evidence files exist.
+# Generate run-specific checksums only after all evidence files exist.
 (
     cd "$P3_DIR"
 
@@ -286,7 +368,7 @@ if [[ ! -s "$RUN_DIR/SHA256SUMS.txt" || -L "$RUN_DIR/SHA256SUMS.txt" ]]; then
     exit 1
 fi
 
-# Verify the run-specific checksum file before reporting success.
+# Verify run-specific checksums.
 (
     cd "$P3_DIR"
     sha256sum --check "results/raw/$RUN_ID/SHA256SUMS.txt"
@@ -302,6 +384,7 @@ SUMMARY_TEXT="$(
 - Warm-up / iterations: $WARMUP / $ITERATIONS
 - CSV: \`P3/benchmarks/benchmark_results_v2.csv\`
 - Run-specific reports: \`P3/results/raw/$RUN_ID/\`
+- Execution identity: \`P3/results/raw/$RUN_ID/execution-identity.txt\`
 - Markdown producer: \`P3/results/generate_benchmark_summary.py\`
 - Run-specific checksums: \`P3/results/raw/$RUN_ID/SHA256SUMS.txt\`
 
