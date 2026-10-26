@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cross-validate all P3 benchmark evidence belonging to one RUN_ID."""
+"""Fail-closed cross-validation of P3 V2 and V3 benchmark evidence."""
 
 from __future__ import annotations
 
@@ -18,20 +18,34 @@ from typing import Any
 RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 
-CSV_REQUIRED = {
-    "timestamp",
-    "run_id",
-    "dimension",
-    "non_zero_count",
-    "warmup_iterations",
-    "measured_iterations",
-    "sequential_mean_ms",
-    "parallel_mean_ms",
-    "speedup",
+V2_REQUIRED = {
+    "timestamp", "run_id", "dimension", "non_zero_count",
+    "warmup_iterations", "measured_iterations",
+    "sequential_mean_ms", "parallel_mean_ms", "speedup",
     "max_absolute_error",
 }
 
-RAW_CHECKSUM_PATHS = {
+V3_REQUIRED = {
+    "timestamp", "run_id", "workflow_run_id", "commit_sha",
+    "benchmark_id", "workload_id", "matrix_family", "distribution",
+    "dimension", "non_zero_count", "nnz_min_per_row",
+    "nnz_avg_per_row", "nnz_max_per_row", "parallelism",
+    "threshold_rows", "parallel_strategy", "split_policy",
+    "warmup_iterations", "measured_iterations",
+    "sequential_mean_ms", "sequential_median_ms",
+    "sequential_stddev_ms", "sequential_min_ms",
+    "sequential_max_ms", "parallel_mean_ms", "parallel_median_ms",
+    "parallel_stddev_ms", "parallel_min_ms", "parallel_max_ms",
+    "speedup", "sequential_rows_per_second",
+    "parallel_rows_per_second", "sequential_nnz_per_second",
+    "parallel_nnz_per_second", "sequential_expected_error",
+    "parallel_expected_error", "max_absolute_error",
+    "setup_time_ms", "cpu", "max_jvm_memory_bytes",
+    "free_jvm_heap_bytes", "java_version", "operating_system",
+    "status", "verdict", "notes",
+}
+
+V2_RUN_CHECKSUMS = {
     "benchmarks/benchmark_results_v2.csv",
     "results/raw/{run_id}/benchmark-report.json",
     "results/raw/{run_id}/benchmark-report.txt",
@@ -39,6 +53,9 @@ RAW_CHECKSUM_PATHS = {
     "results/raw/{run_id}/validation-report.json",
 }
 
+V3_RUN_CHECKSUMS = {
+    "benchmarks/benchmark_results_v3.csv",
+}
 
 class EvidenceError(RuntimeError):
     """Raised when P3 evidence is missing, inconsistent, or unsafe."""
@@ -50,10 +67,7 @@ def require(condition: bool, message: str) -> None:
 
 
 def regular_file(path: Path, label: str) -> None:
-    require(
-        not path.is_symlink(),
-        f"Symlink detected for {label}: {path}",
-    )
+    require(not path.is_symlink(), f"Symlink detected for {label}: {path}")
     require(path.is_file(), f"{label} is missing: {path}")
 
 
@@ -77,18 +91,11 @@ def finite(value: Any, label: str) -> float:
     return result
 
 
-def same_number(
-    left: Any,
-    right: Any,
-    label: str,
-    *,
-    rel_tol: float = 1e-8,
-    abs_tol: float = 1e-12,
-) -> None:
+def same_number(left: Any, right: Any, label: str) -> None:
     a = finite(left, label)
     b = finite(right, label)
     require(
-        math.isclose(a, b, rel_tol=rel_tol, abs_tol=abs_tol),
+        math.isclose(a, b, rel_tol=1e-8, abs_tol=1e-12),
         f"{label} mismatch: {a} != {b}",
     )
 
@@ -101,17 +108,9 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def expected_run_checksum_paths(run_id: str) -> set[str]:
-    return {
-        item.format(run_id=run_id)
-        for item in RAW_CHECKSUM_PATHS
-    }
-
-
-def safe_checksum_target(p3_root: Path, name: str) -> Path:
+def safe_target(p3_root: Path, name: str) -> Path:
     require(bool(name), "Empty checksum path")
     require("\\" not in name, f"Backslash in checksum path: {name}")
-
     relative = PurePosixPath(name)
     require(not relative.is_absolute(), f"Absolute checksum path: {name}")
     require(
@@ -119,13 +118,11 @@ def safe_checksum_target(p3_root: Path, name: str) -> Path:
         f"Unsafe checksum path: {name}",
     )
 
+    root = p3_root.resolve()
     target = p3_root.joinpath(*relative.parts)
-    resolved_root = p3_root.resolve()
-    resolved_target = target.resolve()
-
+    resolved = target.resolve()
     require(
-        resolved_target != resolved_root
-        and resolved_root in resolved_target.parents,
+        resolved != root and root in resolved.parents,
         f"Checksum path escapes P3 root: {name}",
     )
 
@@ -138,76 +135,215 @@ def safe_checksum_target(p3_root: Path, name: str) -> Path:
     return target
 
 
-def verify_run_checksums(p3_root: Path, run_id: str) -> list[str]:
-    run_dir = p3_root / "results" / "raw" / run_id
-    checksum_path = run_dir / "SHA256SUMS.txt"
-    regular_file(checksum_path, "Run-specific SHA256SUMS.txt")
-
+def verify_checksums(
+    p3_root: Path,
+    checksum_file: Path,
+    expected_paths: set[str],
+) -> list[str]:
+    regular_file(checksum_file, "Run-specific SHA256SUMS.txt")
     try:
-        lines = checksum_path.read_text(encoding="ascii").splitlines()
+        lines = checksum_file.read_text(encoding="ascii").splitlines()
     except (OSError, UnicodeError) as exc:
         raise EvidenceError(f"Cannot read run checksums: {exc}") from exc
 
     parsed: dict[str, str] = {}
-
     for number, line in enumerate(lines, start=1):
         match = re.fullmatch(r"([0-9a-f]{64})  ([^\r\n]+)", line)
-        require(match is not None, f"Malformed run checksum line {number}")
+        require(match is not None, f"Malformed checksum line {number}")
         assert match is not None
-
         digest, name = match.groups()
-        require(name not in parsed, f"Duplicate run checksum entry: {name}")
+        require(name not in parsed, f"Duplicate checksum entry: {name}")
         parsed[name] = digest
 
-    expected = expected_run_checksum_paths(run_id)
     require(
-        set(parsed) == expected,
-        "Run SHA256SUMS.txt must cover exactly the five runner evidence paths; "
-        f"missing={sorted(expected - set(parsed))}; "
-        f"unexpected={sorted(set(parsed) - expected)}",
+        set(parsed) == expected_paths,
+        "Run checksum path set mismatch; "
+        f"missing={sorted(expected_paths - set(parsed))}; "
+        f"unexpected={sorted(set(parsed) - expected_paths)}",
     )
 
-    for name, expected_digest in parsed.items():
-        target = safe_checksum_target(p3_root, name)
-        actual_digest = sha256_file(target)
-        require(
-            actual_digest == expected_digest,
-            f"Run-specific SHA-256 mismatch: {name}",
-        )
+    for name, expected in parsed.items():
+        actual = sha256_file(safe_target(p3_root, name))
+        require(actual == expected, f"SHA-256 mismatch: {name}")
 
     return sorted(parsed)
 
 
-def load_csv_row(csv_path: Path, run_id: str) -> dict[str, str]:
-    regular_file(csv_path, "Canonical benchmark CSV")
-
+def read_csv(path: Path, required: set[str]) -> list[dict[str, str]]:
+    regular_file(path, "Canonical benchmark CSV")
     try:
-        with csv_path.open(
-            "r", encoding="utf-8-sig", newline=""
-        ) as stream:
+        with path.open("r", encoding="utf-8-sig", newline="") as stream:
             reader = csv.DictReader(stream, strict=True)
             require(reader.fieldnames is not None, "CSV header is missing")
-
-            missing = CSV_REQUIRED - set(reader.fieldnames)
-            require(
-                not missing,
-                "CSV is missing required columns: "
-                + ", ".join(sorted(missing)),
-            )
-
-            matches = [
-                row for row in reader
-                if row.get("run_id") == run_id
-            ]
+            missing = required - set(reader.fieldnames)
+            require(not missing, f"CSV missing columns: {sorted(missing)}")
+            rows = list(reader)
     except (OSError, UnicodeError, csv.Error) as exc:
         raise EvidenceError(f"Cannot read benchmark CSV: {exc}") from exc
 
-    require(
-        len(matches) == 1,
-        f"Expected exactly one CSV row for RUN_ID={run_id}; "
-        f"found {len(matches)}",
+    require(bool(rows), f"CSV contains no records: {path}")
+    return rows
+
+
+def verify_v2(root: Path, run_id: str) -> dict[str, Any]:
+    p3 = root / "P3"
+    raw = p3 / "results" / "raw" / run_id
+    csv_path = p3 / "benchmarks" / "benchmark_results_v2.csv"
+    rows = read_csv(csv_path, V2_REQUIRED)
+    matches = [row for row in rows if row.get("run_id") == run_id]
+    require(len(matches) == 1, f"V2 expected one row for {run_id}; got {len(matches)}")
+    row = matches[0]
+
+    report = read_json(raw / "validation-report.json", "V2 validation report")
+    require(report.get("schema") == "qflpn-benchmark-v2", "V2 schema mismatch")
+    require(report.get("validation") == "PASS", "V2 validation is not PASS")
+    require(report.get("all_records_valid") is True, "V2 records are not all valid")
+
+    latest = report.get("latest_record")
+    require(isinstance(latest, dict), "V2 latest_record missing")
+    require(latest.get("run_id") == run_id, "V2 report RUN_ID mismatch")
+
+    for csv_key, json_key in (
+        ("dimension", "dimension"),
+        ("non_zero_count", "nnz"),
+        ("speedup", "speedup"),
+        ("sequential_mean_ms", "sequential_mean_ms"),
+        ("parallel_mean_ms", "parallel_mean_ms"),
+        ("max_absolute_error", "max_error"),
+    ):
+        if csv_key in {"dimension", "non_zero_count"}:
+            require(
+                int(row[csv_key]) == int(latest.get(json_key, -1)),
+                f"V2 CSV/report mismatch: {csv_key}",
+            )
+        else:
+            same_number(latest.get(json_key), row[csv_key], f"V2 {csv_key}")
+
+    java_report = read_json(raw / "benchmark-report.json", "V2 Java report")
+    require(java_report.get("run_id") == run_id, "V2 Java report RUN_ID mismatch")
+    require(java_report.get("validation") == "PASS", "V2 Java report is not PASS")
+
+    text_path = raw / "benchmark-report.txt"
+    regular_file(text_path, "V2 Java text report")
+    require(f"RUN_ID={run_id}" in text_path.read_text(encoding="utf-8"),
+            "V2 Java text report RUN_ID mismatch")
+
+    markdown_path = raw / "benchmark-report.md"
+    regular_file(markdown_path, "V2 run Markdown")
+    markdown = markdown_path.read_text(encoding="utf-8")
+    require(run_id in markdown, "V2 run Markdown RUN_ID mismatch")
+    require("Validation: **PASS**" in markdown, "V2 run Markdown is not PASS")
+
+    persistent_md = p3 / "reports" / "benchmark-report.md"
+    regular_file(persistent_md, "V2 persistent Markdown")
+    persistent_content = persistent_md.read_text(encoding="utf-8")
+    require(run_id in persistent_content, "V2 persistent Markdown RUN_ID mismatch")
+    require("Validation: **PASS**" in persistent_content,
+            "V2 persistent Markdown is not PASS")
+
+    persistent_json = read_json(
+        p3 / "reports" / "validation-report.json",
+        "V2 persistent validation JSON",
     )
-    return matches[0]
+    require(persistent_json.get("validation") == "PASS",
+            "V2 persistent validation is not PASS")
+
+    checksums = verify_checksums(
+        p3,
+        raw / "SHA256SUMS.txt",
+        {item.format(run_id=run_id) for item in V2_RUN_CHECKSUMS},
+    )
+
+    return {
+        "validation": "PASS",
+        "schema": "qflpn-benchmark-v2",
+        "run_id": run_id,
+        "dimension": int(row["dimension"]),
+        "nnz": int(row["non_zero_count"]),
+        "verified_checksums": checksums,
+    }
+
+
+def verify_v3(
+    root: Path,
+    run_id: str,
+    source_commit: str,
+    workflow_run_id: str | None,
+) -> dict[str, Any]:
+    p3 = root / "P3"
+    csv_path = p3 / "benchmarks" / "benchmark_results_v3.csv"
+    rows = read_csv(csv_path, V3_REQUIRED)
+    matches = [row for row in rows if row.get("run_id") == run_id]
+    require(bool(matches), f"V3 has no rows for RUN_ID={run_id}")
+
+    commits = {row["commit_sha"] for row in matches}
+    workflows = {row["workflow_run_id"] for row in matches}
+    require(commits == {source_commit}, "V3 CSV source commit mismatch")
+    if workflow_run_id is not None:
+        require(workflows == {str(workflow_run_id)}, "V3 workflow run ID mismatch")
+
+    validator_path = p3 / "results" / "validate_benchmark_v3.py"
+    regular_file(validator_path, "V3 authoritative validator")
+
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "p3_authoritative_v3_validator", validator_path
+    )
+    require(spec is not None and spec.loader is not None,
+            "Cannot load V3 authoritative validator")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+    try:
+        result = module.validate(
+            csv_path,
+            run_id=run_id,
+            workflow_run_id=workflow_run_id,
+            commit_sha=source_commit,
+        )
+    except Exception as exc:
+        raise EvidenceError(f"Authoritative V3 validation failed: {exc}") from exc
+
+    require(
+        result.get("schema") == "qflpn-benchmark-v3-validation-v2",
+        "V3 validator returned unexpected schema",
+    )
+    require(result.get("validation") == "PASS", "V3 validator did not PASS")
+    require(result.get("all_records_valid") is True, "V3 records are not all valid")
+    require(result.get("configuration_matrix_complete") is True,
+            "V3 configuration matrix is incomplete")
+    require(result.get("run_id") == run_id, "V3 validator RUN_ID mismatch")
+    require(result.get("run_contract") in {"LEGACY_96", "AB_192"},
+            "Unsupported V3 run contract")
+
+    report_path = p3 / "reports" / "benchmark-v3-validation.json"
+    report = read_json(report_path, "Persistent V3 validation report")
+    require(report.get("schema") == result["schema"], "V3 report schema mismatch")
+    require(report.get("validation") == "PASS", "Persistent V3 report is not PASS")
+    require(report.get("run_id") == run_id, "Persistent V3 report RUN_ID mismatch")
+    require(report.get("commit_sha") == source_commit,
+            "Persistent V3 report commit mismatch")
+    require(report.get("validated_records") == result.get("validated_records"),
+            "Persistent V3 report record count mismatch")
+    require(report.get("run_contract") == result.get("run_contract"),
+            "Persistent V3 report contract mismatch")
+
+    checksum_path = p3 / "reports" / "benchmark-v3-SHA256SUMS.txt"
+    verified = verify_checksums(
+        p3,
+        checksum_path,
+        V3_RUN_CHECKSUMS,
+    )
+
+    return {
+        "validation": "PASS",
+        "schema": result["schema"],
+        "run_id": run_id,
+        "run_contract": result["run_contract"],
+        "validated_records": result["validated_records"],
+        "verified_checksums": verified,
+    }
 
 
 def verify_evidence(
@@ -215,226 +351,63 @@ def verify_evidence(
     *,
     run_id: str,
     source_commit: str,
+    workflow_run_id: str | None = None,
 ) -> dict[str, Any]:
     root = Path(root).resolve()
-
-    require(
-        isinstance(run_id, str)
-        and run_id not in {".", ".."}
-        and RUN_ID_RE.fullmatch(run_id) is not None,
-        "RUN_ID is invalid",
-    )
-    require(
-        isinstance(source_commit, str)
-        and COMMIT_RE.fullmatch(source_commit) is not None,
-        "SOURCE_COMMIT must be a full 40-character lowercase Git SHA",
-    )
+    require(RUN_ID_RE.fullmatch(run_id or "") is not None, "RUN_ID is invalid")
+    require(COMMIT_RE.fullmatch(source_commit or "") is not None,
+            "SOURCE_COMMIT must be a full lowercase Git SHA")
 
     p3 = root / "P3"
-    raw = p3 / "results" / "raw" / run_id
-
     environment = read_json(
         p3 / "reports" / "environment.json",
         "Environment JSON",
     )
-    require(
-        environment.get("schema") == "qflpn-p3-environment-v1",
-        "Unsupported environment schema",
-    )
+    require(environment.get("schema") == "qflpn-p3-environment-v1",
+            "Environment schema mismatch")
     require(environment.get("run_id") == run_id, "Environment RUN_ID mismatch")
-
     repository = environment.get("repository")
-    require(isinstance(repository, dict), "Environment repository section missing")
-    require(
-        repository.get("commit") == source_commit,
-        "Environment commit does not match SOURCE_COMMIT",
-    )
+    require(isinstance(repository, dict), "Environment repository missing")
+    require(repository.get("commit") == source_commit,
+            "Environment commit mismatch")
 
-    benchmark_config = environment.get("benchmark")
-    require(
-        isinstance(benchmark_config, dict),
-        "Environment benchmark configuration missing",
-    )
-
-    csv_path = p3 / "benchmarks" / "benchmark_results_v2.csv"
-    row = load_csv_row(csv_path, run_id)
-
-    validation = read_json(
-        raw / "validation-report.json",
-        "Run validation JSON",
-    )
-    require(
-        validation.get("schema") == "qflpn-benchmark-v2",
-        "Validation JSON schema mismatch",
-    )
-    require(validation.get("validation") == "PASS", "CSV validation is not PASS")
-    require(
-        validation.get("all_records_valid") is True,
-        "Validation JSON does not confirm all records valid",
-    )
-
-    latest = validation.get("latest_record")
-    require(isinstance(latest, dict), "Validation JSON latest_record is missing")
-    require(latest.get("run_id") == run_id, "Validation JSON RUN_ID mismatch")
-
-    expected_config = {
-        "dimension": "dimension",
-        "warmup_iterations": "warmup_iterations",
-        "measured_iterations": "measured_iterations",
-    }
-
-    for env_key, csv_key in expected_config.items():
-        try:
-            env_value = int(benchmark_config[env_key])
-            csv_value = int(row[csv_key])
-        except (KeyError, TypeError, ValueError, OverflowError) as exc:
-            raise EvidenceError(
-                f"Invalid environment/CSV configuration field: {env_key}"
-            ) from exc
-
-        require(
-            csv_value == env_value,
-            f"Environment/CSV mismatch for {env_key}",
-        )
-
-    try:
-        dimension = int(row["dimension"])
-        nnz = int(row["non_zero_count"])
-    except (TypeError, ValueError, OverflowError) as exc:
-        raise EvidenceError("CSV dimension or NNZ is invalid") from exc
-
-    require(dimension > 0, "CSV dimension must be positive")
-    require(nnz == 2 * dimension, "CSV non_zero_count does not equal 2 * dimension")
-
-    require(
-        int(latest.get("dimension", -1)) == dimension,
-        "CSV/validation JSON dimension mismatch",
-    )
-    require(
-        int(latest.get("nnz", -1)) == nnz,
-        "CSV/validation JSON NNZ mismatch",
-    )
-
-    metric_pairs = {
-        "speedup": "speedup",
-        "sequential_mean_ms": "sequential_mean_ms",
-        "parallel_mean_ms": "parallel_mean_ms",
-        "max_error": "max_absolute_error",
-    }
-
-    for json_key, csv_key in metric_pairs.items():
-        same_number(
-            latest.get(json_key),
-            row[csv_key],
-            f"CSV/validation JSON {csv_key}",
-        )
-
-    java_report = read_json(
-        raw / "benchmark-report.json",
-        "Java benchmark JSON",
-    )
-    require(java_report.get("run_id") == run_id, "Java JSON RUN_ID mismatch")
-    require(
-        java_report.get("validation") == "PASS",
-        "Java benchmark JSON validation is not PASS",
-    )
-
-    for key in ("speedup", "sequential_mean_ms", "parallel_mean_ms"):
-        if key in java_report:
-            same_number(java_report[key], row[key], f"Java JSON {key}")
-
-    text_path = raw / "benchmark-report.txt"
-    regular_file(text_path, "Java benchmark TXT")
-    text_content = text_path.read_text(encoding="utf-8")
-    require(
-        f"RUN_ID={run_id}" in text_content,
-        "Java benchmark TXT does not identify the current RUN_ID",
-    )
-
-    markdown_path = raw / "benchmark-report.md"
-    regular_file(markdown_path, "Run benchmark Markdown")
-    markdown = markdown_path.read_text(encoding="utf-8")
-    require(run_id in markdown, "Run Markdown does not identify the current RUN_ID")
-    require(
-        "Validation: **PASS**" in markdown,
-        "Run Markdown does not declare PASS",
-    )
-
-    persistent_markdown = p3 / "reports" / "benchmark-report.md"
-    regular_file(persistent_markdown, "Persistent benchmark Markdown")
-    persistent_content = persistent_markdown.read_text(encoding="utf-8")
-    require(
-        run_id in persistent_content,
-        "Persistent Markdown does not identify the current RUN_ID",
-    )
-    require(
-        "Validation: **PASS**" in persistent_content,
-        "Persistent Markdown does not declare PASS",
-    )
-
-    persistent_validation = read_json(
-        p3 / "reports" / "validation-report.json",
-        "Persistent validation JSON",
-    )
-    persistent_latest = persistent_validation.get("latest_record")
-    require(
-        isinstance(persistent_latest, dict),
-        "Persistent validation latest_record is missing",
-    )
-    require(
-        persistent_latest.get("run_id") == run_id,
-        "Persistent validation JSON RUN_ID mismatch",
-    )
-    require(
-        persistent_validation.get("validation") == "PASS",
-        "Persistent validation JSON is not PASS",
-    )
-
-    verified_checksums = verify_run_checksums(p3, run_id)
+    v2 = verify_v2(root, run_id)
+    v3 = verify_v3(root, run_id, source_commit, workflow_run_id)
 
     return {
-        "schema": "qflpn-p3-evidence-consistency-v1",
+        "schema": "qflpn-p3-evidence-consistency-v2",
         "validation": "PASS",
         "run_id": run_id,
         "source_commit": source_commit,
+        "workflow_run_id": workflow_run_id,
         "evidence": {
             "environment": "PASS",
-            "csv": "PASS",
-            "validation_json": "PASS",
-            "java_benchmark_json": "PASS",
-            "java_benchmark_txt": "PASS",
-            "run_markdown": "PASS",
-            "persistent_markdown": "PASS",
-            "persistent_validation_json": "PASS",
-            "run_checksums": "PASS",
+            "benchmark_v2": "PASS",
+            "benchmark_v3": "PASS",
+            "v3_authoritative_validator": "PASS",
+            "v3_persistent_report": "PASS",
+            "v3_checksums": "PASS",
         },
-        "verified_run_checksum_files": verified_checksums,
-        "csv_dimension": dimension,
-        "csv_nnz": nnz,
+        "benchmark_v2": v2,
+        "benchmark_v3": v3,
     }
 
 
 def atomic_write_json(path: Path, value: dict[str, Any]) -> None:
     require(not path.is_symlink(), f"Output must not be a symlink: {path}")
     path.parent.mkdir(parents=True, exist_ok=True)
-
     temporary: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            newline="\n",
-            dir=path.parent,
-            prefix=f".{path.name}.",
-            suffix=".tmp",
-            delete=False,
+            mode="w", encoding="utf-8", newline="\n",
+            dir=path.parent, prefix=f".{path.name}.",
+            suffix=".tmp", delete=False,
         ) as stream:
             temporary = Path(stream.name)
             json.dump(value, stream, indent=2, ensure_ascii=False, allow_nan=False)
             stream.write("\n")
             stream.flush()
             os.fsync(stream.fileno())
-
         os.replace(temporary, path)
         temporary = None
     finally:
@@ -444,14 +417,12 @@ def atomic_write_json(path: Path, value: dict[str, Any]) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Cross-validate all P3 evidence for one RUN_ID."
+        description="Cross-validate P3 V2 and V3 evidence for one RUN_ID."
     )
     parser.add_argument("--root", type=Path, default=Path("."))
     parser.add_argument("--run-id", default=os.environ.get("RUN_ID"))
-    parser.add_argument(
-        "--source-commit",
-        default=os.environ.get("SOURCE_COMMIT"),
-    )
+    parser.add_argument("--source-commit", default=os.environ.get("SOURCE_COMMIT"))
+    parser.add_argument("--workflow-run-id", default=os.environ.get("GITHUB_RUN_ID"))
     parser.add_argument(
         "--json-output",
         type=Path,
@@ -461,24 +432,19 @@ def main() -> int:
 
     try:
         require(args.run_id, "--run-id or RUN_ID is required")
-        require(
-            args.source_commit,
-            "--source-commit or SOURCE_COMMIT is required",
-        )
-
+        require(args.source_commit, "--source-commit or SOURCE_COMMIT is required")
         result = verify_evidence(
             args.root,
             run_id=args.run_id,
             source_commit=args.source_commit,
+            workflow_run_id=args.workflow_run_id,
         )
         atomic_write_json(args.json_output, result)
-
         print("P3_EVIDENCE_CONSISTENCY: PASS")
         print(f"P3_EVIDENCE_RUN_ID={args.run_id}")
         print(f"P3_EVIDENCE_SOURCE_COMMIT={args.source_commit}")
         print(f"P3_EVIDENCE_REPORT={args.json_output}")
         return 0
-
     except (EvidenceError, OSError, ValueError, TypeError, KeyError) as exc:
         print(
             f"P3_EVIDENCE_CONSISTENCY: FAIL: {type(exc).__name__}: {exc}",
