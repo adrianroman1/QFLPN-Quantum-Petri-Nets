@@ -79,9 +79,11 @@ V3_AB_RESULT = {
     ],
 }
 
+
 def write_text(path: Path, value: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(value, encoding="utf-8")
+
 
 def write_json(path: Path, value: dict[str, Any]) -> None:
     write_text(
@@ -93,6 +95,7 @@ def write_json(path: Path, value: dict[str, Any]) -> None:
             allow_nan=False,
         ) + "\n",
     )
+
 
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
@@ -106,6 +109,7 @@ def sha256_file(path: Path) -> str:
 
     return digest.hexdigest()
 
+
 def make_required_files(root: Path) -> None:
     """Create only the structural files required by the package verifier."""
     for relative in MODULE.REQUIRED_PACKAGE_FILES:
@@ -113,6 +117,7 @@ def make_required_files(root: Path) -> None:
 
         if not path.exists():
             write_text(path, "test fixture\n")
+
 
 def make_ci_outcomes(path: Path) -> None:
     """Create a successful outcome for every mandatory CI stage."""
@@ -123,6 +128,7 @@ def make_ci_outcomes(path: Path) -> None:
             for stage in MODULE.REQUIRED_CI_STAGES
         },
     )
+
 
 def make_evidence_report(root: Path) -> None:
     """Create the provenance record consumed by verify_package()."""
@@ -135,6 +141,7 @@ def make_evidence_report(root: Path) -> None:
             "source_commit": SOURCE_COMMIT,
         },
     )
+
 
 def make_global_integrity(root: Path) -> None:
     """Generate global integrity files from list[str] inventory entries.
@@ -165,6 +172,7 @@ def make_global_integrity(root: Path) -> None:
     )
     write_text(checksums_path, checksum_content)
 
+
 def make_package(tmp_path: Path) -> tuple[Path, Path]:
     """Create a structurally complete package fixture."""
     root = tmp_path / "repository"
@@ -179,6 +187,7 @@ def make_package(tmp_path: Path) -> tuple[Path, Path]:
     make_global_integrity(root)
 
     return root, outcomes_path
+
 
 def fake_v2(
     root: Path,
@@ -198,6 +207,7 @@ def fake_v2(
         "speedup": 2.0,
     }
 
+
 def fake_v3(
     root: Path,
     run_id: str,
@@ -210,6 +220,7 @@ def fake_v3(
     assert workflow_run_id == WORKFLOW_RUN_ID
 
     return dict(V3_AB_RESULT)
+
 
 def install_benchmark_stubs(
     monkeypatch: pytest.MonkeyPatch,
@@ -226,6 +237,7 @@ def install_benchmark_stubs(
         fake_v3,
     )
 
+
 def call_package(
     root: Path,
     outcomes_path: Path,
@@ -238,6 +250,7 @@ def call_package(
         source_commit=SOURCE_COMMIT,
         workflow_run_id=WORKFLOW_RUN_ID,
     )
+
 
 # ---------------------------------------------------------------------------
 # Inventory contract
@@ -258,6 +271,7 @@ def test_inventory_returns_sorted_relative_path_strings(
     assert "P3/z.txt" in inventory
     assert all(isinstance(item, str) for item in inventory)
 
+
 def test_inventory_excludes_global_integrity_files(
     tmp_path: Path,
 ) -> None:
@@ -272,6 +286,7 @@ def test_inventory_excludes_global_integrity_files(
     assert "P3/data.txt" in inventory
     assert "P3/MANIFEST.txt" not in inventory
     assert "P3/SHA256SUMS.txt" not in inventory
+
 
 def test_inventory_excludes_generated_cache_directories(
     tmp_path: Path,
@@ -292,6 +307,7 @@ def test_inventory_excludes_generated_cache_directories(
 
     assert inventory == ["P3/data.txt"]
 
+
 def test_inventory_is_deterministic(
     tmp_path: Path,
 ) -> None:
@@ -306,6 +322,7 @@ def test_inventory_is_deterministic(
     assert first == second
     assert first == sorted(first)
 
+
 def test_inventory_rejects_missing_p3_directory(
     tmp_path: Path,
 ) -> None:
@@ -317,6 +334,7 @@ def test_inventory_rejects_missing_p3_directory(
         match="P3 directory",
     ):
         MODULE.independent_inventory(root)
+
 
 # ---------------------------------------------------------------------------
 # MANIFEST and SHA256SUMS
@@ -337,6 +355,7 @@ def test_global_integrity_accepts_correct_manifest_and_checksums(
     assert result["manifest_entries"] == 2
     assert result["sha256_entries_verified"] == 2
 
+
 def test_global_integrity_rejects_tampered_file(
     tmp_path: Path,
 ) -> None:
@@ -353,6 +372,7 @@ def test_global_integrity_rejects_tampered_file(
     ):
         MODULE.verify_global_integrity(root)
 
+
 def test_global_integrity_rejects_manifest_path_mismatch(
     tmp_path: Path,
 ) -> None:
@@ -368,6 +388,7 @@ def test_global_integrity_rejects_manifest_path_mismatch(
 
     with pytest.raises(MODULE.VerificationError):
         MODULE.verify_global_integrity(root)
+
 
 def test_global_integrity_rejects_self_reference(
     tmp_path: Path,
@@ -388,6 +409,7 @@ def test_global_integrity_rejects_self_reference(
     with pytest.raises(MODULE.VerificationError):
         MODULE.verify_global_integrity(root)
 
+
 def test_global_integrity_rejects_missing_manifest(
     tmp_path: Path,
 ) -> None:
@@ -404,6 +426,7 @@ def test_global_integrity_rejects_missing_manifest(
     ):
         MODULE.verify_global_integrity(root)
 
+
 def test_global_integrity_rejects_missing_checksums(
     tmp_path: Path,
 ) -> None:
@@ -419,6 +442,7 @@ def test_global_integrity_rejects_missing_checksums(
         match="SHA256SUMS",
     ):
         MODULE.verify_global_integrity(root)
+
 
 # ---------------------------------------------------------------------------
 # p3_validation mandatory CI stages
@@ -439,6 +463,7 @@ def test_ci_outcomes_requires_every_mandatory_stage(
         for value in result.values()
     )
 
+
 def test_ci_outcomes_rejects_missing_stage(
     tmp_path: Path,
 ) -> None:
@@ -454,6 +479,7 @@ def test_ci_outcomes_rejects_missing_stage(
 
     with pytest.raises(MODULE.VerificationError):
         MODULE.verify_ci_outcomes(path)
+
 
 def test_ci_outcomes_rejects_failed_stage(
     tmp_path: Path,
@@ -474,6 +500,7 @@ def test_ci_outcomes_rejects_failed_stage(
     ):
         MODULE.verify_ci_outcomes(path)
 
+
 def test_ci_outcomes_rejects_non_object_json(
     tmp_path: Path,
 ) -> None:
@@ -482,6 +509,7 @@ def test_ci_outcomes_rejects_non_object_json(
 
     with pytest.raises(MODULE.VerificationError):
         MODULE.verify_ci_outcomes(path)
+
 
 # ---------------------------------------------------------------------------
 # V2 + V3 final package orchestration
@@ -515,6 +543,7 @@ def test_valid_package_orchestration_is_accepted(
         MODULE.REQUIRED_CI_STAGES
     )
 
+
 def test_package_rejects_failed_ci_stage(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -531,6 +560,7 @@ def test_package_rejects_failed_ci_stage(
     with pytest.raises(MODULE.VerificationError):
         call_package(root, outcomes_path)
 
+
 def test_package_rejects_missing_required_file(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -546,6 +576,7 @@ def test_package_rejects_missing_required_file(
         match="Required P3 files",
     ):
         call_package(root, outcomes_path)
+
 
 def test_package_rejects_wrong_source_commit(
     tmp_path: Path,
@@ -570,6 +601,7 @@ def test_package_rejects_wrong_source_commit(
     ):
         call_package(root, outcomes_path)
 
+
 def test_package_rejects_wrong_run_id_in_evidence_report(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -593,6 +625,7 @@ def test_package_rejects_wrong_run_id_in_evidence_report(
     ):
         call_package(root, outcomes_path)
 
+
 def test_package_rejects_tampered_global_integrity(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -607,6 +640,7 @@ def test_package_rejects_tampered_global_integrity(
 
     with pytest.raises(MODULE.VerificationError):
         call_package(root, outcomes_path)
+
 
 def test_package_rejects_invalid_run_id(
     tmp_path: Path,
@@ -628,6 +662,7 @@ def test_package_rejects_invalid_run_id(
             workflow_run_id=WORKFLOW_RUN_ID,
         )
 
+
 def test_package_rejects_invalid_source_commit(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -648,6 +683,7 @@ def test_package_rejects_invalid_source_commit(
             workflow_run_id=WORKFLOW_RUN_ID,
         )
 
+
 def test_manifest_inventory_is_deterministic(
     tmp_path: Path,
 ) -> None:
@@ -656,4 +692,8 @@ def test_manifest_inventory_is_deterministic(
     write_text(root / "P3" / "nested" / "b.txt", "b\n")
     write_text(root / "P3" / "a.txt", "a\n")
 
-:::
+    first = MODULE.independent_inventory(root)
+    second = MODULE.independent_inventory(root)
+
+    assert first == second
+    assert first == sorted(first)
