@@ -1,16 +1,22 @@
+
 package hpc.csr;
 
 /**
  * Canonical benchmark scales for the QFLPN CSR/SpMV implementation.
  *
  * Timed benchmark scales:
- *   1M, 10M and 70M.
- *
- * Resource-envelope scale:
- *   100M. This scale is reserved exclusively for memory modelling
- *   and resource preflight. It must never produce execution-time results.
+ *   1M, 10M, 70M and 100M.
  *
  * QFLPN_12 is retained as a correctness and compatibility fixture.
+ *
+ * IMPORTANT:
+ * A scale being eligible for timed benchmarking does not guarantee
+ * that every workload fits in the available JVM heap or the current
+ * CSR index representation. Each workload must pass the runtime
+ * memory and index-capacity preflight before allocation.
+ *
+ * Resource-envelope estimates are supplementary information.
+ * They must never be reported as measured execution times.
  */
 public enum BenchmarkScale {
 
@@ -39,7 +45,7 @@ public enum BenchmarkScale {
             ScaleRole.TIMED_BENCHMARK),
 
     /**
-     * Largest timed scalability point.
+     * Third timed scalability point.
      */
     QFLPN_70M(
             "QFLPN-70M",
@@ -47,14 +53,15 @@ public enum BenchmarkScale {
             ScaleRole.TIMED_BENCHMARK),
 
     /**
-     * Resource-envelope-only point.
+     * Fourth timed scalability point.
      *
-     * No execution-time benchmark is permitted at this scale.
+     * Actual execution is permitted only after workload-specific
+     * memory and CSR index-capacity preflight succeeds.
      */
     QFLPN_100M(
             "QFLPN-100M",
             100_000_000,
-            ScaleRole.RESOURCE_ENVELOPE_ONLY);
+            ScaleRole.TIMED_BENCHMARK);
 
     /**
      * Classification of a benchmark scale.
@@ -123,7 +130,8 @@ public enum BenchmarkScale {
     }
 
     /**
-     * Returns whether this scale is reserved for resource modelling.
+     * Returns whether this scale is reserved exclusively
+     * for resource-envelope modelling.
      */
     public boolean isResourceEnvelopeOnly() {
         return role == ScaleRole.RESOURCE_ENVELOPE_ONLY;
@@ -142,7 +150,8 @@ public enum BenchmarkScale {
      * Assumption:
      *     NNZ = 2 * N
      *
-     * This is a resource-model assumption, not a measured workload value.
+     * This is a resource-model assumption.
+     * It is not a measured workload value.
      */
     public long nonZeroCount() {
         return Math.multiplyExact(2L, (long) dimension);
@@ -161,7 +170,8 @@ public enum BenchmarkScale {
      * This excludes temporary buffers, JVM object and array headers,
      * vectors, thread stacks and garbage-collector overhead.
      *
-     * It is not an estimate of peak JVM heap usage.
+     * It is not an estimate of peak JVM heap usage and must not
+     * replace the workload-specific memory preflight.
      */
     public long estimatedCsrArrayBytes() {
         long nnz = nonZeroCount();
@@ -199,8 +209,8 @@ public enum BenchmarkScale {
     /**
      * Resolves a predefined scale from matrix dimension N.
      *
-     * This method also resolves the 100M resource-envelope scale
-     * and the QFLPN-12 correctness fixture.
+     * This method resolves all predefined scales, including
+     * the QFLPN-12 correctness fixture.
      */
     public static BenchmarkScale fromDimension(int dimension) {
         for (BenchmarkScale scale : values()) {
@@ -216,7 +226,11 @@ public enum BenchmarkScale {
     /**
      * Resolves a scale explicitly eligible for timed execution.
      *
-     * Correctness fixtures and resource-envelope scales are rejected.
+     * Correctness fixtures and resource-envelope-only scales
+     * are rejected.
+     *
+     * QFLPN-100M is eligible for timed execution, subject to
+     * workload-specific runtime preflight.
      */
     public static BenchmarkScale fromTimedDimension(int dimension) {
         BenchmarkScale scale = fromDimension(dimension);
