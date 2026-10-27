@@ -17,6 +17,7 @@ import java.util.concurrent.RecursiveAction;
  *
  * Parallel execution supports:
  * - legacy threshold-based recursive splitting;
+ * - explicit ROW_THRESHOLD and NNZ_THRESHOLD modes;
  * - reusable SpmvPlan instances;
  * - caller-owned ForkJoinPool instances.
  *
@@ -28,6 +29,9 @@ public final class SparseMatrixCSR {
 
     private static final MultiplyTask.SplitPolicy DEFAULT_SPLIT_POLICY =
             MultiplyTask.SplitPolicy.BINARY_NNZ_SPLIT;
+
+    private static final MultiplyTask.ThresholdMode DEFAULT_THRESHOLD_MODE =
+            MultiplyTask.ThresholdMode.ROW_THRESHOLD;
 
     private final int rows;
     private final int columns;
@@ -71,9 +75,6 @@ public final class SparseMatrixCSR {
      * Unlike the public constructor, this method does not sort, aggregate,
      * clone, or trim the supplied arrays. It performs one structural
      * validation pass and adopts the arrays directly.
-     *
-     * This method is deliberately package-private so external callers
-     * cannot bypass the public constructor's defensive-copy contract.
      */
     static SparseMatrixCSR fromTrustedCanonical(
             double[] values,
@@ -184,17 +185,12 @@ public final class SparseMatrixCSR {
             maximumRowLength = Math.max(maximumRowLength, count);
         }
 
-        int[] normalizedColumns =
-                new int[inputColumns.length];
-
-        double[] normalizedValues =
-                new double[inputValues.length];
-
-        int[] normalizedRowPointers =
-                new int[rows + 1];
+        int[] normalizedColumns = new int[inputColumns.length];
+        double[] normalizedValues = new double[inputValues.length];
+        int[] normalizedRowPointers = new int[rows + 1];
 
         /*
-         * Single reusable scratch buffer.
+         * One reusable scratch buffer.
          * Empty matrices and empty rows require no row-specific allocation.
          */
         long[] order = new long[maximumRowLength];
@@ -214,7 +210,6 @@ public final class SparseMatrixCSR {
             }
 
             for (int i = 0; i < count; i++) {
-
                 int originalIndex = rowStart + i;
                 int column = inputColumns[originalIndex];
 
@@ -549,6 +544,42 @@ public final class SparseMatrixCSR {
     }
 
     /**
+     * Parallel convenience API with explicit threshold semantics.
+     *
+     * This overload owns the pool lifecycle.
+     */
+    public double[] multiplyParallel(
+            double[] x,
+            int threshold,
+            int parallelism,
+            MultiplyTask.SplitPolicy splitPolicy,
+            MultiplyTask.ThresholdMode thresholdMode) {
+
+        validateInputVector(x);
+        validateParallelConfiguration(threshold, parallelism);
+
+        Objects.requireNonNull(splitPolicy, "splitPolicy cannot be null");
+        Objects.requireNonNull(thresholdMode, "thresholdMode cannot be null");
+
+        double[] output = new double[rows];
+        ForkJoinPool pool = new ForkJoinPool(parallelism);
+
+        try {
+            multiplyParallelInto(
+                    x,
+                    output,
+                    threshold,
+                    pool,
+                    splitPolicy,
+                    thresholdMode);
+        } finally {
+            pool.shutdown();
+        }
+
+        return output;
+    }
+
+    /**
      * Legacy convenience API. Creates and shuts down a pool for this call.
      */
     public void multiplyParallelInto(
@@ -568,8 +599,7 @@ public final class SparseMatrixCSR {
     /**
      * Legacy convenience API with an explicit split policy.
      *
-     * This overload owns the pool lifecycle. Use the ForkJoinPool overload
-     * or the SpmvPlan overload for persistent-pool execution.
+     * This overload owns the pool lifecycle.
      */
     public void multiplyParallelInto(
             double[] x,
@@ -598,6 +628,41 @@ public final class SparseMatrixCSR {
     }
 
     /**
+     * Legacy convenience API with explicit threshold semantics.
+     *
+     * This overload owns the pool lifecycle.
+     */
+    public void multiplyParallelInto(
+            double[] x,
+            double[] y,
+            int threshold,
+            int parallelism,
+            MultiplyTask.SplitPolicy splitPolicy,
+            MultiplyTask.ThresholdMode thresholdMode) {
+
+        validateInputVector(x);
+        validateOutputVector(y);
+        validateParallelConfiguration(threshold, parallelism);
+
+        Objects.requireNonNull(splitPolicy, "splitPolicy cannot be null");
+        Objects.requireNonNull(thresholdMode, "thresholdMode cannot be null");
+
+        ForkJoinPool pool = new ForkJoinPool(parallelism);
+
+        try {
+            multiplyParallelInto(
+                    x,
+                    y,
+                    threshold,
+                    pool,
+                    splitPolicy,
+                    thresholdMode);
+        } finally {
+            pool.shutdown();
+        }
+    }
+
+    /**
      * Backward-compatible overload using the default split policy.
      *
      * The caller owns the pool. This method never shuts it down.
@@ -613,14 +678,15 @@ public final class SparseMatrixCSR {
                 y,
                 threshold,
                 pool,
-                DEFAULT_SPLIT_POLICY);
+                DEFAULT_SPLIT_POLICY,
+                DEFAULT_THRESHOLD_MODE);
     }
 
     /**
-     * Parallel multiplication using a caller-owned ForkJoinPool.
+     * Backward-compatible overload with an explicit split policy.
      *
-     * The caller owns the pool lifecycle. This method never creates,
-     * shuts down, or otherwise changes ownership of the supplied pool.
+     * The threshold retains its historical ROW_THRESHOLD meaning.
+     * The caller owns the pool lifecycle.
      */
     public void multiplyParallelInto(
             double[] x,
@@ -629,12 +695,37 @@ public final class SparseMatrixCSR {
             ForkJoinPool pool,
             MultiplyTask.SplitPolicy splitPolicy) {
 
+        multiplyParallelInto(
+                x,
+                y,
+                threshold,
+                pool,
+                splitPolicy,
+                DEFAULT_THRESHOLD_MODE);
+    }
+
+    /**
+     * Parallel multiplication using a caller-owned ForkJoinPool and
+     * explicit threshold semantics.
+     *
+     * This method never creates, shuts down, or otherwise changes
+     * ownership of the supplied pool.
+     */
+    public void multiplyParallelInto(
+            double[] x,
+            double[] y,
+            int threshold,
+            ForkJoinPool pool,
+            MultiplyTask.SplitPolicy splitPolicy,
+            MultiplyTask.ThresholdMode thresholdMode) {
+
         validateInputVector(x);
         validateOutputVector(y);
         validateThreshold(threshold);
 
         Objects.requireNonNull(pool, "ForkJoinPool cannot be null.");
         Objects.requireNonNull(splitPolicy, "splitPolicy cannot be null.");
+        Objects.requireNonNull(thresholdMode, "thresholdMode cannot be null.");
 
         ensurePoolActive(pool);
 
@@ -651,7 +742,8 @@ public final class SparseMatrixCSR {
                 0,
                 rows,
                 threshold,
-                splitPolicy);
+                splitPolicy,
+                thresholdMode);
 
         pool.invoke(task);
     }
@@ -682,8 +774,8 @@ public final class SparseMatrixCSR {
      *
      * Each planned row interval is submitted as an independent
      * MultiplyTask. The plan determines the top-level partitioning;
-     * MultiplyTask retains its existing recursive splitting behaviour
-     * inside each interval.
+     * MultiplyTask retains its recursive splitting behaviour inside
+     * each interval.
      *
      * The supplied pool is reused and remains owned by the caller.
      */
@@ -765,7 +857,8 @@ public final class SparseMatrixCSR {
                     startRow,
                     endRow,
                     threshold,
-                    policy));
+                    policy,
+                    DEFAULT_THRESHOLD_MODE));
 
             expectedStart = endRow;
         }
