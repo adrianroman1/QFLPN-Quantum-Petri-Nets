@@ -303,7 +303,19 @@ class SparseMatrixCSRConstructionTest {
 
         assertTrue(matrix.isValid());
         assertEquals(3, matrix.getNnz());
-        assertSame(values, matrix.getValues().length == 3 ? values : null);
+
+        assertArrayEquals(
+                new double[] {2.0, 3.0, 4.0},
+                matrix.getValues(),
+                0.0);
+
+        assertArrayEquals(
+                new int[] {0, 2, 1},
+                matrix.getColumnIndices());
+
+        assertArrayEquals(
+                new int[] {0, 2, 3},
+                matrix.getRowPointers());
     }
 
     @Test
