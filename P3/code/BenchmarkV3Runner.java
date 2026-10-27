@@ -2,9 +2,7 @@ package hpc.csr;
 
 import java.time.Instant;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.ForkJoinPool;
@@ -14,17 +12,17 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * Executes the QFLPN Benchmark V3 A/B matrix.
  *
- * Scalability controls:
- * - resource preflight before workload allocation;
- * - explicit separation between timed scales and the 100M resource envelope;
- * - rejection of workloads exceeding the current int-indexed CSR capacity;
- * - peak JVM heap sampling during each measured configuration;
- * - deterministic workload generation.
+ * Responsibilities:
+ * - validate benchmark dimensions;
+ * - estimate workload-specific memory requirements before allocation;
+ * - generate deterministic canonical CSR workloads;
+ * - transfer ownership through the trusted CSR factory;
+ * - execute sequential/parallel comparisons;
+ * - sample JVM heap usage;
+ * - preserve the existing 46-column V3 CSV contract.
  *
- * The existing 46-column V3 CSV schema is preserved.
- *
- * This runner does not replace the JMH methodology planned for the
- * separate methodology lot.
+ * This runner does not replace the JMH methodology planned
+ * for the separate methodology lot.
  */
 public final class BenchmarkV3Runner {
 
@@ -51,33 +49,12 @@ public final class BenchmarkV3Runner {
     };
 
     private static final double ERROR_TOLERANCE = 1.0e-12;
-
     private static final String STRATEGY = "FORK_JOIN";
 
-    /**
-     * Required free-memory reserve after preflight.
-     *
-     * The reserve is deliberately conservative. It is not a substitute
-     * for measuring actual peak heap consumption.
-     */
     private static final double MEMORY_HEADROOM_RATIO = 0.30;
-
-    /**
-     * Estimated multiplier for temporary construction and normalization
-     * allocations in addition to the final CSR representation.
-     *
-     * This is a preflight estimate, not a measured allocation factor.
-     */
-    private static final double CONSTRUCTION_OVERHEAD_FACTOR = 2.0;
-
-    /**
-     * Sampling period for peak heap monitoring.
-     */
+    private static final double CONSTRUCTION_OVERHEAD_FACTOR = 2.5;
     private static final long HEAP_SAMPLE_INTERVAL_MILLIS = 5L;
 
-    /**
-     * Current CSR implementation uses int-based array indexing.
-     */
     private static final long MAX_SUPPORTED_ARRAY_ELEMENTS =
             (long) Integer.MAX_VALUE - 8L;
 
@@ -98,17 +75,6 @@ public final class BenchmarkV3Runner {
                 "P3_V3_ITERATIONS",
                 DEFAULT_ITERATIONS);
 
-        /*
-         * The 100M scale is a resource envelope only.
-         * It must never enter the timed benchmark matrix.
-         */
-        if (dimension == 100_000_000) {
-
-            printResourceEnvelope(dimension);
-
-            return;
-        }
-
         requireSupportedDimension(dimension);
 
         String runId = environmentOrDefault(
@@ -123,23 +89,17 @@ public final class BenchmarkV3Runner {
                 "GITHUB_SHA",
                 "0000000000000000000000000000000000000000");
 
-        validateRunMetadata(
-                runId,
-                workflowRunId,
-                commitSha);
+        validateRunMetadata(runId, workflowRunId, commitSha);
 
         int completed = 0;
-
-        List<String> failures = new ArrayList<>();
+        int rejectedWorkloads = 0;
+        int failedConfigurations = 0;
 
         for (String workloadId : WORKLOADS) {
 
-            try {
+            final Workload workload;
 
-                /*
-                 * Resource validation happens before the generator
-                 * allocates rowCounts, values, columns or rowPointers.
-                 */
+            try {
                 MemoryPreflight preflight =
                         preflightWorkload(workloadId, dimension);
 
@@ -149,205 +109,152 @@ public final class BenchmarkV3Runner {
                                 + ";N=" + dimension
                                 + ";NNZ=" + preflight.nonZeroCount()
                                 + ";estimated_bytes="
-                                + preflight.estimatedRequiredBytes()
+                                + preflight.requiredWithHeadroomBytes()
                                 + ";available_bytes="
                                 + preflight.availableBytes());
 
-                Workload workload = generateTrustedWorkload(
+                workload = generateTrustedWorkload(
                         workloadId,
                         dimension,
                         preflight);
 
-                for (MultiplyTask.SplitPolicy splitPolicy
-                        : SPLIT_POLICIES) {
+            } catch (Exception exception) {
+                rejectedWorkloads++;
 
-                    for (int parallelism : PARALLELISMS) {
+                System.err.println(
+                        "P3_V3_WORKLOAD_REJECTED="
+                                + workloadId
+                                + ";N=" + dimension
+                                + ";reason=" + exception);
 
-                        for (int threshold : THRESHOLDS) {
+                continue;
+            }
 
-                            try {
+            for (MultiplyTask.SplitPolicy splitPolicy : SPLIT_POLICIES) {
+                for (int parallelism : PARALLELISMS) {
+                    for (int threshold : THRESHOLDS) {
 
-                                String[] row = executeOne(
-                                        workload,
-                                        splitPolicy,
-                                        parallelism,
-                                        threshold,
-                                        warmup,
-                                        iterations,
-                                        runId,
-                                        workflowRunId,
-                                        commitSha);
+                        try {
+                            String[] row = executeOne(
+                                    workload,
+                                    splitPolicy,
+                                    parallelism,
+                                    threshold,
+                                    warmup,
+                                    iterations,
+                                    runId,
+                                    workflowRunId,
+                                    commitSha);
 
-                                BenchmarkV3ResultWriter.append(row);
+                            BenchmarkV3ResultWriter.append(row);
+                            completed++;
 
-                                completed++;
+                        } catch (Exception exception) {
+                            failedConfigurations++;
 
-                            } catch (Exception exception) {
-
-                                failures.add(
-                                        workloadId
-                                                + "/policy="
-                                                + splitPolicy.name()
-                                                + "/p="
-                                                + parallelism
-                                                + "/threshold="
-                                                + threshold
-                                                + ": "
-                                                + exception);
-                            }
+                            System.err.println(
+                                    "P3_V3_CONFIGURATION_FAILED="
+                                            + workloadId
+                                            + ";policy=" + splitPolicy.name()
+                                            + ";parallelism=" + parallelism
+                                            + ";threshold=" + threshold
+                                            + ";reason=" + exception);
                         }
                     }
                 }
-
-            } catch (Exception exception) {
-
-                failures.add(
-                        workloadId
-                                + "/N="
-                                + dimension
-                                + ": "
-                                + exception);
             }
         }
 
-        System.out.println(
-                "P3_V3_EXPECTED_CONFIGURATIONS="
-                        + configurationCount());
+        int expected = configurationCount();
 
-        System.out.println(
-                "P3_V3_COMPLETED_CONFIGURATIONS="
-                        + completed);
+        System.out.println("P3_V3_EXPECTED_CONFIGURATIONS=" + expected);
+        System.out.println("P3_V3_COMPLETED_CONFIGURATIONS=" + completed);
+        System.out.println("P3_V3_REJECTED_WORKLOADS=" + rejectedWorkloads);
+        System.out.println("P3_V3_FAILED_CONFIGURATIONS=" + failedConfigurations);
 
-        System.out.println(
-                "P3_V3_FAILED_CONFIGURATIONS="
-                        + failures.size());
-
-        for (String failure : failures) {
-
-            System.err.println(
-                    "P3_V3_FAILURE=" + failure);
-        }
-
-        if (completed != configurationCount()
-                || !failures.isEmpty()) {
+        if (completed != expected
+                || rejectedWorkloads != 0
+                || failedConfigurations != 0) {
 
             throw new IllegalStateException(
-                    "V3 A/B benchmark incomplete: "
-                            + completed
-                            + "/"
-                            + configurationCount()
-                            + " configurations");
+                    "V3 A/B matrix incomplete: completed="
+                            + completed + "/" + expected
+                            + ", rejected_workloads=" + rejectedWorkloads
+                            + ", failed_configurations=" + failedConfigurations
+                            + ". Partial results must not be reported as a complete matrix.");
         }
 
         System.out.println("P3_V3_AB_MATRIX_COMPLETE");
     }
 
-    /**
-     * Number of configurations in the complete V3 A/B matrix.
-     */
     static int configurationCount() {
-
         return WORKLOADS.length
                 * SPLIT_POLICIES.length
                 * PARALLELISMS.length
                 * THRESHOLDS.length;
     }
 
-    /**
-     * Retained for compatibility with existing tests and reports.
-     */
     static int legacyConfigurationCount() {
-
         return WORKLOADS.length
                 * PARALLELISMS.length
                 * THRESHOLDS.length;
     }
 
-    /**
-     * Validates the requested dimension.
-     *
-     * The historical 4096 development configuration remains available.
-     * All other dimensions must be explicitly declared in BenchmarkScale.
-     */
     static void requireSupportedDimension(int n) {
 
         if (n < MINIMUM_DIMENSION) {
-
             throw new IllegalArgumentException(
                     "P3 V3 dimension must be at least "
-                            + MINIMUM_DIMENSION
-                            + "; got "
-                            + n);
+                            + MINIMUM_DIMENSION + "; got " + n);
         }
 
         if (n == DIMENSION) {
             return;
         }
 
-        BenchmarkScale scale =
-                BenchmarkScale.fromDimension(n);
+        BenchmarkScale scale = BenchmarkScale.fromDimension(n);
 
         if (!scale.isTimedBenchmark()) {
-
             throw new IllegalArgumentException(
-                    "Dimension "
-                            + n
-                            + " is not eligible for timed benchmarking. "
-                            + "Role: "
+                    "Dimension " + n
+                            + " is not eligible for timed benchmarking. Role: "
                             + scale.role());
         }
     }
 
-    /**
-     * Performs resource preflight for a workload.
-     *
-     * No large workload arrays are allocated by this method.
-     */
-    static MemoryPreflight preflightWorkload(
-            String workloadId,
-            int n) {
+    static MemoryPreflight preflightWorkload(String workloadId, int n) {
 
         requireSupportedDimension(n);
-
         validateWorkloadId(workloadId);
 
-        long nonZeroCount =
-                calculateNonZeroCount(workloadId, n);
+        long nnz = calculateNonZeroCount(workloadId, n);
 
-        if (nonZeroCount > MAX_SUPPORTED_ARRAY_ELEMENTS) {
-
+        if (nnz > MAX_SUPPORTED_ARRAY_ELEMENTS) {
             throw new IllegalArgumentException(
-                    "Workload exceeds current int-indexed CSR capacity: "
-                            + "N="
-                            + n
-                            + ", workload="
-                            + workloadId
-                            + ", NNZ="
-                            + nonZeroCount
-                            + ", maximum="
-                            + MAX_SUPPORTED_ARRAY_ELEMENTS
-                            + ". A 64-bit CSR index implementation "
-                            + "or a lower-NNZ workload is required.");
+                    "Workload exceeds int-indexed CSR array capacity: "
+                            + "N=" + n
+                            + ", workload=" + workloadId
+                            + ", NNZ=" + nnz
+                            + ", maximum=" + MAX_SUPPORTED_ARRAY_ELEMENTS);
         }
 
-        long csrPayloadBytes =
-                estimateCsrPayloadBytes(n, nonZeroCount);
+        long csrBytes = estimateCsrPayloadBytes(n, nnz);
 
-        long rowCountBytes =
-                Math.multiplyExact(4L, (long) n);
+        long vectorBytes = Math.multiplyExact(
+                24L,
+                (long) n);
 
-        long vectorBytes =
-                Math.multiplyExact(
-                        8L,
-                        Math.multiplyExact(3L, (long) n));
+        long rowMetadataBytes = Math.multiplyExact(4L, (long) n);
 
         long baseBytes = Math.addExact(
-                csrPayloadBytes,
-                Math.addExact(rowCountBytes, vectorBytes));
+                csrBytes,
+                Math.addExact(vectorBytes, rowMetadataBytes));
 
-        long estimatedRequiredBytes =
-                (long) Math.ceil(
-                        baseBytes * CONSTRUCTION_OVERHEAD_FACTOR);
+        long estimatedRequiredBytes = (long) Math.ceil(
+                baseBytes * CONSTRUCTION_OVERHEAD_FACTOR);
+
+        long requiredWithHeadroom = (long) Math.ceil(
+                estimatedRequiredBytes * (1.0 + MEMORY_HEADROOM_RATIO));
 
         Runtime runtime = Runtime.getRuntime();
 
@@ -357,64 +264,41 @@ public final class BenchmarkV3Runner {
                 0L,
                 runtime.totalMemory() - runtime.freeMemory());
 
-        long availableBytes = Math.max(
-                0L,
-                maxHeap - currentlyUsed);
+        long available = Math.max(0L, maxHeap - currentlyUsed);
 
-        long requiredWithHeadroom =
-                (long) Math.ceil(
-                        estimatedRequiredBytes
-                                * (1.0 + MEMORY_HEADROOM_RATIO));
-
-        if (requiredWithHeadroom > availableBytes) {
-
+        if (requiredWithHeadroom > available) {
             throw new IllegalStateException(
                     "Memory preflight rejected workload before allocation: "
-                            + "workload="
-                            + workloadId
-                            + ", N="
-                            + n
-                            + ", NNZ="
-                            + nonZeroCount
-                            + ", estimated_required_bytes="
+                            + "workload=" + workloadId
+                            + ", N=" + n
+                            + ", NNZ=" + nnz
+                            + ", required_with_headroom="
                             + requiredWithHeadroom
-                            + ", available_bytes="
-                            + availableBytes
-                            + ", max_heap_bytes="
-                            + maxHeap
-                            + ". Increase the configured JVM heap "
-                            + "or use a smaller scale.");
+                            + ", available=" + available
+                            + ", max_heap=" + maxHeap);
         }
 
         return new MemoryPreflight(
                 workloadId,
                 n,
-                nonZeroCount,
-                csrPayloadBytes,
+                nnz,
+                csrBytes,
                 estimatedRequiredBytes,
                 requiredWithHeadroom,
-                availableBytes,
+                available,
                 maxHeap);
     }
 
-    /**
-     * Estimates NNZ without allocating row-level arrays.
-     */
-    static long calculateNonZeroCount(
-            String workloadId,
-            int n) {
+    static long calculateNonZeroCount(String workloadId, int n) {
 
         validateWorkloadId(workloadId);
 
         if (n < MINIMUM_DIMENSION) {
-
             throw new IllegalArgumentException(
-                    "Dimension must be at least "
-                            + MINIMUM_DIMENSION);
+                    "Dimension must be at least " + MINIMUM_DIMENSION);
         }
 
         return switch (workloadId) {
-
             case "UNIFORM_2" ->
                     Math.multiplyExact(2L, n);
 
@@ -425,28 +309,18 @@ public final class BenchmarkV3Runner {
                     Math.multiplyExact(100L, n);
 
             case "BANDED" ->
-                    Math.multiplyExact(
-                            (long) Math.min(5, n),
-                            n);
+                    Math.multiplyExact((long) Math.min(5, n), n);
 
             case "BLOCK" ->
-                    Math.multiplyExact(
-                            (long) Math.min(8, n),
-                            n);
+                    Math.multiplyExact((long) Math.min(8, n), n);
 
             case "POWERLAW" -> {
-
                 long total = 0L;
 
                 for (int row = 0; row < n; row++) {
-
-                    int count = Math.min(
-                            n,
-                            1 + (int) (
-                                    32.0
-                                            / Math.sqrt(row + 1.0)));
-
-                    total = Math.addExact(total, count);
+                    total = Math.addExact(
+                            total,
+                            rowCountFor(workloadId, row, n));
                 }
 
                 yield total;
@@ -457,47 +331,21 @@ public final class BenchmarkV3Runner {
         };
     }
 
-    /**
-     * Estimates the final CSR primitive-array payload.
-     *
-     * Values: 8 bytes per NNZ.
-     * Columns: 4 bytes per NNZ.
-     * Row pointers: 4 bytes per row pointer.
-     *
-     * JVM headers and temporary allocations are excluded here.
-     */
-    static long estimateCsrPayloadBytes(
-            int n,
-            long nnz) {
+    static long estimateCsrPayloadBytes(int n, long nnz) {
 
         if (n <= 0 || nnz < 0L) {
-
-            throw new IllegalArgumentException(
-                    "Invalid CSR dimensions");
+            throw new IllegalArgumentException("Invalid CSR dimensions");
         }
 
-        long valuesBytes =
-                Math.multiplyExact(8L, nnz);
-
-        long columnsBytes =
-                Math.multiplyExact(4L, nnz);
-
-        long pointersBytes =
-                Math.multiplyExact(
-                        4L,
-                        (long) n + 1L);
+        long valuesBytes = Math.multiplyExact(8L, nnz);
+        long columnsBytes = Math.multiplyExact(4L, nnz);
+        long pointersBytes = Math.multiplyExact(4L, (long) n + 1L);
 
         return Math.addExact(
                 Math.addExact(valuesBytes, columnsBytes),
                 pointersBytes);
     }
 
-    /**
-     * Trusted workload factory.
-     *
-     * Only the predefined workload identifiers are accepted.
-     * The preflight object must match the requested workload and N.
-     */
     static Workload generateTrustedWorkload(
             String workloadId,
             int n,
@@ -506,27 +354,19 @@ public final class BenchmarkV3Runner {
         validateWorkloadId(workloadId);
 
         if (preflight == null) {
-
             throw new IllegalArgumentException(
                     "Memory preflight must not be null");
         }
 
         if (!preflight.workloadId().equals(workloadId)
                 || preflight.dimension() != n) {
-
             throw new IllegalArgumentException(
-                    "Preflight does not match requested workload");
+                    "Preflight does not match requested workload and dimension");
         }
 
-        /*
-         * Recheck available memory immediately before allocation.
-         */
-        MemoryPreflight current =
-                preflightWorkload(workloadId, n);
+        MemoryPreflight current = preflightWorkload(workloadId, n);
 
-        if (current.nonZeroCount()
-                != preflight.nonZeroCount()) {
-
+        if (current.nonZeroCount() != preflight.nonZeroCount()) {
             throw new IllegalStateException(
                     "Preflight NNZ changed before generation");
         }
@@ -537,30 +377,13 @@ public final class BenchmarkV3Runner {
                 preflight.nonZeroCount());
     }
 
-    /**
-     * Compatibility entry point retained for existing tests.
-     *
-     * Production execution uses generateTrustedWorkload().
-     */
-    static Workload generateWorkload(
-            String workloadId,
-            int n) {
+    static Workload generateWorkload(String workloadId, int n) {
 
-        MemoryPreflight preflight =
-                preflightWorkload(workloadId, n);
+        MemoryPreflight preflight = preflightWorkload(workloadId, n);
 
-        return generateTrustedWorkload(
-                workloadId,
-                n,
-                preflight);
+        return generateTrustedWorkload(workloadId, n, preflight);
     }
 
-    /**
-     * Allocates and fills the CSR workload after preflight.
-     *
-     * Row counts are computed directly from the deterministic workload
-     * definition. No Integer[] or boxed row representation is created.
-     */
     private static Workload generateWorkloadInternal(
             String workloadId,
             int n,
@@ -568,48 +391,51 @@ public final class BenchmarkV3Runner {
 
         int totalNnz = Math.toIntExact(expectedNnz);
 
-        int[] rowCounts = new int[n];
-
-        for (int row = 0; row < n; row++) {
-
-            rowCounts[row] =
-                    rowCountFor(workloadId, row, n);
-        }
-
         double[] values = new double[totalNnz];
-
         int[] columns = new int[totalNnz];
-
-        int[] rowPointers = new int[n + 1];
+        int[] rowPointers = new int[Math.addExact(n, 1)];
 
         int cursor = 0;
-
-        int blockWidth = Math.max(1, n / 16);
-
-        int min = Integer.MAX_VALUE;
-
-        int max = Integer.MIN_VALUE;
-
+        int minimum = Integer.MAX_VALUE;
+        int maximum = Integer.MIN_VALUE;
         long sum = 0L;
+
+        int blockWidth = Math.max(8, n / 16);
 
         for (int row = 0; row < n; row++) {
 
-            int count = rowCounts[row];
+            int count = rowCountFor(workloadId, row, n);
 
-            min = Math.min(min, count);
-
-            max = Math.max(max, count);
-
+            minimum = Math.min(minimum, count);
+            maximum = Math.max(maximum, count);
             sum = Math.addExact(sum, count);
 
-            int blockStart =
-                    (row / blockWidth) * blockWidth;
+            int blockStart = 0;
+            int blockSize = 0;
 
-            int blockEnd =
-                    Math.min(n, blockStart + blockWidth);
+            if ("BLOCK".equals(workloadId)) {
+                blockStart = Math.min(
+                        (row / blockWidth) * blockWidth,
+                        n - blockWidth);
 
-            int blockSize =
-                    blockEnd - blockStart;
+                blockSize = Math.min(blockWidth, n - blockStart);
+
+                if (blockSize < count) {
+                    throw new IllegalStateException(
+                            "BLOCK distribution cannot provide "
+                                    + count + " distinct columns");
+                }
+            }
+
+            int stride = 1;
+
+            if ("UNIFORM_2".equals(workloadId)
+                    || "UNIFORM_20".equals(workloadId)
+                    || "UNIFORM_100".equals(workloadId)
+                    || "POWERLAW".equals(workloadId)) {
+
+                stride = coprimeStride(n, count);
+            }
 
             for (int j = 0; j < count; j++) {
 
@@ -617,70 +443,41 @@ public final class BenchmarkV3Runner {
                         workloadId,
                         row,
                         j,
-                        count,
                         n,
+                        stride,
                         blockStart,
                         blockSize);
 
-                /*
-                 * Deterministic collision resolution.
-                 *
-                 * The workload definitions are deterministic; duplicate
-                 * columns are shifted until a free column is found.
-                 */
-                while (containsColumn(
-                        columns,
-                        rowPointers[row],
-                        cursor,
-                        column)) {
-
-                    column++;
-
-                    if (column == n) {
-                        column = 0;
-                    }
-                }
-
                 columns[cursor] = column;
-
-                values[cursor] =
-                        0.5 + ((row + j) % 11) / 10.0;
-
+                values[cursor] = 0.5 + ((row + j) % 11) / 10.0;
                 cursor++;
             }
 
+            sortRow(columns, rowPointers[row], cursor);
             rowPointers[row + 1] = cursor;
         }
 
         if (cursor != totalNnz) {
-
             throw new IllegalStateException(
                     "Generated NNZ differs from preflight: expected="
-                            + totalNnz
-                            + ", actual="
-                            + cursor);
+                            + totalNnz + ", actual=" + cursor);
         }
 
-        SparseMatrixCSR matrix = new SparseMatrixCSR(
+        SparseMatrixCSR matrix = SparseMatrixCSR.fromTrustedCanonical(
                 values,
                 columns,
                 rowPointers,
                 n,
                 n);
 
-        String family = familyFor(workloadId);
-
-        String distribution =
-                distributionFor(workloadId);
-
         return new Workload(
                 workloadId,
-                family,
-                distribution,
+                familyFor(workloadId),
+                distributionFor(workloadId),
                 matrix,
-                min,
+                minimum,
                 (double) sum / n,
-                max);
+                maximum);
     }
 
     private static int rowCountFor(
@@ -689,24 +486,13 @@ public final class BenchmarkV3Runner {
             int n) {
 
         return switch (workloadId) {
-
             case "UNIFORM_2" -> 2;
-
             case "UNIFORM_20" -> 20;
-
             case "UNIFORM_100" -> 100;
-
             case "BANDED" -> Math.min(5, n);
-
             case "BLOCK" -> Math.min(8, n);
-
             case "POWERLAW" ->
-                    Math.min(
-                            n,
-                            1 + (int) (
-                                    32.0
-                                            / Math.sqrt(row + 1.0)));
-
+                    Math.min(n, 1 + (int) (32.0 / Math.sqrt(row + 1.0)));
             default -> throw new IllegalArgumentException(
                     "Unsupported workload: " + workloadId);
         };
@@ -716,55 +502,90 @@ public final class BenchmarkV3Runner {
             String workloadId,
             int row,
             int j,
-            int count,
             int n,
+            int stride,
             int blockStart,
             int blockSize) {
 
         return switch (workloadId) {
-
-            case "BANDED" -> {
-
-                int offset = j - count / 2;
-
-                yield Math.floorMod(
-                        row + offset,
-                        n);
-            }
+            case "BANDED" ->
+                    Math.floorMod(row + j - 2, n);
 
             case "BLOCK" ->
+                    blockStart + j;
 
-                    blockStart
-                            + Math.floorMod(j, blockSize);
+            case "UNIFORM_2", "UNIFORM_20", "UNIFORM_100", "POWERLAW" ->
+                    (int) Math.floorMod(
+                            (long) row + (long) j * stride,
+                            (long) n);
 
-            case "POWERLAW" ->
-
-                    Math.floorMod(
-                            row + j * 37 + j * j * 13,
-                            n);
-
-            default ->
-
-                    Math.floorMod(
-                            row + j * Math.max(1, n / count),
-                            n);
+            default -> throw new IllegalArgumentException(
+                    "Unsupported workload: " + workloadId);
         };
+    }
+
+    private static int coprimeStride(int n, int count) {
+
+        if (count < 1 || count > n) {
+            throw new IllegalArgumentException(
+                    "Invalid row density: " + count + " for N=" + n);
+        }
+
+        int candidate = Math.max(1, n / count);
+
+        while (greatestCommonDivisor(candidate, n) != 1) {
+            candidate++;
+
+            if (candidate >= n) {
+                candidate = 1;
+            }
+        }
+
+        return candidate;
+    }
+
+    private static int greatestCommonDivisor(int a, int b) {
+
+        int x = Math.abs(a);
+        int y = Math.abs(b);
+
+        while (y != 0) {
+            int remainder = x % y;
+            x = y;
+            y = remainder;
+        }
+
+        return x;
+    }
+
+    private static void sortRow(int[] columns, int start, int end) {
+
+        for (int i = start + 1; i < end; i++) {
+
+            int value = columns[i];
+            int j = i - 1;
+
+            while (j >= start && columns[j] > value) {
+                columns[j + 1] = columns[j];
+                j--;
+            }
+
+            if (j >= start && columns[j] == value) {
+                throw new IllegalStateException(
+                        "Generator produced a duplicate column index");
+            }
+
+            columns[j + 1] = value;
+        }
     }
 
     private static String familyFor(String workloadId) {
 
         return switch (workloadId) {
-
-            case "UNIFORM_2",
-                 "UNIFORM_20",
-                 "UNIFORM_100" -> "UNIFORM";
-
+            case "UNIFORM_2", "UNIFORM_20", "UNIFORM_100" -> "UNIFORM";
             case "BANDED" -> "BANDED";
-
             case "BLOCK" -> "BLOCK_DIAGONAL";
-
             case "POWERLAW" -> "POWER_LAW";
-
             default -> throw new IllegalArgumentException(
                     "Unsupported workload: " + workloadId);
         };
@@ -773,19 +594,12 @@ public final class BenchmarkV3Runner {
     private static String distributionFor(String workloadId) {
 
         return switch (workloadId) {
-
             case "UNIFORM_2" -> "FIXED_2_PER_ROW";
-
             case "UNIFORM_20" -> "FIXED_20_PER_ROW";
-
             case "UNIFORM_100" -> "FIXED_100_PER_ROW";
-
             case "BANDED" -> "LOCAL_BAND_5";
-
             case "BLOCK" -> "BLOCK_LOCAL_8";
-
             case "POWERLAW" -> "DETERMINISTIC_INVERSE_SQRT";
-
             default -> throw new IllegalArgumentException(
                     "Unsupported workload: " + workloadId);
         };
@@ -794,13 +608,11 @@ public final class BenchmarkV3Runner {
     private static void validateWorkloadId(String workloadId) {
 
         if (workloadId == null) {
-
             throw new IllegalArgumentException(
                     "Workload identifier must not be null");
         }
 
         for (String supported : WORKLOADS) {
-
             if (supported.equals(workloadId)) {
                 return;
             }
@@ -810,32 +622,6 @@ public final class BenchmarkV3Runner {
                 "Unsupported workload: " + workloadId);
     }
 
-    private static boolean containsColumn(
-            int[] columns,
-            int start,
-            int end,
-            int candidate) {
-
-        for (int i = start; i < end; i++) {
-
-            if (columns[i] == candidate) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * Executes one sequential/parallel comparison.
-     *
-     * Peak heap usage is sampled during the configuration.
-     * The existing CSV schema is preserved:
-     *
-     * - max_jvm_memory_bytes remains the JVM maximum heap;
-     * - free_jvm_heap_bytes records the minimum sampled free heap;
-     * - peak_heap_used_bytes is added to the notes field.
-     */
     static String[] executeOne(
             Workload workload,
             MultiplyTask.SplitPolicy splitPolicy,
@@ -847,69 +633,42 @@ public final class BenchmarkV3Runner {
             String workflowRunId,
             String commitSha) {
 
-        if (workload == null) {
-
+        if (workload == null || splitPolicy == null) {
             throw new IllegalArgumentException(
-                    "workload must not be null");
+                    "Workload and split policy must not be null");
         }
 
-        if (splitPolicy == null) {
-
-            throw new IllegalArgumentException(
-                    "splitPolicy must not be null");
-        }
-
-        if (parallelism <= 0
-                || threshold <= 0
-                || warmup < 0
-                || iterations <= 0) {
-
+        if (parallelism <= 0 || threshold <= 0
+                || warmup < 0 || iterations <= 0) {
             throw new IllegalArgumentException(
                     "Invalid benchmark configuration");
         }
 
         SparseMatrixCSR matrix = workload.matrix();
-
         int n = matrix.getRows();
 
         double[] input = new double[n];
-
         double[] sequentialOutput = new double[n];
-
         double[] parallelOutput = new double[n];
 
         for (int i = 0; i < n; i++) {
-
-            input[i] =
-                    0.25 + (i % 17) / 13.0;
+            input[i] = 0.25 + (i % 17) / 13.0;
         }
 
-        HeapPeakMonitor heapMonitor =
-                new HeapPeakMonitor();
+        HeapPeakMonitor heapMonitor = new HeapPeakMonitor();
+        ForkJoinPool pool = new ForkJoinPool(parallelism);
 
         heapMonitor.start();
 
-        ForkJoinPool pool =
-                new ForkJoinPool(parallelism);
-
         try {
-
             long setupStart = System.nanoTime();
-
-            double[] oracle =
-                    independentOracle(matrix, input);
-
-            double setupMs =
-                    (System.nanoTime() - setupStart)
-                            / 1_000_000.0;
+            double[] oracle = independentOracle(matrix, input);
+            double setupMs = elapsedMs(setupStart);
 
             heapMonitor.sampleNow();
 
             for (int i = 0; i < warmup; i++) {
-
-                matrix.multiplyInto(
-                        input,
-                        sequentialOutput);
+                matrix.multiplyInto(input, sequentialOutput);
 
                 matrix.multiplyParallelInto(
                         input,
@@ -921,126 +680,67 @@ public final class BenchmarkV3Runner {
                 heapMonitor.sampleNow();
             }
 
-            double[] seqSamples =
-                    new double[iterations];
-
-            double[] parSamples =
-                    new double[iterations];
+            double[] seqSamples = new double[iterations];
+            double[] parSamples = new double[iterations];
 
             for (int i = 0; i < iterations; i++) {
 
                 long start;
 
                 if ((i & 1) == 0) {
+                    start = System.nanoTime();
+                    matrix.multiplyInto(input, sequentialOutput);
+                    seqSamples[i] = elapsedMs(start);
 
                     start = System.nanoTime();
-
-                    matrix.multiplyInto(
-                            input,
-                            sequentialOutput);
-
-                    seqSamples[i] =
-                            elapsedMs(start);
-
-                    start = System.nanoTime();
-
                     matrix.multiplyParallelInto(
-                            input,
-                            parallelOutput,
-                            threshold,
-                            pool,
-                            splitPolicy);
-
-                    parSamples[i] =
-                            elapsedMs(start);
+                            input, parallelOutput, threshold, pool, splitPolicy);
+                    parSamples[i] = elapsedMs(start);
 
                 } else {
-
                     start = System.nanoTime();
-
                     matrix.multiplyParallelInto(
-                            input,
-                            parallelOutput,
-                            threshold,
-                            pool,
-                            splitPolicy);
-
-                    parSamples[i] =
-                            elapsedMs(start);
+                            input, parallelOutput, threshold, pool, splitPolicy);
+                    parSamples[i] = elapsedMs(start);
 
                     start = System.nanoTime();
-
-                    matrix.multiplyInto(
-                            input,
-                            sequentialOutput);
-
-                    seqSamples[i] =
-                            elapsedMs(start);
+                    matrix.multiplyInto(input, sequentialOutput);
+                    seqSamples[i] = elapsedMs(start);
                 }
 
                 heapMonitor.sampleNow();
             }
 
-            double seqError =
-                    maxAbsoluteError(
-                            sequentialOutput,
-                            oracle);
+            double seqError = maxAbsoluteError(sequentialOutput, oracle);
+            double parError = maxAbsoluteError(parallelOutput, oracle);
+            double crossError = maxAbsoluteError(
+                    sequentialOutput, parallelOutput);
 
-            double parError =
-                    maxAbsoluteError(
-                            parallelOutput,
-                            oracle);
+            double maxError = Math.max(
+                    Math.max(seqError, parError),
+                    crossError);
 
-            double crossError =
-                    maxAbsoluteError(
-                            sequentialOutput,
-                            parallelOutput);
+            String status = maxError <= ERROR_TOLERANCE ? "PASS" : "FAIL";
 
-            double maxError =
-                    Math.max(
-                            Math.max(seqError, parError),
-                            crossError);
+            double seqMean = mean(seqSamples);
+            double parMean = mean(parSamples);
+            double speedup = seqMean / parMean;
 
-            String status =
-                    maxError <= ERROR_TOLERANCE
-                            ? "PASS"
-                            : "FAIL";
-
-            double seqMean =
-                    mean(seqSamples);
-
-            double parMean =
-                    mean(parSamples);
-
-            double speedup =
-                    seqMean / parMean;
-
-            Runtime runtime =
-                    Runtime.getRuntime();
-
-            long maxHeap =
-                    runtime.maxMemory();
+            Runtime runtime = Runtime.getRuntime();
 
             heapMonitor.sampleNow();
 
-            long minimumFreeHeap =
-                    heapMonitor.minimumFreeHeapBytes();
-
-            long peakHeapUsed =
-                    heapMonitor.peakUsedHeapBytes();
+            long maxHeap = runtime.maxMemory();
+            long minimumFreeHeap = heapMonitor.minimumFreeHeapBytes();
+            long peakHeapUsed = heapMonitor.peakUsedHeapBytes();
 
             String verdict;
 
             if (speedup < 0.80) {
-
                 verdict = "REGRESSION";
-
             } else if (speedup < 1.05) {
-
                 verdict = "NEUTRAL";
-
             } else {
-
                 verdict = "IMPROVEMENT";
             }
 
@@ -1048,161 +748,83 @@ public final class BenchmarkV3Runner {
                     "pool_reused"
                             + ";alternating_order"
                             + ";independent_csr_oracle"
-                            + ";split_policy="
-                            + splitPolicy.name()
+                            + ";split_policy=" + splitPolicy.name()
                             + ";heap_sampling_interval_ms="
                             + HEAP_SAMPLE_INTERVAL_MILLIS
-                            + ";peak_heap_used_bytes="
-                            + peakHeapUsed
-                            + ";minimum_free_heap_bytes="
-                            + minimumFreeHeap;
+                            + ";peak_heap_used_bytes=" + peakHeapUsed
+                            + ";minimum_free_heap_bytes=" + minimumFreeHeap;
 
             return new String[] {
-
                 Instant.now().toString(),
-
                 runId,
-
                 workflowRunId,
-
                 commitSha,
-
-                "QFLPN-V3-" + workload.id()
-                        + "-" + splitPolicy.name(),
-
+                "QFLPN-V3-" + workload.id() + "-" + splitPolicy.name(),
                 workload.id(),
-
                 workload.family(),
-
                 workload.distribution(),
-
                 Integer.toString(n),
-
                 Integer.toString(matrix.getNnz()),
-
                 decimal(workload.minNnz()),
-
                 decimal(workload.averageNnz()),
-
                 decimal(workload.maxNnz()),
-
                 Integer.toString(parallelism),
-
                 Integer.toString(threshold),
-
                 STRATEGY,
-
                 splitPolicy.name(),
-
                 Integer.toString(warmup),
-
                 Integer.toString(iterations),
-
                 decimal(seqMean),
-
                 decimal(median(seqSamples)),
-
                 decimal(populationStdDev(seqSamples)),
-
                 decimal(min(seqSamples)),
-
                 decimal(max(seqSamples)),
-
                 decimal(parMean),
-
                 decimal(median(parSamples)),
-
                 decimal(populationStdDev(parSamples)),
-
                 decimal(min(parSamples)),
-
                 decimal(max(parSamples)),
-
                 decimal(speedup),
-
                 decimal(n / (seqMean / 1000.0)),
-
                 decimal(n / (parMean / 1000.0)),
-
                 decimal(matrix.getNnz() / (seqMean / 1000.0)),
-
                 decimal(matrix.getNnz() / (parMean / 1000.0)),
-
                 decimal(seqError),
-
                 decimal(parError),
-
                 decimal(maxError),
-
                 decimal(setupMs),
-
-                System.getProperty(
-                        "os.arch",
-                        "unknown")
-                        + ";processors="
-                        + runtime.availableProcessors(),
-
+                System.getProperty("os.arch", "unknown")
+                        + ";processors=" + runtime.availableProcessors(),
                 Long.toString(maxHeap),
-
                 Long.toString(minimumFreeHeap),
-
-                System.getProperty(
-                        "java.version",
-                        "unknown"),
-
-                System.getProperty(
-                        "os.name",
-                        "unknown")
-                        + " "
-                        + System.getProperty(
-                                "os.version",
-                                "unknown"),
-
+                System.getProperty("java.version", "unknown"),
+                System.getProperty("os.name", "unknown")
+                        + " " + System.getProperty("os.version", "unknown"),
                 status,
-
                 verdict,
-
                 notes
             };
 
         } finally {
-
             heapMonitor.close();
-
             pool.shutdown();
         }
     }
 
-    /**
-     * Independent CSR oracle.
-     *
-     * Uses copied matrix arrays so that the reference computation does
-     * not depend on the parallel multiplication implementation.
-     */
     private static double[] independentOracle(
             SparseMatrixCSR matrix,
             double[] input) {
 
-        double[] values =
-                matrix.getValues();
+        double[] values = matrix.getValues();
+        int[] columns = matrix.getColumnIndices();
+        int[] pointers = matrix.getRowPointers();
 
-        int[] columns =
-                matrix.getColumnIndices();
-
-        int[] pointers =
-                matrix.getRowPointers();
-
-        double[] output =
-                new double[matrix.getRows()];
+        double[] output = new double[matrix.getRows()];
 
         for (int row = 0; row < output.length; row++) {
-
             double sum = 0.0;
 
-            for (int k = pointers[row];
-                    k < pointers[row + 1];
-                    k++) {
-
+            for (int k = pointers[row]; k < pointers[row + 1]; k++) {
                 sum += values[k] * input[columns[k]];
             }
 
@@ -1212,29 +834,21 @@ public final class BenchmarkV3Runner {
         return output;
     }
 
-    static double maxAbsoluteError(
-            double[] a,
-            double[] b) {
+    static double maxAbsoluteError(double[] a, double[] b) {
 
-        if (a.length != b.length) {
-
+        if (a == null || b == null || a.length != b.length) {
             throw new IllegalArgumentException(
-                    "Vector lengths differ");
+                    "Vector lengths differ or are null");
         }
 
         double result = 0.0;
 
         for (int i = 0; i < a.length; i++) {
-
-            if (!Double.isFinite(a[i])
-                    || !Double.isFinite(b[i])) {
-
+            if (!Double.isFinite(a[i]) || !Double.isFinite(b[i])) {
                 return Double.POSITIVE_INFINITY;
             }
 
-            result = Math.max(
-                    result,
-                    Math.abs(a[i] - b[i]));
+            result = Math.max(result, Math.abs(a[i] - b[i]));
         }
 
         return result;
@@ -1247,9 +861,7 @@ public final class BenchmarkV3Runner {
         double sum = 0.0;
 
         for (double value : values) {
-
             requirePositiveFinite(value);
-
             sum += value;
         }
 
@@ -1260,115 +872,84 @@ public final class BenchmarkV3Runner {
 
         requireSamples(values);
 
-        double[] sorted =
-                values.clone();
+        double[] sorted = values.clone();
 
         for (double value : sorted) {
-
             requirePositiveFinite(value);
         }
 
         Arrays.sort(sorted);
 
-        int middle =
-                sorted.length / 2;
+        int middle = sorted.length / 2;
 
         return sorted.length % 2 == 0
-
                 ? (sorted[middle - 1] + sorted[middle]) / 2.0
-
                 : sorted[middle];
     }
 
     static double populationStdDev(double[] values) {
 
-        double average =
-                mean(values);
-
+        double average = mean(values);
         double sum = 0.0;
 
         for (double value : values) {
-
-            double delta =
-                    value - average;
-
+            double delta = value - average;
             sum += delta * delta;
         }
 
-        return Math.sqrt(
-                sum / values.length);
+        return Math.sqrt(sum / values.length);
     }
 
     private static double min(double[] values) {
-
-        return Arrays.stream(values)
-                .min()
-                .orElseThrow();
+        return Arrays.stream(values).min().orElseThrow();
     }
 
     private static double max(double[] values) {
-
-        return Arrays.stream(values)
-                .max()
-                .orElseThrow();
+        return Arrays.stream(values).max().orElseThrow();
     }
 
     private static void requireSamples(double[] values) {
 
-        if (values == null
-                || values.length == 0) {
-
-            throw new IllegalArgumentException(
-                    "No measurement samples");
+        if (values == null || values.length == 0) {
+            throw new IllegalArgumentException("No measurement samples");
         }
     }
 
     private static void requirePositiveFinite(double value) {
 
-        if (!Double.isFinite(value)
-                || value <= 0.0) {
-
+        if (!Double.isFinite(value) || value <= 0.0) {
             throw new IllegalArgumentException(
                     "Measurement must be finite and positive");
         }
     }
 
     private static double elapsedMs(long start) {
-
-        return (System.nanoTime() - start)
-                / 1_000_000.0;
+        return (System.nanoTime() - start) / 1_000_000.0;
     }
 
     private static String decimal(double value) {
 
         if (!Double.isFinite(value)) {
-
             throw new IllegalArgumentException(
                     "Cannot serialize non-finite number");
         }
 
-        return String.format(
-                Locale.ROOT,
-                "%.12e",
-                value);
+        return String.format(Locale.ROOT, "%.12e", value);
     }
 
     private static int positiveEnvironmentInt(
             String name,
             int fallback) {
 
-        String value =
-                System.getenv(name);
+        String value = System.getenv(name);
 
         if (value == null || value.isBlank()) {
             return fallback;
         }
 
-        int parsed =
-                Integer.parseInt(value);
+        int parsed = Integer.parseInt(value);
 
         if (parsed <= 0) {
-
             throw new IllegalArgumentException(
                     name + " must be positive");
         }
@@ -1380,18 +961,15 @@ public final class BenchmarkV3Runner {
             String name,
             int fallback) {
 
-        String value =
-                System.getenv(name);
+        String value = System.getenv(name);
 
         if (value == null || value.isBlank()) {
             return fallback;
         }
 
-        int parsed =
-                Integer.parseInt(value);
+        int parsed = Integer.parseInt(value);
 
         if (parsed < 0) {
-
             throw new IllegalArgumentException(
                     name + " must be nonnegative");
         }
@@ -1403,12 +981,9 @@ public final class BenchmarkV3Runner {
             String name,
             String fallback) {
 
-        String value =
-                System.getenv(name);
+        String value = System.getenv(name);
 
-        return value == null || value.isBlank()
-                ? fallback
-                : value;
+        return value == null || value.isBlank() ? fallback : value;
     }
 
     private static void validateRunMetadata(
@@ -1417,84 +992,19 @@ public final class BenchmarkV3Runner {
             String commitSha) {
 
         if (!workflowRunId.matches("[0-9]+")) {
-
             throw new IllegalArgumentException(
                     "GITHUB_RUN_ID must contain decimal digits only");
         }
 
         if (!commitSha.matches("[0-9a-f]{40}")) {
-
             throw new IllegalArgumentException(
                     "GITHUB_SHA must be a 40-character lowercase SHA-1");
         }
 
         if (!runId.matches("[A-Za-z0-9._-]+")) {
-
             throw new IllegalArgumentException(
                     "RUN_ID contains unsupported characters");
         }
-    }
-
-    /**
-     * Prints the 100M resource envelope.
-     *
-     * This method does not allocate a matrix and does not run SpMV.
-     */
-    static void printResourceEnvelope(int dimension) {
-
-        if (dimension != 100_000_000) {
-
-            throw new IllegalArgumentException(
-                    "Resource envelope is defined only for N=100000000");
-        }
-
-        long nnz = 2L * dimension;
-
-        long csrPayloadBytes =
-                estimateCsrPayloadBytes(
-                        dimension,
-                        nnz);
-
-        long estimatedConstructionBytes =
-                (long) Math.ceil(
-                        csrPayloadBytes
-                                * CONSTRUCTION_OVERHEAD_FACTOR);
-
-        long requiredWithHeadroom =
-                (long) Math.ceil(
-                        estimatedConstructionBytes
-                                * (1.0 + MEMORY_HEADROOM_RATIO));
-
-        Runtime runtime =
-                Runtime.getRuntime();
-
-        System.out.println("P3_RESOURCE_ENVELOPE_ONLY=true");
-
-        System.out.println("P3_RESOURCE_N=" + dimension);
-
-        System.out.println("P3_RESOURCE_MODEL_NNZ=" + nnz);
-
-        System.out.println(
-                "P3_RESOURCE_CSR_ARRAY_BYTES="
-                        + csrPayloadBytes);
-
-        System.out.println(
-                "P3_RESOURCE_ESTIMATED_CONSTRUCTION_BYTES="
-                        + estimatedConstructionBytes);
-
-        System.out.println(
-                "P3_RESOURCE_ESTIMATED_WITH_HEADROOM_BYTES="
-                        + requiredWithHeadroom);
-
-        System.out.println(
-                "P3_RESOURCE_JVM_MAX_HEAP_BYTES="
-                        + runtime.maxMemory());
-
-        System.out.println(
-                "P3_RESOURCE_TIMINGS=NOT_MEASURED");
-
-        System.out.println(
-                "P3_RESOURCE_STATUS=MODEL_ONLY");
     }
 
     private static String createRunId() {
@@ -1503,13 +1013,9 @@ public final class BenchmarkV3Runner {
                 .ofPattern("yyyyMMdd'T'HHmmss'Z'")
                 .withZone(java.time.ZoneOffset.UTC)
                 .format(Instant.now())
-                + "-"
-                + UUID.randomUUID();
+                + "-" + UUID.randomUUID();
     }
 
-    /**
-     * Immutable result of the resource preflight.
-     */
     record MemoryPreflight(
             String workloadId,
             int dimension,
@@ -1521,9 +1027,6 @@ public final class BenchmarkV3Runner {
             long maximumHeapBytes) {
     }
 
-    /**
-     * Immutable generated workload descriptor.
-     */
     record Workload(
             String id,
             String family,
@@ -1534,23 +1037,12 @@ public final class BenchmarkV3Runner {
             int maxNnz) {
     }
 
-    /**
-     * Samples heap usage while a benchmark configuration executes.
-     *
-     * This is sampled peak heap usage, not an exact allocation profiler.
-     * The sampling interval is recorded in the CSV notes.
-     */
     static final class HeapPeakMonitor implements AutoCloseable {
 
-        private final Runtime runtime =
-                Runtime.getRuntime();
+        private final Runtime runtime = Runtime.getRuntime();
 
-        private final AtomicBoolean running =
-                new AtomicBoolean(false);
-
-        private final AtomicLong peakUsedHeap =
-                new AtomicLong(0L);
-
+        private final AtomicBoolean running = new AtomicBoolean(false);
+        private final AtomicLong peakUsedHeap = new AtomicLong(0L);
         private final AtomicLong minimumFreeHeap =
                 new AtomicLong(Long.MAX_VALUE);
 
@@ -1559,7 +1051,6 @@ public final class BenchmarkV3Runner {
         void start() {
 
             if (!running.compareAndSet(false, true)) {
-
                 throw new IllegalStateException(
                         "Heap monitor already started");
             }
@@ -1571,45 +1062,28 @@ public final class BenchmarkV3Runner {
                     "p3-v3-heap-monitor");
 
             sampler.setDaemon(true);
-
             sampler.start();
         }
 
         void sampleNow() {
 
-            long total =
-                    runtime.totalMemory();
+            long total = runtime.totalMemory();
+            long free = runtime.freeMemory();
+            long used = Math.max(0L, total - free);
 
-            long free =
-                    runtime.freeMemory();
-
-            long used =
-                    Math.max(0L, total - free);
-
-            peakUsedHeap.accumulateAndGet(
-                    used,
-                    Math::max);
-
-            minimumFreeHeap.accumulateAndGet(
-                    free,
-                    Math::min);
+            peakUsedHeap.accumulateAndGet(used, Math::max);
+            minimumFreeHeap.accumulateAndGet(free, Math::min);
         }
 
         private void sampleLoop() {
 
             while (running.get()) {
-
                 sampleNow();
 
                 try {
-
-                    Thread.sleep(
-                            HEAP_SAMPLE_INTERVAL_MILLIS);
-
+                    Thread.sleep(HEAP_SAMPLE_INTERVAL_MILLIS);
                 } catch (InterruptedException exception) {
-
                     Thread.currentThread().interrupt();
-
                     break;
                 }
             }
@@ -1618,9 +1092,7 @@ public final class BenchmarkV3Runner {
         }
 
         long peakUsedHeapBytes() {
-
             sampleNow();
-
             return peakUsedHeap.get();
         }
 
@@ -1628,8 +1100,7 @@ public final class BenchmarkV3Runner {
 
             sampleNow();
 
-            long value =
-                    minimumFreeHeap.get();
+            long value = minimumFreeHeap.get();
 
             return value == Long.MAX_VALUE
                     ? runtime.freeMemory()
@@ -1642,15 +1113,11 @@ public final class BenchmarkV3Runner {
             running.set(false);
 
             if (sampler != null) {
-
                 sampler.interrupt();
 
                 try {
-
                     sampler.join(2_000L);
-
                 } catch (InterruptedException exception) {
-
                     Thread.currentThread().interrupt();
                 }
             }
