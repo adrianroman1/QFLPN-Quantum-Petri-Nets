@@ -1,9 +1,9 @@
 ## QFLPN P3 benchmark summary
 
 - Validation: **PASS**
-- Run ID: `p3-40247734501-1`
+- Run ID: `p3-40428526749-1`
 - Schema: `qflpn-benchmark-v2`
-- Valid CSV records: 47
+- Valid CSV records: 48
 - Dimension: 1000000
 - Non-zero values: 2000000
 - Warm-up iterations: 5
@@ -11,16 +11,16 @@
 
 | Metric | Sequential | Parallel |
 |---|---:|---:|
-| Mean (ms) | 2.287325 | 8.012424 |
-| Median (ms) | 2.325160 | 8.786630 |
-| Std. dev. (ms) | 0.427145 | 1.713695 |
-| Throughput (states/s) | 437191897.208 | 124806180.682 |
+| Mean (ms) | 2.598032 | 2.207387 |
+| Median (ms) | 2.590343 | 1.887447 |
+| Std. dev. (ms) | 0.033764 | 0.575869 |
+| Throughput (states/s) | 384906714.586 | 453024301.900 |
 
-- Speedup: **0.285472×**
+- Speedup: **1.176972×**
 - Sequential oracle error: `0.000000000000e+00`
 - Parallel oracle error: `0.000000000000e+00`
 - Maximum absolute error: `0.000000000000e+00`
-- JSON report: `P3/results/raw/p3-40247734501-1/validation-report.json`
-- CSV evidence: `P3/benchmarks/benchmark_results_v2.csv`
+- JSON report: `/home/runner/work/QFLPN-Quantum-Petri-Nets/QFLPN-Quantum-Petri-Nets/P3/results/raw/p3-40428526749-1/validation-report.json`
+- CSV evidence: `/home/runner/work/QFLPN-Quantum-Petri-Nets/QFLPN-Quantum-Petri-Nets/P3/benchmarks/benchmark_results_v2.csv`
 
 The CSV row and JSON validation report were matched by the exact RUN_ID.

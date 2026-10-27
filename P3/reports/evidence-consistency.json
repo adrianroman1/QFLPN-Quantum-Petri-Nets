@@ -1,26 +1,39 @@
 {
-  "schema": "qflpn-p3-evidence-consistency-v1",
+  "schema": "qflpn-p3-evidence-consistency-v2",
   "validation": "PASS",
-  "run_id": "p3-40247734501-1",
-  "source_commit": "dbbb23c35d529928574fa78f4d32c2345c336297",
+  "run_id": "p3-40428526749-1",
+  "source_commit": "90ef49ec85f7ce7f376b65f260e425680480a89b",
+  "workflow_run_id": "40428526749",
   "evidence": {
     "environment": "PASS",
-    "csv": "PASS",
-    "validation_json": "PASS",
-    "java_benchmark_json": "PASS",
-    "java_benchmark_txt": "PASS",
-    "run_markdown": "PASS",
-    "persistent_markdown": "PASS",
-    "persistent_validation_json": "PASS",
-    "run_checksums": "PASS"
+    "benchmark_v2": "PASS",
+    "benchmark_v3": "PASS",
+    "v3_authoritative_validator": "PASS",
+    "v3_persistent_report": "PASS",
+    "v3_checksums": "PASS"
   },
-  "verified_run_checksum_files": [
-    "benchmarks/benchmark_results_v2.csv",
-    "results/raw/p3-40247734501-1/benchmark-report.json",
-    "results/raw/p3-40247734501-1/benchmark-report.md",
-    "results/raw/p3-40247734501-1/benchmark-report.txt",
-    "results/raw/p3-40247734501-1/validation-report.json"
-  ],
-  "csv_dimension": 1000000,
-  "csv_nnz": 2000000
+  "benchmark_v2": {
+    "validation": "PASS",
+    "schema": "qflpn-benchmark-v2",
+    "run_id": "p3-40428526749-1",
+    "dimension": 1000000,
+    "nnz": 2000000,
+    "verified_checksums": [
+      "benchmarks/benchmark_results_v2.csv",
+      "results/raw/p3-40428526749-1/benchmark-report.json",
+      "results/raw/p3-40428526749-1/benchmark-report.md",
+      "results/raw/p3-40428526749-1/benchmark-report.txt",
+      "results/raw/p3-40428526749-1/validation-report.json"
+    ]
+  },
+  "benchmark_v3": {
+    "validation": "PASS",
+    "schema": "qflpn-benchmark-v3-validation-v2",
+    "run_id": "p3-40428526749-1",
+    "run_contract": "AB_192",
+    "validated_records": 192,
+    "verified_checksums": [
+      "benchmarks/benchmark_results_v3.csv"
+    ]
+  }
 }
