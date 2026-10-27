@@ -2,7 +2,7 @@
 """Independent, fail-closed acceptance verifier for the complete P3 package.
 
 Acceptance requires:
-- all mandatory p3_validation stages to be successful;
+- all mandatory pre-integrity p3_validation stages to be successful;
 - canonical V2 benchmark validation for the selected RUN_ID;
 - canonical V3 validation with a complete LEGACY_96 or AB_192 matrix;
 - consistent RUN_ID, workflow_run_id and source_commit provenance;
@@ -11,6 +11,11 @@ Acceptance requires:
 
 The global MANIFEST.txt and SHA256SUMS.txt files are excluded from their
 own inventory to avoid self-referential checksums.
+
+Integrity generation and final verification are performed directly by this
+verifier and the p3_validation workflow. They are deliberately not required
+as entries in ci-outcomes.json, because that file is created before those
+integrity stages execute.
 """
 
 from __future__ import annotations
@@ -66,8 +71,23 @@ REQUIRED_PACKAGE_FILES = (
     "P3/reports/evidence-consistency.json",
 )
 
-# Canonical stage identifiers. The p3_validation workflow must record
-# every stage in outcomes["stages"] using the exact identifiers below.
+# Canonical stage identifiers recorded in ci-outcomes.json.
+#
+# These are stages that must have completed successfully before the
+# integrity files are generated and before this final verifier runs.
+#
+# The following stages are intentionally NOT listed here:
+# - p3_integrity_generate
+# - p3_integrity_verify
+# - p3_final_verification
+#
+# They cannot be mandatory entries in ci-outcomes.json because that file
+# is produced before the integrity generation and final verification steps.
+#
+# Their actual operations remain mandatory:
+# - verify_global_integrity() independently checks MANIFEST.txt and
+#   SHA256SUMS.txt;
+# - verify_package() invokes verify_global_integrity() before acceptance.
 REQUIRED_CI_STAGES = (
     "p3_environment",
     "p3_required_files",
@@ -84,9 +104,6 @@ REQUIRED_CI_STAGES = (
     "p3_benchmark_v3_validation",
     "p3_benchmark_summary",
     "p3_evidence_consistency",
-    "p3_integrity_generate",
-    "p3_integrity_verify",
-    "p3_final_verification",
     "p3_artifact_upload",
 )
 
@@ -947,6 +964,9 @@ def verify_package(
         workflow_run_id,
     )
 
+    # These checks are mandatory and independent of ci-outcomes.json.
+    # The verifier reconstructs the inventory and recalculates every
+    # SHA-256 digest before it can return P3_ACCEPTED.
     integrity = verify_global_integrity(root)
 
     return {
