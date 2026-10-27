@@ -555,7 +555,7 @@ class SpmvPlanTest {
                         ROW_POINTERS,
                         THRESHOLD,
                         PARALLELISM,
-                        null
+                        (MultiplyTask.SplitPolicy) null
                 )
         );
     }
