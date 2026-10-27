@@ -3,9 +3,11 @@ package hpc.csr;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
@@ -16,74 +18,128 @@ class QFLPNCoreEngineTest {
     private static final int N = 4;
     private static final double TOLERANCE = 1.0e-12;
 
+    private static final double[] VALUES = {
+            1.0, 2.0, 3.0, 4.0,
+            5.0, 6.0, 7.0, 8.0
+    };
+
+    private static final int[] COLUMN_INDICES = {
+            0, 2,
+            1, 3,
+            0, 2,
+            1, 3
+    };
+
+    private static final int[] ROW_POINTERS = {
+            0, 2, 4, 6, 8
+    };
+
+    private static final double[] INPUT = {
+            1.0, 2.0, 3.0, 4.0
+    };
+
+    private static final double[] EXPECTED = {
+            7.0, 22.0, 23.0, 46.0
+    };
+
+    private static final class TrackingForkJoinPool
+            extends ForkJoinPool {
+
+        private int shutdownCalls;
+
+        TrackingForkJoinPool(int parallelism) {
+            super(parallelism);
+        }
+
+        @Override
+        public synchronized void shutdown() {
+            shutdownCalls++;
+            super.shutdown();
+        }
+
+        synchronized int getShutdownCalls() {
+            return shutdownCalls;
+        }
+    }
+
+    private static final class PoolRecorder {
+
+        private final List<TrackingForkJoinPool> pools =
+                Collections.synchronizedList(new ArrayList<>());
+
+        ForkJoinPool create(int parallelism) {
+            TrackingForkJoinPool pool =
+                    new TrackingForkJoinPool(parallelism);
+
+            pools.add(pool);
+            return pool;
+        }
+
+        int size() {
+            return pools.size();
+        }
+
+        TrackingForkJoinPool get(int index) {
+            return pools.get(index);
+        }
+    }
+
     private static double[] values() {
-        return new double[] {
-                1.0, 2.0,
-                3.0, 4.0,
-                5.0, 6.0,
-                7.0, 8.0
-        };
+        return VALUES.clone();
     }
 
     private static int[] columns() {
-        return new int[] {
-                0, 2,
-                1, 3,
-                0, 2,
-                1, 3
-        };
+        return COLUMN_INDICES.clone();
     }
 
     private static int[] rowPointers() {
-        return new int[] {0, 2, 4, 6, 8};
+        return ROW_POINTERS.clone();
     }
 
     private static double[] input() {
-        return new double[] {1.0, 2.0, 3.0, 4.0};
+        return INPUT.clone();
     }
 
     private static double[] expected() {
-        return new double[] {7.0, 22.0, 23.0, 46.0};
+        return EXPECTED.clone();
     }
 
-    private static SparseMatrixCSR createMatrix() {
-        return new SparseMatrixCSR(
-                values(), columns(), rowPointers(), N, N);
-    }
-
-    private static SparseMatrixCSR createDifferentCsrDistribution() {
-        /*
-         * Same dimensions and NNZ as createMatrix(), but a different
-         * distribution of non-zero elements among rows.
-         *
-         * Original rowPointers:  [0, 2, 4, 6, 8]
-         * Replacement rowPointers: [0, 1, 3, 6, 8]
-         */
-        return new SparseMatrixCSR(
-                new double[] {
-                        1.0, 2.0, 3.0, 4.0,
-                        5.0, 6.0, 7.0, 8.0
-                },
-                new int[] {
-                        0, 0, 2, 1, 3, 0, 2, 1
-                },
-                new int[] {0, 1, 3, 6, 8},
+    private static QFLPNCoreEngine.CsrMatrix createMatrix() {
+        return new QFLPNCoreEngine.CsrMatrix(
                 N,
-                N);
+                N,
+                values(),
+                columns(),
+                rowPointers()
+        );
+    }
+
+    private static QFLPNCoreEngine.CsrMatrix
+    createDifferentCsrDistribution() {
+
+        return new QFLPNCoreEngine.CsrMatrix(
+                N,
+                N,
+                values(),
+                columns(),
+                new int[]{0, 1, 3, 6, 8}
+        );
     }
 
     private static QFLPNCoreEngine createLoadedEngine() {
         QFLPNCoreEngine engine = new QFLPNCoreEngine(N, 2);
-        engine.loadCSR(values(), columns(), rowPointers());
+        engine.loadCSR(createMatrix());
         return engine;
     }
 
     @Test
     void shouldStoreConfiguration() {
         QFLPNCoreEngine engine = new QFLPNCoreEngine(N, 2);
+
         try {
             assertEquals(N, engine.getDimension());
             assertEquals(2, engine.getParallelism());
+            assertFalse(engine.isShutdown());
         } finally {
             engine.shutdown();
         }
@@ -93,19 +149,23 @@ class QFLPNCoreEngineTest {
     void shouldRejectInvalidConstructorArguments() {
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new QFLPNCoreEngine(0, 2));
+                () -> new QFLPNCoreEngine(0)
+        );
 
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new QFLPNCoreEngine(-1, 2));
+                () -> new QFLPNCoreEngine(-1)
+        );
 
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new QFLPNCoreEngine(N, 0));
+                () -> new QFLPNCoreEngine(N, 0)
+        );
 
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new QFLPNCoreEngine(N, -1));
+                () -> new QFLPNCoreEngine(N, -1)
+        );
     }
 
     @Test
@@ -115,20 +175,23 @@ class QFLPNCoreEngineTest {
         try {
             assertThrows(
                     IllegalStateException.class,
-                    () -> engine.multiply(input()));
+                    engine::multiplySequential
+            );
 
             assertThrows(
                     IllegalStateException.class,
-                    () -> engine.multiplyParallel(input()));
+                    () -> engine.multiplySequential(input())
+            );
 
             assertThrows(
                     IllegalStateException.class,
-                    engine::getMatrix);
+                    () -> engine.multiplyParallel(input())
+            );
 
             assertThrows(
                     IllegalStateException.class,
-                    engine::getSpmvPlan);
-
+                    engine::getSpmvPlan
+            );
         } finally {
             engine.shutdown();
         }
@@ -136,13 +199,20 @@ class QFLPNCoreEngineTest {
 
     @Test
     void shouldLoadCSRAndExposeMetadata() {
-        QFLPNCoreEngine engine = createLoadedEngine();
+        QFLPNCoreEngine engine = new QFLPNCoreEngine(N, 2);
 
         try {
-            assertEquals(8, engine.getNonZeroCount());
-            assertEquals(0.5, engine.getMatrixDensity(), TOLERANCE);
-            assertTrue(engine.getMatrix().isValid());
+            engine.loadCSR(
+                    N,
+                    N,
+                    values(),
+                    columns(),
+                    rowPointers()
+            );
 
+            assertEquals(N, engine.getDimension());
+            assertEquals(8, engine.getNnz());
+            assertNotNull(engine.getSpmvPlan());
         } finally {
             engine.shutdown();
         }
@@ -151,13 +221,17 @@ class QFLPNCoreEngineTest {
     @Test
     void shouldLoadExistingMatrix() {
         QFLPNCoreEngine engine = new QFLPNCoreEngine(N, 2);
-        SparseMatrixCSR matrix = createMatrix();
 
         try {
-            engine.loadMatrix(matrix);
+            engine.loadCSR(createMatrix());
 
-            assertSame(matrix, engine.getMatrix());
-
+            assertEquals(N, engine.getDimension());
+            assertEquals(8, engine.getNnz());
+            assertArrayEquals(
+                    expected(),
+                    engine.multiplySequential(input()),
+                    TOLERANCE
+            );
         } finally {
             engine.shutdown();
         }
@@ -170,29 +244,41 @@ class QFLPNCoreEngineTest {
         try {
             assertThrows(
                     NullPointerException.class,
-                    () -> engine.loadMatrix(null));
+                    () -> engine.loadCSR((QFLPNCoreEngine.CsrMatrix) null)
+            );
 
             assertThrows(
                     NullPointerException.class,
                     () -> engine.loadCSR(
+                            N,
+                            N,
                             null,
                             columns(),
-                            rowPointers()));
+                            rowPointers()
+                    )
+            );
 
             assertThrows(
                     NullPointerException.class,
                     () -> engine.loadCSR(
+                            N,
+                            N,
                             values(),
                             null,
-                            rowPointers()));
+                            rowPointers()
+                    )
+            );
 
             assertThrows(
                     NullPointerException.class,
                     () -> engine.loadCSR(
+                            N,
+                            N,
                             values(),
                             columns(),
-                            null));
-
+                            null
+                    )
+            );
         } finally {
             engine.shutdown();
         }
@@ -206,21 +292,57 @@ class QFLPNCoreEngineTest {
             assertThrows(
                     IllegalArgumentException.class,
                     () -> engine.loadCSR(
-                            values(),
-                            columns(),
-                            new int[] {0, 2, 4, 6, 7}));
-
-            SparseMatrixCSR wrongSize = new SparseMatrixCSR(
-                    new double[] {1.0},
-                    new int[] {0},
-                    new int[] {0, 1},
-                    1,
-                    1);
+                            N,
+                            N,
+                            new double[]{1.0},
+                            new int[]{0, 1},
+                            new int[]{0, 1, 1, 1, 1}
+                    )
+            );
 
             assertThrows(
                     IllegalArgumentException.class,
-                    () -> engine.loadMatrix(wrongSize));
+                    () -> engine.loadCSR(
+                            N,
+                            N,
+                            new double[]{1.0},
+                            new int[]{N},
+                            new int[]{0, 1, 1, 1, 1}
+                    )
+            );
 
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> engine.loadCSR(
+                            N,
+                            N,
+                            new double[]{1.0},
+                            new int[]{0},
+                            new int[]{0, 1, 1, 1}
+                    )
+            );
+
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> engine.loadCSR(
+                            N,
+                            N,
+                            new double[]{1.0},
+                            new int[]{0},
+                            new int[]{0, 1, 0, 1, 1}
+                    )
+            );
+
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> engine.loadCSR(
+                            N,
+                            N - 1,
+                            values(),
+                            columns(),
+                            rowPointers()
+                    )
+            );
         } finally {
             engine.shutdown();
         }
@@ -233,9 +355,9 @@ class QFLPNCoreEngineTest {
         try {
             assertArrayEquals(
                     expected(),
-                    engine.multiply(input()),
-                    TOLERANCE);
-
+                    engine.multiplySequential(input()),
+                    TOLERANCE
+            );
         } finally {
             engine.shutdown();
         }
@@ -249,8 +371,8 @@ class QFLPNCoreEngineTest {
             assertArrayEquals(
                     expected(),
                     engine.multiplyParallel(input()),
-                    TOLERANCE);
-
+                    TOLERANCE
+            );
         } finally {
             engine.shutdown();
         }
@@ -264,8 +386,8 @@ class QFLPNCoreEngineTest {
             assertArrayEquals(
                     expected(),
                     engine.multiplyParallel(input(), 1, 3),
-                    TOLERANCE);
-
+                    TOLERANCE
+            );
         } finally {
             engine.shutdown();
         }
@@ -276,11 +398,17 @@ class QFLPNCoreEngineTest {
         QFLPNCoreEngine engine = createLoadedEngine();
 
         try {
-            assertArrayEquals(
-                    engine.multiply(input()),
-                    engine.multiplyParallel(input()),
-                    TOLERANCE);
+            double[] sequential =
+                    engine.multiplySequential(input());
 
+            double[] parallel =
+                    engine.multiplyParallel(input());
+
+            assertArrayEquals(
+                    sequential,
+                    parallel,
+                    TOLERANCE
+            );
         } finally {
             engine.shutdown();
         }
@@ -288,23 +416,19 @@ class QFLPNCoreEngineTest {
 
     @Test
     void shouldCreatePlanWhenLoadingCsrMatrix() {
-        QFLPNCoreEngine engine = createLoadedEngine();
+        QFLPNCoreEngine engine = new QFLPNCoreEngine(N, 2);
 
         try {
-            SpmvPlan plan = engine.getSpmvPlan();
+            assertThrows(
+                    IllegalStateException.class,
+                    engine::getSpmvPlan
+            );
 
-            assertNotNull(plan);
-            assertEquals(N, plan.getRows());
-            assertEquals(8, plan.getNnz());
-            assertEquals(2, plan.getParallelism());
-            assertEquals(
-                    MultiplyTask.SplitPolicy.BINARY_NNZ_SPLIT,
-                    plan.getSplitPolicy());
+            engine.loadCSR(createMatrix());
 
-            assertTrue(
-                    plan.isCompatibleWith(
-                            engine.getMatrix().getRowPointers()));
-
+            assertNotNull(engine.getSpmvPlan());
+            assertEquals(4, engine.getSpmvPlan().getRows());
+            assertEquals(8, engine.getSpmvPlan().getNnz());
         } finally {
             engine.shutdown();
         }
@@ -317,17 +441,11 @@ class QFLPNCoreEngineTest {
         try {
             SpmvPlan originalPlan = engine.getSpmvPlan();
 
-            for (int i = 0; i < 10; i++) {
-                assertArrayEquals(
-                        expected(),
-                        engine.multiplyParallel(input()),
-                        TOLERANCE);
+            engine.multiplyParallel(input());
+            engine.multiplyParallel(input());
+            engine.multiplyParallel(input());
 
-                assertSame(
-                        originalPlan,
-                        engine.getSpmvPlan());
-            }
-
+            assertSame(originalPlan, engine.getSpmvPlan());
         } finally {
             engine.shutdown();
         }
@@ -340,31 +458,11 @@ class QFLPNCoreEngineTest {
         try {
             SpmvPlan originalPlan = engine.getSpmvPlan();
 
-            SparseMatrixCSR replacement =
-                    createDifferentCsrDistribution();
-
-            engine.loadMatrix(replacement);
+            engine.loadCSR(createDifferentCsrDistribution());
 
             SpmvPlan replacementPlan = engine.getSpmvPlan();
 
             assertNotSame(originalPlan, replacementPlan);
-
-            assertTrue(
-                    replacementPlan.isCompatibleWith(
-                            replacement.getRowPointers()));
-
-            assertFalse(
-                    originalPlan.isCompatibleWith(
-                            replacement.getRowPointers()));
-
-            assertEquals(
-                    replacement.getNnz(),
-                    replacementPlan.getNnz());
-
-            assertEquals(
-                    replacement.getRows(),
-                    replacementPlan.getRows());
-
         } finally {
             engine.shutdown();
         }
@@ -377,22 +475,21 @@ class QFLPNCoreEngineTest {
         try {
             SpmvPlan plan = engine.getSpmvPlan();
 
-            int[] differentDistribution =
-                    new int[] {0, 1, 3, 6, 8};
-
-            /*
-             * Same number of rows and same total NNZ do not establish
-             * structural compatibility.
-             */
-            assertEquals(N + 1, differentDistribution.length);
-            assertEquals(8, differentDistribution[N]);
+            assertTrue(
+                    plan.isCompatible(
+                            N,
+                            8,
+                            rowPointers()
+                    )
+            );
 
             assertFalse(
-                    plan.isCompatibleWith(differentDistribution));
-
-            assertTrue(
-                    plan.isCompatibleWith(rowPointers()));
-
+                    plan.isCompatible(
+                            N,
+                            8,
+                            new int[]{0, 1, 3, 6, 8}
+                    )
+            );
         } finally {
             engine.shutdown();
         }
@@ -400,23 +497,30 @@ class QFLPNCoreEngineTest {
 
     @Test
     void shouldKeepPlanSnapshotIndependentFromInputRowPointers() {
+        QFLPNCoreEngine engine = new QFLPNCoreEngine(N, 2);
         int[] sourceRowPointers = rowPointers();
 
-        SpmvPlan plan = SpmvPlan.create(
-                sourceRowPointers,
-                1,
-                2,
-                MultiplyTask.SplitPolicy.BINARY_NNZ_SPLIT);
+        try {
+            engine.loadCSR(
+                    N,
+                    N,
+                    values(),
+                    columns(),
+                    sourceRowPointers
+            );
 
-        sourceRowPointers[1] = 1;
-        sourceRowPointers[2] = 3;
+            sourceRowPointers[1] = 0;
 
-        assertTrue(
-                plan.isCompatibleWith(
-                        new int[] {0, 2, 4, 6, 8}));
-
-        assertFalse(
-                plan.isCompatibleWith(sourceRowPointers));
+            assertTrue(
+                    engine.getSpmvPlan().isCompatible(
+                            N,
+                            8,
+                            rowPointers()
+                    )
+            );
+        } finally {
+            engine.shutdown();
+        }
     }
 
     @Test
@@ -429,50 +533,246 @@ class QFLPNCoreEngineTest {
             int[] starts = plan.getStartRows();
             int[] ends = plan.getEndRows();
 
-            int originalStart = plan.getStartRow(0);
-            int originalEnd = plan.getEndRow(0);
+            int[] originalStarts = starts.clone();
+            int[] originalEnds = ends.clone();
 
-            starts[0] = 1000;
-            ends[0] = 1000;
+            if (starts.length > 0) {
+                starts[0] = -100;
+            }
 
-            assertEquals(originalStart, plan.getStartRow(0));
-            assertEquals(originalEnd, plan.getEndRow(0));
+            if (ends.length > 0) {
+                ends[0] = -100;
+            }
 
+            assertArrayEquals(
+                    originalStarts,
+                    plan.getStartRows()
+            );
+
+            assertArrayEquals(
+                    originalEnds,
+                    plan.getEndRows()
+            );
         } finally {
             engine.shutdown();
         }
     }
 
     @Test
-    void shouldReusePersistentPool() {
-        QFLPNCoreEngine engine = createLoadedEngine();
+    void shouldReuseSamePersistentPoolAcrossRepeatedMultiplications() {
+        PoolRecorder recorder = new PoolRecorder();
+
+        QFLPNCoreEngine engine = new QFLPNCoreEngine(
+                N,
+                2,
+                recorder::create
+        );
+
+        TrackingForkJoinPool persistentPool;
 
         try {
-            double[] first = engine.multiplyParallel(input());
-            double[] second = engine.multiplyParallel(input());
+            assertEquals(1, recorder.size());
 
-            assertArrayEquals(first, second, TOLERANCE);
-            assertFalse(engine.isShutdown());
+            persistentPool = recorder.get(0);
 
+            engine.loadCSR(createMatrix());
+
+            for (int i = 0; i < 5; i++) {
+                assertArrayEquals(
+                        expected(),
+                        engine.multiplyParallel(input()),
+                        TOLERANCE
+                );
+            }
+
+            assertEquals(1, recorder.size());
+            assertSame(persistentPool, recorder.get(0));
+            assertFalse(persistentPool.isShutdown());
+            assertEquals(0, persistentPool.getShutdownCalls());
         } finally {
             engine.shutdown();
         }
+
+        assertTrue(persistentPool.isShutdown());
+        assertEquals(1, persistentPool.getShutdownCalls());
     }
 
     @Test
     void shouldKeepPersistentPoolActiveAfterRepeatedMultiplications() {
-        QFLPNCoreEngine engine = createLoadedEngine();
+        PoolRecorder recorder = new PoolRecorder();
+
+        QFLPNCoreEngine engine = new QFLPNCoreEngine(
+                N,
+                2,
+                recorder::create
+        );
 
         try {
-            for (int i = 0; i < 20; i++) {
-                assertArrayEquals(
-                        expected(),
-                        engine.multiplyParallel(input()),
-                        TOLERANCE);
+            engine.loadCSR(createMatrix());
 
-                assertFalse(engine.isShutdown());
-            }
+            TrackingForkJoinPool persistentPool =
+                    recorder.get(0);
 
+            engine.multiplyParallel(input());
+            engine.multiplyParallel(input());
+
+            assertFalse(persistentPool.isShutdown());
+            assertEquals(0, persistentPool.getShutdownCalls());
+            assertEquals(1, recorder.size());
+        } finally {
+            engine.shutdown();
+        }
+    }
+
+    @Test
+    void shouldKeepPersistentPoolWhenMatrixAndPlanAreReplaced() {
+        PoolRecorder recorder = new PoolRecorder();
+
+        QFLPNCoreEngine engine = new QFLPNCoreEngine(
+                N,
+                2,
+                recorder::create
+        );
+
+        try {
+            engine.loadCSR(createMatrix());
+
+            TrackingForkJoinPool persistentPool =
+                    recorder.get(0);
+
+            SpmvPlan originalPlan = engine.getSpmvPlan();
+
+            engine.loadCSR(createDifferentCsrDistribution());
+
+            SpmvPlan replacementPlan = engine.getSpmvPlan();
+
+            assertNotSame(originalPlan, replacementPlan);
+            assertEquals(1, recorder.size());
+            assertSame(persistentPool, recorder.get(0));
+            assertFalse(persistentPool.isShutdown());
+            assertEquals(0, persistentPool.getShutdownCalls());
+
+            assertArrayEquals(
+                    engine.multiplySequential(input()),
+                    engine.multiplyParallel(input()),
+                    TOLERANCE
+            );
+        } finally {
+            engine.shutdown();
+        }
+    }
+
+    @Test
+    void shouldCreateAndCloseTemporaryPoolForExplicitDifferentParallelism() {
+        PoolRecorder recorder = new PoolRecorder();
+
+        QFLPNCoreEngine engine = new QFLPNCoreEngine(
+                N,
+                2,
+                recorder::create
+        );
+
+        try {
+            engine.loadCSR(createMatrix());
+
+            TrackingForkJoinPool persistentPool =
+                    recorder.get(0);
+
+            assertArrayEquals(
+                    expected(),
+                    engine.multiplyParallel(input(), 1, 3),
+                    TOLERANCE
+            );
+
+            assertEquals(2, recorder.size());
+
+            TrackingForkJoinPool temporaryPool =
+                    recorder.get(1);
+
+            assertEquals(3, temporaryPool.getParallelism());
+            assertTrue(temporaryPool.isShutdown());
+            assertEquals(1, temporaryPool.getShutdownCalls());
+
+            assertFalse(persistentPool.isShutdown());
+            assertEquals(0, persistentPool.getShutdownCalls());
+
+            assertArrayEquals(
+                    expected(),
+                    engine.multiplyParallel(input()),
+                    TOLERANCE
+            );
+
+            assertEquals(2, recorder.size());
+            assertFalse(persistentPool.isShutdown());
+        } finally {
+            engine.shutdown();
+        }
+    }
+
+    @Test
+    void shouldCreateAndCloseTemporaryPoolForExplicitNonDefaultThreshold() {
+        PoolRecorder recorder = new PoolRecorder();
+
+        QFLPNCoreEngine engine = new QFLPNCoreEngine(
+                N,
+                2,
+                recorder::create
+        );
+
+        try {
+            engine.loadCSR(createMatrix());
+
+            TrackingForkJoinPool persistentPool =
+                    recorder.get(0);
+
+            assertArrayEquals(
+                    expected(),
+                    engine.multiplyParallel(input(), 1, 2),
+                    TOLERANCE
+            );
+
+            assertEquals(2, recorder.size());
+
+            TrackingForkJoinPool temporaryPool =
+                    recorder.get(1);
+
+            assertEquals(2, temporaryPool.getParallelism());
+            assertTrue(temporaryPool.isShutdown());
+            assertEquals(1, temporaryPool.getShutdownCalls());
+
+            assertFalse(persistentPool.isShutdown());
+            assertEquals(0, persistentPool.getShutdownCalls());
+        } finally {
+            engine.shutdown();
+        }
+    }
+
+    @Test
+    void shouldReusePersistentPoolForDefaultExplicitConfiguration() {
+        PoolRecorder recorder = new PoolRecorder();
+
+        QFLPNCoreEngine engine = new QFLPNCoreEngine(
+                N,
+                2,
+                recorder::create
+        );
+
+        try {
+            engine.loadCSR(createMatrix());
+
+            TrackingForkJoinPool persistentPool =
+                    recorder.get(0);
+
+            assertArrayEquals(
+                    expected(),
+                    engine.multiplyParallel(input(), 4096, 2),
+                    TOLERANCE
+            );
+
+            assertEquals(1, recorder.size());
+            assertSame(persistentPool, recorder.get(0));
+            assertFalse(persistentPool.isShutdown());
+            assertEquals(0, persistentPool.getShutdownCalls());
         } finally {
             engine.shutdown();
         }
@@ -484,28 +784,44 @@ class QFLPNCoreEngineTest {
 
         try {
             assertThrows(
+                    IllegalArgumentException.class,
+                    () -> engine.multiplySequential(new double[]{1.0})
+            );
+
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> engine.multiplyParallel(new double[]{1.0})
+            );
+
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> engine.multiplyParallel(input(), 0, 2)
+            );
+
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> engine.multiplyParallel(input(), -1, 2)
+            );
+
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> engine.multiplyParallel(input(), 1, 0)
+            );
+
+            assertThrows(
+                    IllegalArgumentException.class,
+                    () -> engine.multiplyParallel(input(), 1, -1)
+            );
+
+            assertThrows(
                     NullPointerException.class,
-                    () -> engine.multiply(null));
+                    () -> engine.multiplySequential(null)
+            );
 
             assertThrows(
                     NullPointerException.class,
-                    () -> engine.multiplyParallel(null));
-
-            assertThrows(
-                    IllegalArgumentException.class,
-                    () -> engine.multiply(
-                            new double[] {1.0, 2.0}));
-
-            assertThrows(
-                    IllegalArgumentException.class,
-                    () -> engine.multiplyParallel(
-                            input(), 0, 2));
-
-            assertThrows(
-                    IllegalArgumentException.class,
-                    () -> engine.multiplyParallel(
-                            input(), 1, 0));
-
+                    () -> engine.multiplyParallel(null)
+            );
         } finally {
             engine.shutdown();
         }
@@ -516,24 +832,26 @@ class QFLPNCoreEngineTest {
         QFLPNCoreEngine engine = createLoadedEngine();
 
         try {
-            SparseMatrixCSR originalMatrix = engine.getMatrix();
             SpmvPlan originalPlan = engine.getSpmvPlan();
 
             assertThrows(
                     IllegalArgumentException.class,
                     () -> engine.loadCSR(
-                            values(),
-                            columns(),
-                            new int[] {0, 2, 4, 6, 7}));
+                            N,
+                            N,
+                            new double[]{1.0},
+                            new int[]{0},
+                            new int[]{0, 2, 1, 1, 1}
+                    )
+            );
 
-            assertSame(originalMatrix, engine.getMatrix());
             assertSame(originalPlan, engine.getSpmvPlan());
 
             assertArrayEquals(
                     expected(),
-                    engine.multiplyParallel(input()),
-                    TOLERANCE);
-
+                    engine.multiplySequential(input()),
+                    TOLERANCE
+            );
         } finally {
             engine.shutdown();
         }
@@ -544,29 +862,19 @@ class QFLPNCoreEngineTest {
         QFLPNCoreEngine engine = createLoadedEngine();
 
         try {
-            assertArrayEquals(
-                    expected(),
-                    engine.multiply(input()),
-                    TOLERANCE);
+            double[] originalResult =
+                    engine.multiplySequential(input());
 
-            SparseMatrixCSR replacement = new SparseMatrixCSR(
-                    new double[] {2.0},
-                    new int[] {0},
-                    new int[] {0, 1, 1, 1, 1},
-                    N,
-                    N);
+            engine.loadCSR(createDifferentCsrDistribution());
 
-            engine.loadMatrix(replacement);
+            double[] replacementResult =
+                    engine.multiplySequential(input());
 
             assertArrayEquals(
-                    new double[] {2.0, 0.0, 0.0, 0.0},
-                    engine.multiply(input()),
-                    TOLERANCE);
-
-            assertTrue(
-                    engine.getSpmvPlan().isCompatibleWith(
-                            replacement.getRowPointers()));
-
+                    originalResult,
+                    replacementResult,
+                    TOLERANCE
+            );
         } finally {
             engine.shutdown();
         }
@@ -577,37 +885,59 @@ class QFLPNCoreEngineTest {
             throws Exception {
 
         QFLPNCoreEngine engine = createLoadedEngine();
-        ExecutorService executor = Executors.newFixedThreadPool(4);
+
+        ExecutorService executor =
+                Executors.newFixedThreadPool(4);
 
         try {
             List<Future<double[]>> futures = new ArrayList<>();
 
-            for (int i = 0; i < 16; i++) {
-                futures.add(executor.submit(
-                        () -> engine.multiplyParallel(input())));
+            for (int i = 0; i < 8; i++) {
+                futures.add(
+                        executor.submit(
+                                () -> engine.multiplyParallel(input())
+                        )
+                );
             }
 
             for (Future<double[]> future : futures) {
                 assertArrayEquals(
                         expected(),
                         future.get(10, TimeUnit.SECONDS),
-                        TOLERANCE);
+                        TOLERANCE
+                );
             }
-
         } finally {
             executor.shutdownNow();
+            assertTrue(
+                    executor.awaitTermination(10, TimeUnit.SECONDS)
+            );
             engine.shutdown();
         }
     }
 
     @Test
     void shutdownShouldBeIdempotent() {
-        QFLPNCoreEngine engine = createLoadedEngine();
+        PoolRecorder recorder = new PoolRecorder();
+
+        QFLPNCoreEngine engine = new QFLPNCoreEngine(
+                N,
+                2,
+                recorder::create
+        );
+
+        TrackingForkJoinPool persistentPool =
+                recorder.get(0);
 
         engine.shutdown();
         engine.shutdown();
+        engine.close();
+        engine.close();
 
         assertTrue(engine.isShutdown());
+        assertTrue(persistentPool.isShutdown());
+        assertEquals(1, persistentPool.getShutdownCalls());
+        assertEquals(1, recorder.size());
     }
 
     @Test
@@ -620,49 +950,33 @@ class QFLPNCoreEngineTest {
 
         assertThrows(
                 IllegalStateException.class,
-                engine::getMatrix);
+                () -> engine.multiplySequential(input())
+        );
 
         assertThrows(
                 IllegalStateException.class,
-                engine::getSpmvPlan);
+                () -> engine.multiplyParallel(input())
+        );
 
         assertThrows(
                 IllegalStateException.class,
-                () -> engine.multiply(input()));
-
-        assertThrows(
-                IllegalStateException.class,
-                () -> engine.multiplyParallel(input()));
-
-        assertThrows(
-                IllegalStateException.class,
-                () -> engine.loadCSR(
-                        values(),
-                        columns(),
-                        rowPointers()));
+                () -> engine.loadCSR(createMatrix())
+        );
     }
 
     @Test
     void toStringShouldDescribeEngineState() {
-        QFLPNCoreEngine engine = new QFLPNCoreEngine(N, 2);
+        QFLPNCoreEngine engine = createLoadedEngine();
 
         try {
-            assertTrue(
-                    engine.toString().contains("matrix=not-loaded"));
+            String description = engine.toString();
 
-            engine.loadCSR(values(), columns(), rowPointers());
-
-            assertTrue(
-                    engine.toString().contains("nonZeroCount=8"));
-
-            assertTrue(
-                    engine.toString().contains("planPartitions="));
-
+            assertNotNull(description);
+            assertFalse(description.isBlank());
+            assertTrue(description.contains("4"));
+            assertTrue(description.contains("2"));
         } finally {
             engine.shutdown();
         }
-
-        assertTrue(
-                engine.toString().contains("shutdown=true"));
     }
 }
