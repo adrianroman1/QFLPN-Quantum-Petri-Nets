@@ -948,10 +948,10 @@ jobs:
             ${{ runner.temp }}/p3-final-package-verification.json
 
       # ============================================================
-      # 17. AUTOMATIC GITHUB ACTIONS SUMMARY
+      # 17. AUTOMATIC GITHUB ACTIONS SUMMARY — DYNAMIC EVIDENCE INDEX
       # ============================================================
 
-      - name: Publish P3 validation summary and evidence index
+      - name: Publish P3 validation summary and automatic evidence index
         id: p3_publish_summary
         if: always()
         shell: bash
@@ -960,7 +960,7 @@ jobs:
           FINAL_ARTIFACT_OUTCOME: ${{ steps.p3_final_artifact.outcome }}
           FINAL_ARTIFACT_URL: ${{ steps.p3_final_artifact.outputs.artifact-url }}
         run: |
-          set -euo pipefail
+          set -Eeuo pipefail
 
           SUMMARY="${GITHUB_STEP_SUMMARY}"
           RAW="P3/results/raw/${P3_RUN_ID}"
@@ -972,16 +972,17 @@ jobs:
           fi
 
           {
-            echo "# P3 — Validation and evidence"
+            echo "# P3 — Validation and complete evidence index"
             echo
             echo "| Field | Value |"
             echo "|---|---|"
-            echo "| Workflow | \`p3_validation\` |"
+            echo "| Workflow job | \`p3_validation\` |"
             echo "| Run ID | \`${P3_RUN_ID}\` |"
             echo "| Workflow run | \`${P3_WORKFLOW_RUN_ID:-${GITHUB_RUN_ID}}\` |"
-            echo "| Commit | \`${P3_SOURCE_COMMIT:-${GITHUB_SHA}}\` |"
-            echo "| Final verification | **${VERDICT}** |"
-            echo "| Final artifact upload | \`${FINAL_ARTIFACT_OUTCOME}\` |"
+            echo "| Source commit | \`${P3_SOURCE_COMMIT:-${GITHUB_SHA}}\` |"
+            echo "| Final verification outcome | \`${FINAL_VERIFICATION_OUTCOME}\` |"
+            echo "| Final artifact outcome | \`${FINAL_ARTIFACT_OUTCOME}\` |"
+            echo "| Final verdict | **${VERDICT}** |"
             echo
             echo "## Complete downloadable evidence"
             echo
@@ -991,82 +992,158 @@ jobs:
             echo "[Open complete P3 validation artifact](${FINAL_ARTIFACT_URL})" \
               >> "${SUMMARY}"
           else
-            echo "Artifact URL is not available for this execution." \
+            echo "The final artifact URL is not available for this execution." \
               >> "${SUMMARY}"
           fi
 
           {
             echo
-            echo "The artifact contains the complete files listed below."
+            echo "## Automatic file inventory"
             echo
-            echo "## Published files"
-            echo
-            echo "- \`P3/MANIFEST.txt\`"
-            echo "- \`P3/SHA256SUMS.txt\`"
-            echo "- \`P3/results/run_benchmark.sh\`"
-            echo "- \`P3/benchmarks/benchmark_results_v2.csv\`"
-            echo "- \`P3/benchmarks/benchmark_results_v3.csv\`"
-            echo "- \`P3/reports/*.json\`"
-            echo "- \`P3/reports/*.txt\`"
-            echo "- \`P3/reports/*.md\`"
-            echo "- \`P3/results/raw/${P3_RUN_ID}/\`"
-            echo "- \`P3/target/surefire-reports/\`"
+            echo "The following index is generated from files actually present at runtime."
             echo
           } >> "${SUMMARY}"
 
-          append_file() {
-            local title="$1"
-            local file="$2"
-            local limit="${3:-200}"
+          declare -a INVENTORY=()
+          declare -A SEEN=()
+
+          add_file() {
+            local file="$1"
+
+            if [[ -f "${file}" && ! -L "${file}" ]]; then
+              if [[ -z "${SEEN[${file}]+present}" ]]; then
+                INVENTORY+=("${file}")
+                SEEN["${file}"]=1
+              fi
+            fi
+          }
+
+          add_tree() {
+            local directory="$1"
+
+            if [[ -d "${directory}" && ! -L "${directory}" ]]; then
+              while IFS= read -r -d '' file; do
+                add_file "${file}"
+              done < <(
+                find "${directory}" \
+                  -type f \
+                  ! -type l \
+                  -print0 |
+                  LC_ALL=C sort -z
+              )
+            fi
+          }
+
+          # Canonical package and benchmark files.
+          add_file "P3/MANIFEST.txt"
+          add_file "P3/SHA256SUMS.txt"
+          add_file "P3/results/run_benchmark.sh"
+          add_file "P3/benchmarks/benchmark_results_v2.csv"
+          add_file "P3/benchmarks/benchmark_results_v3.csv"
+
+          # All generated reports and run-specific evidence.
+          add_tree "P3/reports"
+          add_tree "${RAW}"
+          add_tree "P3/target/surefire-reports"
+
+          # Include the final verifier output when it exists.
+          add_file "${RUNNER_TEMP}/p3-final-package-verification.json"
+
+          if [[ "${#INVENTORY[@]}" -eq 0 ]]; then
+            {
+              echo "No evidence files were found by the automatic inventory."
+              echo
+              echo "Check the preceding workflow steps and artifact upload."
+            } >> "${SUMMARY}"
+          else
+            {
+              echo "| No. | File | Size (bytes) |"
+              echo "|---:|---|---:|"
+            } >> "${SUMMARY}"
+
+            index=0
+
+            for file in "${INVENTORY[@]}"; do
+              index=$((index + 1))
+              size="$(wc -c < "${file}")"
+              printf '| %s | `%s` | %s |\n' \
+                "${index}" "${file}" "${size}" >> "${SUMMARY}"
+            done
 
             {
-              echo "## ${title}"
               echo
-              if [[ -f "${file}" && ! -L "${file}" ]]; then
-                echo '```text'
-                sed -n "1,${limit}p" "${file}"
-                if [[ "$(wc -l < "${file}")" -gt "${limit}" ]]; then
-                  echo
-                  echo "[Display limited to ${limit} lines. Full file is in the artifact.]"
-                fi
-                echo '```'
-              else
-                echo "File not available in this execution: \`${file}\`"
+              echo "**Total indexed files:** ${#INVENTORY[@]}"
+              echo
+            } >> "${SUMMARY}"
+          fi
+
+          append_preview() {
+            local file="$1"
+            local limit="${2:-60}"
+            local line_count
+
+            {
+              echo "### ${file}"
+              echo
+            } >> "${SUMMARY}"
+
+            if [[ ! -f "${file}" || -L "${file}" ]]; then
+              {
+                echo "File not available in this execution."
+                echo
+              } >> "${SUMMARY}"
+              return 0
+            fi
+
+            line_count="$(wc -l < "${file}")"
+
+            {
+              echo '```text'
+              sed -n "1,${limit}p" "${file}"
+              if [[ "${line_count}" -gt "${limit}" ]]; then
+                echo
+                echo "[Preview limited to ${limit} lines. The complete file is in the artifact.]"
               fi
+              echo '```'
               echo
             } >> "${SUMMARY}"
           }
 
-          append_file "MANIFEST.txt" "P3/MANIFEST.txt" 200
-          append_file "SHA256SUMS.txt" "P3/SHA256SUMS.txt" 200
-          append_file "run_benchmark.sh" "P3/results/run_benchmark.sh" 200
-          append_file "V2 benchmark CSV — preview" \
-            "P3/benchmarks/benchmark_results_v2.csv" 30
-          append_file "V3 benchmark CSV — preview" \
-            "P3/benchmarks/benchmark_results_v3.csv" 30
-          append_file "V2 benchmark report" \
-            "P3/reports/benchmark-report.md" 200
-          append_file "V2 benchmark report TXT" \
-            "P3/reports/benchmark-report.txt" 200
-          append_file "V3 validation report" \
-            "P3/reports/benchmark-v3-validation.json" 200
-          append_file "Evidence consistency report" \
-            "P3/reports/evidence-consistency.json" 200
+          {
+            echo "## Automatic content previews"
+            echo
+            echo "Previews are generated only for text files found in the inventory."
+            echo "Each preview is limited to 60 lines; complete files remain in the artifact."
+            echo
+          } >> "${SUMMARY}"
+
+          for file in "${INVENTORY[@]}"; do
+            case "${file}" in
+              *.json|*.txt|*.md|*.csv|*.xml|*.log|*.sh)
+                append_preview "${file}" 60
+                ;;
+            esac
+          done
 
           {
             echo "## Integrity chain"
             echo
-            echo "1. \`compute_checksums.py\` generates the global inventory."
-            echo "2. \`MANIFEST.txt\` records the package inventory."
-            echo "3. \`SHA256SUMS.txt\` records file digests."
-            echo "4. \`verify_global_integrity()\` independently checks the inventory and digests."
-            echo "5. \`verify_final_package.py\` evaluates the final P3 package."
+            echo "1. \`compute_checksums.py\` generates the global package inventory."
+            echo "2. \`P3/MANIFEST.txt\` records the package files."
+            echo "3. \`P3/SHA256SUMS.txt\` records the SHA-256 digests."
+            echo "4. \`verify_global_integrity()\` independently verifies the inventory and digests."
+            echo "5. \`verify_final_package.py\` evaluates the complete P3 package."
             echo
-            echo "## Execution result"
+            echo "## Final execution status"
             echo
-            echo "- Final verifier outcome: \`${FINAL_VERIFICATION_OUTCOME}\`"
-            echo "- Final artifact outcome: \`${FINAL_ARTIFACT_OUTCOME}\`"
-            echo "- P3 verdict: **${VERDICT}**"
+            echo "- Final verifier: \`${FINAL_VERIFICATION_OUTCOME}\`"
+            echo "- Final artifact upload: \`${FINAL_ARTIFACT_OUTCOME}\`"
+            echo "- Final verdict: **${VERDICT}**"
+            echo "- Workflow job: \`p3_validation\`"
+            echo
+            echo "---"
+            echo "P3 automatic evidence index generation completed."
           } >> "${SUMMARY}"
 
           echo "P3_GITHUB_STEP_SUMMARY: PUBLISHED"
+          echo "P3_SUMMARY_INDEXED_FILES=${#INVENTORY[@]}"
