@@ -23,7 +23,7 @@ on:
       - ".github/workflows/p3-validation.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: p3-validation-${{ github.ref }}
@@ -1066,7 +1066,7 @@ jobs:
             for file in "${INVENTORY[@]}"; do
               index=$((index + 1))
               size="$(wc -c < "${file}")"
-              printf '| %s | `%s` | %s |\n' \
+              printf '| %s | \`%s\` | %s |\n' \
                 "${index}" "${file}" "${size}" >> "${SUMMARY}"
             done
 
@@ -1147,3 +1147,42 @@ jobs:
 
           echo "P3_GITHUB_STEP_SUMMARY: PUBLISHED"
           echo "P3_SUMMARY_INDEXED_FILES=${#INVENTORY[@]}"
+
+      # ============================================================
+      # 18. COMMIT GENERATED P3 EVIDENCE — MAIN ONLY
+      # ============================================================
+
+      - name: Commit generated P3 evidence to main
+        id: p3_commit_evidence
+        if: >-
+          success() &&
+          steps.p3_final_verification.outcome == 'success' &&
+          github.event_name != 'pull_request' &&
+          github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add \
+            P3/reports/ \
+            "P3/results/raw/${P3_RUN_ID}/" \
+            P3/benchmarks/benchmark_results_v2.csv \
+            P3/benchmarks/benchmark_results_v3.csv \
+            P3/MANIFEST.txt \
+            P3/SHA256SUMS.txt
+
+          if git diff --cached --quiet; then
+            echo "No generated P3 evidence changes to commit."
+            exit 0
+          fi
+
+          git commit \
+            -m "P3 automated validation evidence ${P3_RUN_ID} [skip ci]"
+
+          git push \
+            origin \
+            "HEAD:refs/heads/main"
