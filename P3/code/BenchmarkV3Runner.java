@@ -75,7 +75,7 @@ public final class BenchmarkV3Runner {
                 "P3_V3_ITERATIONS",
                 DEFAULT_ITERATIONS);
 
-        requireSupportedDimension(dimension);
+        requireTimedBenchmarkDimension(dimension);
 
         String runId = environmentOrDefault(
                 "RUN_ID",
@@ -200,6 +200,11 @@ public final class BenchmarkV3Runner {
                 * THRESHOLDS.length;
     }
 
+    /**
+     * Validates dimensions accepted by workload generation and memory
+     * preflight. Small deterministic dimensions are permitted here for
+     * correctness tests; this method does not authorize timed execution.
+     */
     static void requireSupportedDimension(int n) {
 
         if (n < MINIMUM_DIMENSION) {
@@ -208,18 +213,25 @@ public final class BenchmarkV3Runner {
                             + MINIMUM_DIMENSION + "; got " + n);
         }
 
+        if (n >= Integer.MAX_VALUE) {
+            throw new IllegalArgumentException(
+                    "P3 V3 dimension exceeds the int-indexed CSR row-pointer "
+                            + "capacity: " + n);
+        }
+    }
+
+    /**
+     * Validates dimensions authorized for timed benchmark execution.
+     * The historical development dimension remains supported; all other
+     * timed dimensions must be explicitly classified by BenchmarkScale.
+     */
+    static void requireTimedBenchmarkDimension(int n) {
+
         if (n == DIMENSION) {
             return;
         }
 
-        BenchmarkScale scale = BenchmarkScale.fromDimension(n);
-
-        if (!scale.isTimedBenchmark()) {
-            throw new IllegalArgumentException(
-                    "Dimension " + n
-                            + " is not eligible for timed benchmarking. Role: "
-                            + scale.role());
-        }
+        BenchmarkScale.fromTimedDimension(n);
     }
 
     static MemoryPreflight preflightWorkload(String workloadId, int n) {
