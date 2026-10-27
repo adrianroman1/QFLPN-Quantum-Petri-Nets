@@ -1,21 +1,21 @@
-package hpc.csr;
-
 import java.util.Arrays;
 import java.util.Objects;
 
 /**
- * Immutable execution plan for CSR sparse matrix-vector multiplication.
+ * Immutable execution plan for sparse matrix-vector multiplication (SpMV).
  *
- * <p>The plan partitions a CSR matrix into contiguous, non-overlapping
- * row ranges. Partition boundaries are computed once and can be reused
- * for repeated multiplications with the same matrix structure.</p>
+ * <p>The plan partitions the CSR row range into contiguous, non-empty
+ * intervals. Partition boundaries are selected using the cumulative number
+ * of non-zero elements (NNZ), with a row-count fallback for matrices
+ * containing no non-zero elements.</p>
  *
- * <p>Rows are indivisible. The planner balances the number of nonzero
- * entries (NNZ) assigned to each partition, subject to that constraint.
- * Empty rows are supported.</p>
+ * <p>A plan is bound to the exact CSR row-pointer structure from which it
+ * was created. Compatibility checks compare the complete row-pointer array,
+ * not merely the matrix dimensions or total NNZ.</p>
  *
- * <p>This class does not create, own, or shut down a ForkJoinPool.
- * Pool lifecycle belongs to the execution engine.</p>
+ * <p>The plan does not own a ForkJoinPool and does not create or shut down
+ * execution resources. Pool lifecycle remains the responsibility of the
+ * caller.</p>
  */
 public final class SpmvPlan {
 
@@ -25,42 +25,53 @@ public final class SpmvPlan {
     private final int parallelism;
     private final MultiplyTask.SplitPolicy splitPolicy;
 
-    /*
-     * Each partition owns [startRows[i], endRows[i]).
-     * Arrays are private and never exposed directly.
+    /**
+     * Exact immutable snapshot of the CSR row-pointer structure.
+     */
+    private final int[] rowPointersSnapshot;
+
+    /**
+     * Inclusive start row of each partition.
      */
     private final int[] startRows;
+
+    /**
+     * Exclusive end row of each partition.
+     */
     private final int[] endRows;
 
     private SpmvPlan(
-            int rows,
-            int nnz,
+            int[] rowPointers,
             int threshold,
             int parallelism,
-            MultiplyTask.SplitPolicy splitPolicy,
-            int[] startRows,
-            int[] endRows) {
+            MultiplyTask.SplitPolicy splitPolicy) {
 
-        this.rows = rows;
-        this.nnz = nnz;
+        validateArguments(rowPointers, threshold, parallelism, splitPolicy);
+
+        this.rows = rowPointers.length - 1;
+        this.nnz = rowPointers[rowPointers.length - 1];
         this.threshold = threshold;
         this.parallelism = parallelism;
         this.splitPolicy = splitPolicy;
-        this.startRows = startRows;
-        this.endRows = endRows;
+
+        this.rowPointersSnapshot = rowPointers.clone();
+
+        int partitionCount = calculatePartitionCount(rows, parallelism);
+
+        this.startRows = new int[partitionCount];
+        this.endRows = new int[partitionCount];
+
+        buildPartitions(rowPointersSnapshot, startRows, endRows, nnz);
     }
 
     /**
-     * Creates a reusable plan from validated CSR row pointers.
+     * Creates a plan using the specified split policy.
      *
-     * @param rowPointers CSR row pointer array
-     * @param threshold minimum row count used by the recursive task
-     * @param parallelism requested worker parallelism
-     * @param splitPolicy NNZ partitioning policy
+     * @param rowPointers CSR row-pointer array
+     * @param threshold minimum NNZ threshold used by recursive tasks
+     * @param parallelism requested maximum partition count
+     * @param splitPolicy recursive task splitting policy
      * @return immutable execution plan
-     * @throws NullPointerException if an argument is null
-     * @throws IllegalArgumentException if the CSR pointers or
-     *         execution parameters are invalid
      */
     public static SpmvPlan create(
             int[] rowPointers,
@@ -68,105 +79,20 @@ public final class SpmvPlan {
             int parallelism,
             MultiplyTask.SplitPolicy splitPolicy) {
 
-        Objects.requireNonNull(
-                rowPointers,
-                "rowPointers must not be null");
-
-        Objects.requireNonNull(
-                splitPolicy,
-                "splitPolicy must not be null");
-
-        validateThreshold(threshold);
-        validateParallelism(parallelism);
-        validateRowPointers(rowPointers);
-
-        /*
-         * Copy the structural information needed by the plan.
-         * The caller may subsequently modify its original array.
-         */
-        int[] pointers = rowPointers.clone();
-
-        int rows = pointers.length - 1;
-        int nnz = pointers[rows];
-
-        if (rows == 0) {
-            return new SpmvPlan(
-                    0,
-                    nnz,
-                    threshold,
-                    parallelism,
-                    splitPolicy,
-                    new int[0],
-                    new int[0]);
-        }
-
-        int partitionCount = Math.min(rows, parallelism);
-
-        int[] starts = new int[partitionCount];
-        int[] ends = new int[partitionCount];
-
-        int previousBoundary = 0;
-
-        for (int partition = 0;
-             partition < partitionCount;
-             partition++) {
-
-            int start = previousBoundary;
-            int end;
-
-            if (partition == partitionCount - 1) {
-                end = rows;
-            } else {
-                int remainingPartitions =
-                        partitionCount - partition;
-
-                int minimumEnd =
-                        start + 1;
-
-                int maximumEnd =
-                        rows - (remainingPartitions - 1);
-
-                end = chooseBoundary(
-                        pointers,
-                        start,
-                        minimumEnd,
-                        maximumEnd,
-                        partition + 1,
-                        partitionCount,
-                        nnz,
-                        splitPolicy);
-            }
-
-            if (start < 0
-                    || end <= start
-                    || end > rows) {
-                throw new IllegalStateException(
-                        "Invalid partition generated by SpmvPlan");
-            }
-
-            starts[partition] = start;
-            ends[partition] = end;
-
-            previousBoundary = end;
-        }
-
-        if (previousBoundary != rows) {
-            throw new IllegalStateException(
-                    "SpmvPlan does not cover all matrix rows");
-        }
-
         return new SpmvPlan(
-                rows,
-                nnz,
+                rowPointers,
                 threshold,
                 parallelism,
-                splitPolicy,
-                starts,
-                ends);
+                splitPolicy);
     }
 
     /**
-     * Convenience factory using BINARY_NNZ_SPLIT.
+     * Creates a plan using binary NNZ splitting.
+     *
+     * @param rowPointers CSR row-pointer array
+     * @param threshold minimum NNZ threshold used by recursive tasks
+     * @param parallelism requested maximum partition count
+     * @return immutable execution plan
      */
     public static SpmvPlan create(
             int[] rowPointers,
@@ -180,186 +106,28 @@ public final class SpmvPlan {
                 MultiplyTask.SplitPolicy.BINARY_NNZ_SPLIT);
     }
 
-    /**
-     * Selects a row boundary near the target cumulative NNZ.
-     *
-     * The search is restricted so that every remaining partition
-     * receives at least one row.
-     */
-    private static int chooseBoundary(
+    private static void validateArguments(
             int[] rowPointers,
-            int start,
-            int minimumEnd,
-            int maximumEnd,
-            int completedPartitions,
-            int partitionCount,
-            int totalNnz,
+            int threshold,
+            int parallelism,
             MultiplyTask.SplitPolicy splitPolicy) {
 
-        if (minimumEnd >= maximumEnd) {
-            return minimumEnd;
+        Objects.requireNonNull(rowPointers, "rowPointers must not be null");
+        Objects.requireNonNull(splitPolicy, "splitPolicy must not be null");
+
+        if (threshold <= 0) {
+            throw new IllegalArgumentException(
+                    "threshold must be greater than zero");
         }
 
-        int rows = rowPointers.length - 1;
-
-        long baseNnz = rowPointers[0];
-        long total = (long) totalNnz - baseNnz;
-
-        /*
-         * With no nonzero entries, NNZ cannot distinguish row ranges.
-         * Divide the remaining rows as evenly as possible.
-         */
-        if (total == 0L) {
-            int remainingRows = rows - start;
-            int remainingPartitions =
-                    partitionCount - completedPartitions + 1;
-
-            int rowsPerPartition =
-                    remainingRows / remainingPartitions;
-
-            int remainder =
-                    remainingRows % remainingPartitions;
-
-            return start + rowsPerPartition
-                    + (remainder > 0 ? 1 : 0);
+        if (parallelism <= 0) {
+            throw new IllegalArgumentException(
+                    "parallelism must be greater than zero");
         }
-
-        /*
-         * Target cumulative NNZ for this partition boundary.
-         * Long arithmetic avoids overflow in multiplication.
-         */
-        long targetNumerator =
-                total * completedPartitions;
-
-        long targetNnz =
-                baseNnz
-                        + targetNumerator / partitionCount;
-
-        int candidate;
-
-        if (splitPolicy
-                == MultiplyTask.SplitPolicy.BINARY_NNZ_SPLIT) {
-
-            candidate = lowerBound(
-                    rowPointers,
-                    minimumEnd,
-                    maximumEnd,
-                    targetNnz);
-
-        } else {
-            candidate = scanNearestBoundary(
-                    rowPointers,
-                    minimumEnd,
-                    maximumEnd,
-                    targetNnz);
-        }
-
-        /*
-         * Compare the candidate with its predecessor.
-         * Deterministic tie-break: choose the lower row boundary.
-         */
-        int best = candidate;
-
-        if (candidate > minimumEnd) {
-            int previous = candidate - 1;
-
-            long candidateDistance = distance(
-                    rowPointers[candidate],
-                    targetNnz);
-
-            long previousDistance = distance(
-                    rowPointers[previous],
-                    targetNnz);
-
-            if (previousDistance <= candidateDistance) {
-                best = previous;
-            }
-        }
-
-        if (best < minimumEnd) {
-            return minimumEnd;
-        }
-
-        if (best > maximumEnd) {
-            return maximumEnd;
-        }
-
-        return best;
-    }
-
-    /**
-     * Lower-bound search for the first row boundary whose cumulative
-     * NNZ is greater than or equal to the target.
-     */
-    private static int lowerBound(
-            int[] rowPointers,
-            int low,
-            int high,
-            long target) {
-
-        int left = low;
-        int right = high + 1;
-
-        while (left < right) {
-            int middle =
-                    left + (right - left) / 2;
-
-            if ((long) rowPointers[middle] < target) {
-                left = middle + 1;
-            } else {
-                right = middle;
-            }
-        }
-
-        if (left > high) {
-            return high;
-        }
-
-        return left;
-    }
-
-    /**
-     * Linear baseline used by ROW_BOUNDARY_SCAN.
-     */
-    private static int scanNearestBoundary(
-            int[] rowPointers,
-            int low,
-            int high,
-            long target) {
-
-        int best = low;
-        long bestDistance =
-                distance(rowPointers[low], target);
-
-        for (int boundary = low + 1;
-             boundary <= high;
-             boundary++) {
-
-            long currentDistance =
-                    distance(rowPointers[boundary], target);
-
-            if (currentDistance < bestDistance) {
-                best = boundary;
-                bestDistance = currentDistance;
-            }
-        }
-
-        return best;
-    }
-
-    private static long distance(
-            int value,
-            long target) {
-
-        return Math.abs((long) value - target);
-    }
-
-    private static void validateRowPointers(
-            int[] rowPointers) {
 
         if (rowPointers.length == 0) {
             throw new IllegalArgumentException(
-                    "rowPointers must contain at least one element");
+                    "rowPointers must contain at least the initial zero");
         }
 
         if (rowPointers[0] != 0) {
@@ -372,27 +140,178 @@ public final class SpmvPlan {
         for (int i = 0; i < rowPointers.length; i++) {
             int current = rowPointers[i];
 
-            if (current < 0 || current < previous) {
+            if (current < 0) {
                 throw new IllegalArgumentException(
-                        "rowPointers must be non-negative "
-                                + "and monotonically non-decreasing");
+                        "rowPointers must not contain negative values");
+            }
+
+            if (current < previous) {
+                throw new IllegalArgumentException(
+                        "rowPointers must be monotonically non-decreasing");
             }
 
             previous = current;
         }
     }
 
-    private static void validateThreshold(int threshold) {
-        if (threshold <= 0) {
-            throw new IllegalArgumentException(
-                    "threshold must be greater than zero");
+    private static int calculatePartitionCount(
+            int rows,
+            int parallelism) {
+
+        if (rows == 0) {
+            return 0;
         }
+
+        return Math.min(rows, parallelism);
     }
 
-    private static void validateParallelism(int parallelism) {
-        if (parallelism <= 0) {
-            throw new IllegalArgumentException(
-                    "parallelism must be greater than zero");
+    private static void buildPartitions(
+            int[] rowPointers,
+            int[] starts,
+            int[] ends,
+            int totalNnz) {
+
+        int rows = rowPointers.length - 1;
+        int partitionCount = starts.length;
+
+        if (partitionCount == 0) {
+            return;
+        }
+
+        if (totalNnz == 0) {
+            buildRowBalancedPartitions(starts, ends, rows);
+            return;
+        }
+
+        int currentStart = 0;
+
+        for (int partition = 0;
+             partition < partitionCount;
+             partition++) {
+
+            starts[partition] = currentStart;
+
+            if (partition == partitionCount - 1) {
+                ends[partition] = rows;
+                currentStart = rows;
+                continue;
+            }
+
+            int remainingPartitions = partitionCount - partition;
+            int remainingRows = rows - currentStart;
+
+            /*
+             * Preserve at least one row for every remaining partition.
+             */
+            int maximumEnd = rows - (remainingPartitions - 1);
+
+            /*
+             * Compute the target cumulative NNZ using long arithmetic
+             * to avoid intermediate integer overflow.
+             */
+            long targetNnz =
+                    ((long) totalNnz * (partition + 1))
+                            / partitionCount;
+
+            int selectedEnd = currentStart + 1;
+
+            while (selectedEnd < maximumEnd
+                    && rowPointers[selectedEnd] < targetNnz) {
+                selectedEnd++;
+            }
+
+            /*
+             * Avoid empty partitions and ensure forward progress.
+             */
+            if (selectedEnd <= currentStart) {
+                selectedEnd = currentStart + 1;
+            }
+
+            /*
+             * Do not consume rows reserved for subsequent partitions.
+             */
+            if (selectedEnd > maximumEnd) {
+                selectedEnd = maximumEnd;
+            }
+
+            ends[partition] = selectedEnd;
+            currentStart = selectedEnd;
+        }
+
+        if (currentStart != rows) {
+            throw new IllegalStateException(
+                    "Partition construction did not cover all CSR rows");
+        }
+
+        validatePartitionCoverage(starts, ends, rows);
+    }
+
+    private static void buildRowBalancedPartitions(
+            int[] starts,
+            int[] ends,
+            int rows) {
+
+        int partitionCount = starts.length;
+
+        for (int partition = 0;
+             partition < partitionCount;
+             partition++) {
+
+            starts[partition] =
+                    (int) (((long) rows * partition) / partitionCount);
+
+            ends[partition] =
+                    (int) (((long) rows * (partition + 1))
+                            / partitionCount);
+        }
+
+        validatePartitionCoverage(starts, ends, rows);
+    }
+
+    private static void validatePartitionCoverage(
+            int[] starts,
+            int[] ends,
+            int rows) {
+
+        if (starts.length != ends.length) {
+            throw new IllegalStateException(
+                    "Partition boundary arrays have different lengths");
+        }
+
+        if (starts.length == 0) {
+            if (rows != 0) {
+                throw new IllegalStateException(
+                        "Non-empty matrix has no partitions");
+            }
+            return;
+        }
+
+        if (starts[0] != 0) {
+            throw new IllegalStateException(
+                    "First partition must start at row zero");
+        }
+
+        for (int i = 0; i < starts.length; i++) {
+
+            if (starts[i] < 0 || ends[i] > rows) {
+                throw new IllegalStateException(
+                        "Partition boundary is outside the CSR row range");
+            }
+
+            if (starts[i] >= ends[i]) {
+                throw new IllegalStateException(
+                        "Every partition must contain at least one row");
+            }
+
+            if (i > 0 && starts[i] != ends[i - 1]) {
+                throw new IllegalStateException(
+                        "Partitions must be contiguous and non-overlapping");
+            }
+        }
+
+        if (ends[ends.length - 1] != rows) {
+            throw new IllegalStateException(
+                    "Partitions must cover every CSR row");
         }
     }
 
@@ -421,72 +340,83 @@ public final class SpmvPlan {
     }
 
     public int getStartRow(int partition) {
+        checkPartitionIndex(partition);
         return startRows[partition];
     }
 
     public int getEndRow(int partition) {
+        checkPartitionIndex(partition);
         return endRows[partition];
     }
 
+    /**
+     * Returns a defensive copy of all partition start rows.
+     */
     public int[] getStartRows() {
-        return Arrays.copyOf(
-                startRows,
-                startRows.length);
-    }
-
-    public int[] getEndRows() {
-        return Arrays.copyOf(
-                endRows,
-                endRows.length);
+        return startRows.clone();
     }
 
     /**
-     * Returns the number of nonzero entries assigned to a partition.
+     * Returns a defensive copy of all partition end rows.
+     */
+    public int[] getEndRows() {
+        return endRows.clone();
+    }
+
+    /**
+     * Returns the NNZ count assigned to a partition.
+     *
+     * @param partition partition index
+     * @param rowPointers CSR row-pointer array to verify
+     * @return number of non-zero elements in the partition
      */
     public int getPartitionNnz(
             int partition,
             int[] rowPointers) {
 
-        Objects.requireNonNull(
-                rowPointers,
-                "rowPointers must not be null");
+        checkPartitionIndex(partition);
 
-        if (rowPointers.length != rows + 1) {
+        if (!isCompatibleWith(rowPointers)) {
             throw new IllegalArgumentException(
-                    "rowPointers do not match this plan");
+                    "SpmvPlan is incompatible with the supplied CSR structure");
         }
 
-        int start = startRows[partition];
-        int end = endRows[partition];
-
-        return rowPointers[end] - rowPointers[start];
+        return rowPointers[endRows[partition]]
+                - rowPointers[startRows[partition]];
     }
 
     /**
-     * Verifies that this plan is compatible with a CSR structure.
+     * Checks exact compatibility with the CSR structure used to create
+     * this plan.
+     *
+     * <p>All row-pointer entries must match. Equal dimensions and equal
+     * total NNZ are insufficient because different row distributions
+     * can have different partition boundaries.</p>
+     *
+     * @param rowPointers candidate CSR row-pointer array
+     * @return true only when the complete structure matches exactly
      */
     public boolean isCompatibleWith(int[] rowPointers) {
-        if (rowPointers == null
-                || rowPointers.length != rows + 1) {
+
+        if (rowPointers == null) {
             return false;
         }
 
-        if (rowPointers[0] != 0
-                || rowPointers[rows] != nnz) {
-            return false;
+        return Arrays.equals(rowPointersSnapshot, rowPointers);
+    }
+
+    private void checkPartitionIndex(int partition) {
+        if (partition < 0 || partition >= startRows.length) {
+            throw new IndexOutOfBoundsException(
+                    "Invalid partition index: " + partition);
         }
+    }
 
-        int previous = 0;
-
-        for (int pointer : rowPointers) {
-            if (pointer < previous) {
-                return false;
-            }
-
-            previous = pointer;
-        }
-
-        return true;
+    /**
+     * Returns whether this plan represents an empty CSR matrix.
+     */
+    public boolean isEmpty() {
+        return rows == 0;
     }
 
     @Override
