@@ -97,7 +97,6 @@ jobs:
 
           RAW="${P3_RAW_ROOT}/${RUN_ID}"
 
-          # A unique GitHub run ID must never reuse an existing run directory.
           if [[ -e "${RAW}" || -L "${RAW}" ]]; then
             echo "::error::RUN_ID directory already exists: ${RAW}"
             echo "::error::Refusing to overwrite previous execution evidence."
@@ -161,26 +160,20 @@ jobs:
 
           required=(
             "P3/pom.xml"
-
             "P3/code/BenchmarkV3Runner.java"
             "P3/code/BenchmarkV3ResultWriter.java"
-
             "P3/benchmarks/benchmark_results_v2.csv"
-
             "P3/results/run_benchmark.sh"
             "P3/results/validate_benchmark.py"
             "P3/results/validate_benchmark_v3.py"
             "P3/results/generate_benchmark_summary.py"
-
             "P3/tools/verify_evidence_consistency.py"
             "P3/tools/verify_final_package.py"
             "P3/tools/compute_checksums.py"
-
             "P3/tests/test_validate_benchmark_v3.py"
             "P3/tests/test_verify_evidence_consistency.py"
             "P3/tests/test_verify_final_package.py"
             "P3/tests/test_compute_checksums.py"
-
             ".github/workflows/p3-validation.yml"
           )
 
@@ -436,6 +429,7 @@ jobs:
 
           python - <<'PY'
           import json
+          import os
           from pathlib import Path
 
           path = Path("P3/reports/benchmark-v3-validation.json")
@@ -458,13 +452,13 @@ jobs:
                       f"{report.get(key)!r} != {expected!r}"
                   )
 
-          if report.get("run_id") != __import__("os").environ["P3_RUN_ID"]:
+          if report.get("run_id") != os.environ["P3_RUN_ID"]:
               raise SystemExit("V3 report RUN_ID mismatch.")
 
-          if report.get("workflow_run_id") != __import__("os").environ["P3_WORKFLOW_RUN_ID"]:
+          if report.get("workflow_run_id") != os.environ["P3_WORKFLOW_RUN_ID"]:
               raise SystemExit("V3 report workflow_run_id mismatch.")
 
-          if report.get("commit_sha") != __import__("os").environ["P3_SOURCE_COMMIT"]:
+          if report.get("commit_sha") != os.environ["P3_SOURCE_COMMIT"]:
               raise SystemExit("V3 report commit_sha mismatch.")
 
           policies = report.get("split_policies")
@@ -680,12 +674,13 @@ jobs:
           path: |
             P3/reports/
             P3/results/raw/${{ env.P3_RUN_ID }}/
+            P3/results/run_benchmark.sh
             P3/benchmarks/benchmark_results_v2.csv
             P3/benchmarks/benchmark_results_v3.csv
             P3/target/surefire-reports/
 
       # ============================================================
-      # 12. CI OUTCOMES — ONLY COMPLETED PRE-INTEGRITY STAGES
+      # 12. CI OUTCOMES — PRE-INTEGRITY STAGES
       # ============================================================
 
       - name: Record p3_validation stage outcomes
@@ -711,23 +706,16 @@ jobs:
               "p3_environment": "${{ steps.p3_environment.outcome }}",
               "p3_required_files": "${{ steps.p3_required_files.outcome }}",
               "p3_python_compile": "${{ steps.p3_python_compile.outcome }}",
-
-              # These are separately named test gates, all backed by the
-              # complete pytest run above. No test is silently skipped.
               "p3_benchmark_tests": python_status,
               "p3_manifest_tests": python_status,
               "p3_final_package_tests": python_status,
               "p3_python_tests": python_status,
-
               "p3_root_maven": "${{ steps.p3_root_maven.outcome }}",
               "p3_maven": "${{ steps.p3_maven.outcome }}",
-
               "p3_benchmark_v2": "${{ steps.p3_benchmark_v2.outcome }}",
               "p3_benchmark_v2_validation": "${{ steps.p3_benchmark_v2_validation.outcome }}",
-
               "p3_benchmark_v3": "${{ steps.p3_benchmark_v3.outcome }}",
               "p3_benchmark_v3_validation": "${{ steps.p3_benchmark_v3_validation.outcome }}",
-
               "p3_benchmark_summary": "${{ steps.p3_benchmark_summary.outcome }}",
               "p3_evidence_consistency": "${{ steps.p3_evidence_consistency.outcome }}",
               "p3_artifact_upload": "${{ steps.p3_artifact_upload.outcome }}",
@@ -944,11 +932,141 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
           path: |
-            P3/reports/
-            P3/results/raw/${{ env.P3_RUN_ID }}/
-            P3/benchmarks/benchmark_results_v2.csv
-            P3/benchmarks/benchmark_results_v3.csv
             P3/MANIFEST.txt
             P3/SHA256SUMS.txt
+            P3/results/run_benchmark.sh
+            P3/benchmarks/benchmark_results_v2.csv
+            P3/benchmarks/benchmark_results_v3.csv
+            P3/reports/**/*.json
+            P3/reports/**/*.txt
+            P3/reports/**/*.md
+            P3/reports/*.json
+            P3/reports/*.txt
+            P3/reports/*.md
+            P3/results/raw/${{ env.P3_RUN_ID }}/
             P3/target/surefire-reports/
             ${{ runner.temp }}/p3-final-package-verification.json
+
+      # ============================================================
+      # 17. AUTOMATIC GITHUB ACTIONS SUMMARY
+      # ============================================================
+
+      - name: Publish P3 validation summary and evidence index
+        id: p3_publish_summary
+        if: always()
+        shell: bash
+        env:
+          FINAL_VERIFICATION_OUTCOME: ${{ steps.p3_final_verification.outcome }}
+          FINAL_ARTIFACT_OUTCOME: ${{ steps.p3_final_artifact.outcome }}
+          FINAL_ARTIFACT_URL: ${{ steps.p3_final_artifact.outputs.artifact-url }}
+        run: |
+          set -euo pipefail
+
+          SUMMARY="${GITHUB_STEP_SUMMARY}"
+          RAW="P3/results/raw/${P3_RUN_ID}"
+
+          if [[ "${FINAL_VERIFICATION_OUTCOME}" == "success" ]]; then
+            VERDICT="P3_ACCEPTED"
+          else
+            VERDICT="NOT_ACCEPTED"
+          fi
+
+          {
+            echo "# P3 — Validation and evidence"
+            echo
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| Workflow | \`p3_validation\` |"
+            echo "| Run ID | \`${P3_RUN_ID}\` |"
+            echo "| Workflow run | \`${P3_WORKFLOW_RUN_ID:-${GITHUB_RUN_ID}}\` |"
+            echo "| Commit | \`${P3_SOURCE_COMMIT:-${GITHUB_SHA}}\` |"
+            echo "| Final verification | **${VERDICT}** |"
+            echo "| Final artifact upload | \`${FINAL_ARTIFACT_OUTCOME}\` |"
+            echo
+            echo "## Complete downloadable evidence"
+            echo
+          } >> "${SUMMARY}"
+
+          if [[ -n "${FINAL_ARTIFACT_URL:-}" ]]; then
+            echo "[Open complete P3 validation artifact](${FINAL_ARTIFACT_URL})" \
+              >> "${SUMMARY}"
+          else
+            echo "Artifact URL is not available for this execution." \
+              >> "${SUMMARY}"
+          fi
+
+          {
+            echo
+            echo "The artifact contains the complete files listed below."
+            echo
+            echo "## Published files"
+            echo
+            echo "- \`P3/MANIFEST.txt\`"
+            echo "- \`P3/SHA256SUMS.txt\`"
+            echo "- \`P3/results/run_benchmark.sh\`"
+            echo "- \`P3/benchmarks/benchmark_results_v2.csv\`"
+            echo "- \`P3/benchmarks/benchmark_results_v3.csv\`"
+            echo "- \`P3/reports/*.json\`"
+            echo "- \`P3/reports/*.txt\`"
+            echo "- \`P3/reports/*.md\`"
+            echo "- \`P3/results/raw/${P3_RUN_ID}/\`"
+            echo "- \`P3/target/surefire-reports/\`"
+            echo
+          } >> "${SUMMARY}"
+
+          append_file() {
+            local title="$1"
+            local file="$2"
+            local limit="${3:-200}"
+
+            {
+              echo "## ${title}"
+              echo
+              if [[ -f "${file}" && ! -L "${file}" ]]; then
+                echo '```text'
+                sed -n "1,${limit}p" "${file}"
+                if [[ "$(wc -l < "${file}")" -gt "${limit}" ]]; then
+                  echo
+                  echo "[Display limited to ${limit} lines. Full file is in the artifact.]"
+                fi
+                echo '```'
+              else
+                echo "File not available in this execution: \`${file}\`"
+              fi
+              echo
+            } >> "${SUMMARY}"
+          }
+
+          append_file "MANIFEST.txt" "P3/MANIFEST.txt" 200
+          append_file "SHA256SUMS.txt" "P3/SHA256SUMS.txt" 200
+          append_file "run_benchmark.sh" "P3/results/run_benchmark.sh" 200
+          append_file "V2 benchmark CSV — preview" \
+            "P3/benchmarks/benchmark_results_v2.csv" 30
+          append_file "V3 benchmark CSV — preview" \
+            "P3/benchmarks/benchmark_results_v3.csv" 30
+          append_file "V2 benchmark report" \
+            "P3/reports/benchmark-report.md" 200
+          append_file "V2 benchmark report TXT" \
+            "P3/reports/benchmark-report.txt" 200
+          append_file "V3 validation report" \
+            "P3/reports/benchmark-v3-validation.json" 200
+          append_file "Evidence consistency report" \
+            "P3/reports/evidence-consistency.json" 200
+
+          {
+            echo "## Integrity chain"
+            echo
+            echo "1. \`compute_checksums.py\` generates the global inventory."
+            echo "2. \`MANIFEST.txt\` records the package inventory."
+            echo "3. \`SHA256SUMS.txt\` records file digests."
+            echo "4. \`verify_global_integrity()\` independently checks the inventory and digests."
+            echo "5. \`verify_final_package.py\` evaluates the final P3 package."
+            echo
+            echo "## Execution result"
+            echo
+            echo "- Final verifier outcome: \`${FINAL_VERIFICATION_OUTCOME}\`"
+            echo "- Final artifact outcome: \`${FINAL_ARTIFACT_OUTCOME}\`"
+            echo "- P3 verdict: **${VERDICT}**"
+          } >> "${SUMMARY}"
+
+          echo "P3_GITHUB_STEP_SUMMARY: PUBLISHED"
