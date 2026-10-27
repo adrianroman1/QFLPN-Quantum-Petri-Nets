@@ -896,13 +896,23 @@ class QFLPNCoreEngineTest {
             double[] originalResult =
                     engine.multiply(input());
 
+            assertArrayEquals(
+                    expected(),
+                    originalResult,
+                    TOLERANCE
+            );
+
             engine.loadMatrix(createDifferentCsrDistribution());
 
             double[] replacementResult =
                     engine.multiply(input());
 
+            double[] expectedReplacementResult = {
+                    1.0, 12.0, 39.0, 46.0
+            };
+
             assertArrayEquals(
-                    originalResult,
+                    expectedReplacementResult,
                     replacementResult,
                     TOLERANCE
             );
