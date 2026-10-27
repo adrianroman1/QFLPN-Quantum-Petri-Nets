@@ -39,6 +39,11 @@ class SpmvPlanTest {
                 plan.getSplitPolicy()
         );
 
+        assertEquals(
+                MultiplyTask.ThresholdMode.NNZ_THRESHOLD,
+                plan.getThresholdMode()
+        );
+
         assertEquals(4, plan.getPartitionCount());
         assertFalse(plan.isEmpty());
     }
@@ -57,7 +62,65 @@ class SpmvPlanTest {
                 plan.getSplitPolicy()
         );
 
+        assertEquals(
+                MultiplyTask.ThresholdMode.NNZ_THRESHOLD,
+                plan.getThresholdMode()
+        );
+
         assertEquals(2, plan.getPartitionCount());
+    }
+
+    @Test
+    void shouldCreatePlanWithExplicitRowThresholdMode() {
+        SpmvPlan plan = SpmvPlan.create(
+                ROW_POINTERS.clone(),
+                2,
+                2,
+                MultiplyTask.ThresholdMode.ROW_THRESHOLD
+        );
+
+        assertEquals(
+                MultiplyTask.ThresholdMode.ROW_THRESHOLD,
+                plan.getThresholdMode()
+        );
+
+        assertEquals(2, plan.getThreshold());
+    }
+
+    @Test
+    void shouldCreatePlanWithExplicitNnzThresholdMode() {
+        SpmvPlan plan = SpmvPlan.create(
+                ROW_POINTERS.clone(),
+                2,
+                2,
+                MultiplyTask.ThresholdMode.NNZ_THRESHOLD
+        );
+
+        assertEquals(
+                MultiplyTask.ThresholdMode.NNZ_THRESHOLD,
+                plan.getThresholdMode()
+        );
+    }
+
+    @Test
+    void shouldCreatePlanWithExplicitSplitPolicyAndThresholdMode() {
+        SpmvPlan plan = SpmvPlan.create(
+                ROW_POINTERS.clone(),
+                2,
+                2,
+                MultiplyTask.SplitPolicy.ROW_BOUNDARY_SCAN,
+                MultiplyTask.ThresholdMode.ROW_THRESHOLD
+        );
+
+        assertEquals(
+                MultiplyTask.SplitPolicy.ROW_BOUNDARY_SCAN,
+                plan.getSplitPolicy()
+        );
+
+        assertEquals(
+                MultiplyTask.ThresholdMode.ROW_THRESHOLD,
+                plan.getThresholdMode()
+        );
     }
 
     @Test
@@ -248,14 +311,14 @@ class SpmvPlanTest {
                 2
         );
 
-        int totalPartitionNnz = 0;
+        long totalPartitionNnz = 0L;
 
         for (int i = 0; i < plan.getPartitionCount(); i++) {
             totalPartitionNnz +=
                     plan.getPartitionNnz(i, rowPointers);
         }
 
-        assertEquals(8, totalPartitionNnz);
+        assertEquals(8L, totalPartitionNnz);
     }
 
     @Test
@@ -275,13 +338,8 @@ class SpmvPlanTest {
     void shouldCheckExactCsrCompatibility() {
         SpmvPlan plan = createPlan();
 
-        assertTrue(
-                plan.isCompatibleWith(ROW_POINTERS.clone())
-        );
-
-        assertTrue(
-                plan.isCompatible(ROW_POINTERS.clone())
-        );
+        assertTrue(plan.isCompatibleWith(ROW_POINTERS.clone()));
+        assertTrue(plan.isCompatible(ROW_POINTERS.clone()));
 
         assertTrue(
                 plan.isCompatible(
@@ -291,9 +349,7 @@ class SpmvPlanTest {
                 )
         );
 
-        assertFalse(
-                plan.isCompatibleWith(SKEWED_ROW_POINTERS)
-        );
+        assertFalse(plan.isCompatibleWith(SKEWED_ROW_POINTERS));
 
         assertFalse(
                 plan.isCompatible(
@@ -341,13 +397,8 @@ class SpmvPlanTest {
 
         source[1] = 0;
 
-        assertTrue(
-                plan.isCompatibleWith(ROW_POINTERS)
-        );
-
-        assertFalse(
-                plan.isCompatibleWith(source)
-        );
+        assertTrue(plan.isCompatibleWith(ROW_POINTERS));
+        assertFalse(plan.isCompatibleWith(source));
     }
 
     @Test
@@ -363,15 +414,8 @@ class SpmvPlanTest {
         starts[0] = -100;
         ends[0] = -100;
 
-        assertArrayEquals(
-                expectedStarts,
-                plan.getStartRows()
-        );
-
-        assertArrayEquals(
-                expectedEnds,
-                plan.getEndRows()
-        );
+        assertArrayEquals(expectedStarts, plan.getStartRows());
+        assertArrayEquals(expectedEnds, plan.getEndRows());
     }
 
     @Test
@@ -561,6 +605,33 @@ class SpmvPlanTest {
     }
 
     @Test
+    void shouldRejectNullThresholdMode() {
+        assertThrows(
+                NullPointerException.class,
+                () -> SpmvPlan.create(
+                        ROW_POINTERS,
+                        THRESHOLD,
+                        PARALLELISM,
+                        (MultiplyTask.ThresholdMode) null
+                )
+        );
+    }
+
+    @Test
+    void shouldRejectNullThresholdModeWithExplicitSplitPolicy() {
+        assertThrows(
+                NullPointerException.class,
+                () -> SpmvPlan.create(
+                        ROW_POINTERS,
+                        THRESHOLD,
+                        PARALLELISM,
+                        MultiplyTask.SplitPolicy.BINARY_NNZ_SPLIT,
+                        null
+                )
+        );
+    }
+
+    @Test
     void shouldUseLongArithmeticForNnzPartitionTargets() {
         int[] rowPointers = {
                 0,
@@ -627,6 +698,7 @@ class SpmvPlanTest {
         assertTrue(description.contains("rows=4"));
         assertTrue(description.contains("nnz=8"));
         assertTrue(description.contains("threshold=4096"));
+        assertTrue(description.contains("thresholdMode=NNZ_THRESHOLD"));
         assertTrue(description.contains("parallelism=4"));
         assertTrue(description.contains("partitionCount=4"));
     }
