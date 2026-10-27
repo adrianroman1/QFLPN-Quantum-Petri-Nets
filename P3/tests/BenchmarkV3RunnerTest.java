@@ -459,7 +459,8 @@ class BenchmarkV3RunnerTest {
         assertTrue(preflight.requiredWithHeadroomBytes() >=
                 preflight.estimatedRequiredBytes());
 
-        assertTrue(preflight.maxHeapBytes() > 0L);
+        // API-ul recordului curent folosește maximumHeapBytes().
+        assertTrue(preflight.maximumHeapBytes() > 0L);
         assertTrue(preflight.availableBytes() >= 0L);
     }
 
