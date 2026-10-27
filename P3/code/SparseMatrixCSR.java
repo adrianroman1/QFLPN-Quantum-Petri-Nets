@@ -62,6 +62,69 @@ public final class SparseMatrixCSR {
         this.columns = columns;
     }
 
+    /**
+     * Package-private trusted factory for internally generated canonical CSR.
+     *
+     * The caller transfers ownership of all three arrays to this matrix.
+     * The arrays must not be accessed or modified after this call.
+     *
+     * Unlike the public constructor, this method does not sort, aggregate,
+     * clone, or trim the supplied arrays. It performs one structural
+     * validation pass and adopts the arrays directly.
+     *
+     * This method is deliberately package-private so external callers
+     * cannot bypass the public constructor's defensive-copy contract.
+     */
+    static SparseMatrixCSR fromTrustedCanonical(
+            double[] values,
+            int[] columnIndices,
+            int[] rowPointers,
+            int rows,
+            int columns) {
+
+        validateDimensions(rows, columns);
+
+        Objects.requireNonNull(values, "values cannot be null");
+        Objects.requireNonNull(columnIndices, "columnIndices cannot be null");
+        Objects.requireNonNull(rowPointers, "rowPointers cannot be null");
+
+        validateCanonicalCSR(
+                values,
+                columnIndices,
+                rowPointers,
+                rows,
+                columns);
+
+        return new SparseMatrixCSR(
+                values,
+                columnIndices,
+                rowPointers,
+                rows,
+                columns,
+                TrustedOwnership.INSTANCE);
+    }
+
+    private SparseMatrixCSR(
+            double[] values,
+            int[] columnIndices,
+            int[] rowPointers,
+            int rows,
+            int columns,
+            TrustedOwnership ownership) {
+
+        Objects.requireNonNull(ownership, "ownership cannot be null");
+
+        this.values = values;
+        this.columnIndices = columnIndices;
+        this.rowPointers = rowPointers;
+        this.rows = rows;
+        this.columns = columns;
+    }
+
+    private enum TrustedOwnership {
+        INSTANCE
+    }
+
     private record NormalizedCSR(
             int[] columns,
             double[] values,
@@ -86,16 +149,143 @@ public final class SparseMatrixCSR {
     }
 
     /**
-     * Validates and normalizes CSR input.
+     * Validates and normalizes general CSR input.
      *
-     * Each row is sorted by primitive long keys. The upper 32 bits contain
-     * the column index and the lower 32 bits contain the original absolute
-     * input position. Equal columns therefore retain deterministic input
-     * order during aggregation.
+     * One reusable primitive long[] buffer is allocated for the largest
+     * row. It is reused for every row; no per-row sorting arrays are created.
      *
-     * No Integer objects are allocated for sorting.
+     * The upper 32 bits of each key contain the column index. The lower
+     * 32 bits contain the original absolute input position. This preserves
+     * deterministic input order for duplicate aggregation.
+     *
+     * Output arrays are initially allocated at input NNZ capacity.
+     * They are trimmed only when duplicate aggregation reduces NNZ.
      */
     private static NormalizedCSR normalizeAndValidate(
+            double[] inputValues,
+            int[] inputColumns,
+            int[] inputRowPointers,
+            int rows,
+            int columns) {
+
+        validateInputArrays(
+                inputValues,
+                inputColumns,
+                inputRowPointers,
+                rows,
+                columns);
+
+        int maximumRowLength = 0;
+
+        for (int row = 0; row < rows; row++) {
+            int count =
+                    inputRowPointers[row + 1] - inputRowPointers[row];
+
+            maximumRowLength = Math.max(maximumRowLength, count);
+        }
+
+        int[] normalizedColumns =
+                new int[inputColumns.length];
+
+        double[] normalizedValues =
+                new double[inputValues.length];
+
+        int[] normalizedRowPointers =
+                new int[rows + 1];
+
+        /*
+         * Single reusable scratch buffer.
+         * Empty matrices and empty rows require no row-specific allocation.
+         */
+        long[] order = new long[maximumRowLength];
+
+        int writeIndex = 0;
+        normalizedRowPointers[0] = 0;
+
+        for (int row = 0; row < rows; row++) {
+
+            int rowStart = inputRowPointers[row];
+            int rowEnd = inputRowPointers[row + 1];
+            int count = rowEnd - rowStart;
+
+            if (count == 0) {
+                normalizedRowPointers[row + 1] = writeIndex;
+                continue;
+            }
+
+            for (int i = 0; i < count; i++) {
+
+                int originalIndex = rowStart + i;
+                int column = inputColumns[originalIndex];
+
+                order[i] = ((long) column << 32)
+                        | (originalIndex & 0xffffffffL);
+            }
+
+            Arrays.sort(order, 0, count);
+
+            int previousColumn = -1;
+            int currentOutputPosition = -1;
+
+            for (int i = 0; i < count; i++) {
+
+                long key = order[i];
+
+                int originalIndex = (int) key;
+                int currentColumn = inputColumns[originalIndex];
+                double currentValue = inputValues[originalIndex];
+
+                if (currentColumn == previousColumn) {
+
+                    double aggregated =
+                            normalizedValues[currentOutputPosition]
+                                    + currentValue;
+
+                    if (!Double.isFinite(aggregated)) {
+                        throw new IllegalArgumentException(
+                                "Duplicate CSR aggregation overflow at row "
+                                        + row
+                                        + ", column "
+                                        + currentColumn
+                                        + ": aggregated value is not finite.");
+                    }
+
+                    normalizedValues[currentOutputPosition] = aggregated;
+
+                } else {
+
+                    currentOutputPosition = writeIndex++;
+
+                    normalizedColumns[currentOutputPosition] =
+                            currentColumn;
+
+                    normalizedValues[currentOutputPosition] =
+                            currentValue;
+
+                    previousColumn = currentColumn;
+                }
+            }
+
+            normalizedRowPointers[row + 1] = writeIndex;
+        }
+
+        if (writeIndex == inputValues.length) {
+            return new NormalizedCSR(
+                    normalizedColumns,
+                    normalizedValues,
+                    normalizedRowPointers);
+        }
+
+        return new NormalizedCSR(
+                Arrays.copyOf(normalizedColumns, writeIndex),
+                Arrays.copyOf(normalizedValues, writeIndex),
+                normalizedRowPointers);
+    }
+
+    /**
+     * Validates general CSR input before normalization.
+     */
+    private static void validateInputArrays(
             double[] inputValues,
             int[] inputColumns,
             int[] inputRowPointers,
@@ -120,6 +310,7 @@ public final class SparseMatrixCSR {
         int previous = 0;
 
         for (int i = 0; i < inputRowPointers.length; i++) {
+
             int current = inputRowPointers[i];
 
             if (current < 0 || current < previous) {
@@ -141,6 +332,7 @@ public final class SparseMatrixCSR {
         }
 
         for (int i = 0; i < inputColumns.length; i++) {
+
             int column = inputColumns[i];
 
             if (column < 0 || column >= columns) {
@@ -151,87 +343,100 @@ public final class SparseMatrixCSR {
         }
 
         for (int i = 0; i < inputValues.length; i++) {
+
             if (!Double.isFinite(inputValues[i])) {
                 throw new IllegalArgumentException(
                         "CSR values must be finite. Invalid value at position "
                                 + i + ": " + inputValues[i]);
             }
         }
+    }
 
-        int[] normalizedColumns = new int[inputValues.length];
-        double[] normalizedValues = new double[inputValues.length];
-        int[] normalizedRowPointers = new int[rows + 1];
+    /**
+     * Validates canonical CSR without allocating normalized arrays.
+     *
+     * Canonical means:
+     * - valid row pointers;
+     * - finite values;
+     * - in-range column indices;
+     * - strictly increasing columns within every row.
+     */
+    private static void validateCanonicalCSR(
+            double[] values,
+            int[] columnIndices,
+            int[] rowPointers,
+            int rows,
+            int columns) {
 
-        int writeIndex = 0;
-        normalizedRowPointers[0] = 0;
-
-        for (int row = 0; row < rows; row++) {
-            int rowStart = inputRowPointers[row];
-            int rowEnd = inputRowPointers[row + 1];
-            int count = rowEnd - rowStart;
-
-            if (count == 0) {
-                normalizedRowPointers[row + 1] = writeIndex;
-                continue;
-            }
-
-            long[] order = new long[count];
-
-            for (int i = 0; i < count; i++) {
-                int originalIndex = rowStart + i;
-                int column = inputColumns[originalIndex];
-
-                order[i] = ((long) column << 32)
-                        | (originalIndex & 0xffffffffL);
-            }
-
-            Arrays.sort(order);
-
-            int rowWrite = 0;
-
-            for (long key : order) {
-                int originalIndex = (int) key;
-                int currentColumn = inputColumns[originalIndex];
-                double currentValue = inputValues[originalIndex];
-
-                if (rowWrite > 0
-                        && normalizedColumns[writeIndex + rowWrite - 1]
-                        == currentColumn) {
-
-                    int duplicatePosition =
-                            writeIndex + rowWrite - 1;
-
-                    double aggregated =
-                            normalizedValues[duplicatePosition]
-                                    + currentValue;
-
-                    if (!Double.isFinite(aggregated)) {
-                        throw new IllegalArgumentException(
-                                "Duplicate CSR aggregation overflow at row "
-                                        + row + ", column " + currentColumn
-                                        + ": aggregated value is not finite.");
-                    }
-
-                    normalizedValues[duplicatePosition] = aggregated;
-                } else {
-                    normalizedColumns[writeIndex + rowWrite] =
-                            currentColumn;
-
-                    normalizedValues[writeIndex + rowWrite] =
-                            currentValue;
-
-                    rowWrite++;
-                }
-            }
-
-            writeIndex += rowWrite;
-            normalizedRowPointers[row + 1] = writeIndex;
+        if (values.length != columnIndices.length) {
+            throw new IllegalArgumentException(
+                    "values and columnIndices must have the same length.");
         }
 
-        return new NormalizedCSR(
-                Arrays.copyOf(normalizedColumns, writeIndex),
-                Arrays.copyOf(normalizedValues, writeIndex),
-                normalizedRowPointers);
+        if (rowPointers.length != rows + 1) {
+            throw new IllegalArgumentException(
+                    "rowPointers length must be rows + 1.");
+        }
+
+        if (rowPointers[0] != 0) {
+            throw new IllegalArgumentException(
+                    "rowPointers[0] must be 0.");
+        }
+
+        int previousPointer = 0;
+
+        for (int i = 0; i < rowPointers.length; i++) {
+
+            int pointer = rowPointers[i];
+
+            if (pointer < previousPointer
+                    || pointer < 0
+                    || pointer > values.length) {
+
+                throw new IllegalArgumentException(
+                        "Invalid row pointer at index " + i + ".");
+            }
+
+            previousPointer = pointer;
+        }
+
+        if (rowPointers[rows] != values.length) {
+            throw new IllegalArgumentException(
+                    "The last row pointer must equal NNZ.");
+        }
+
+        for (int row = 0; row < rows; row++) {
+
+            int previousColumn = -1;
+
+            for (int index = rowPointers[row];
+                 index < rowPointers[row + 1];
+                 index++) {
+
+                int column = columnIndices[index];
+
+                if (column < 0 || column >= columns) {
+                    throw new IllegalArgumentException(
+                            "Column index out of bounds at position "
+                                    + index + ": " + column);
+                }
+
+                if (column <= previousColumn) {
+                    throw new IllegalArgumentException(
+                            "Trusted CSR input is not canonical at row "
+                                    + row
+                                    + ": column indices must be strictly increasing.");
+                }
+
+                if (!Double.isFinite(values[index])) {
+                    throw new IllegalArgumentException(
+                            "CSR values must be finite at position "
+                                    + index + ".");
+                }
+
+                previousColumn = column;
+            }
+        }
     }
 
     /**
@@ -269,6 +474,7 @@ public final class SparseMatrixCSR {
             int endRow) {
 
         for (int row = startRow; row < endRow; row++) {
+
             double sum = 0.0;
 
             for (int index = rowPointers[row];
@@ -504,6 +710,7 @@ public final class SparseMatrixCSR {
         validateThreshold(threshold);
 
         MultiplyTask.SplitPolicy policy = plan.getSplitPolicy();
+
         Objects.requireNonNull(
                 policy,
                 "SpmvPlan split policy cannot be null.");
@@ -515,10 +722,12 @@ public final class SparseMatrixCSR {
         int partitionCount = plan.getPartitionCount();
 
         if (partitionCount == 0) {
+
             if (rows != 0) {
                 throw new IllegalArgumentException(
                         "SpmvPlan contains no partitions for a non-empty matrix.");
             }
+
             return;
         }
 
@@ -537,6 +746,7 @@ public final class SparseMatrixCSR {
             if (startRow != expectedStart
                     || endRow < startRow
                     || endRow > rows) {
+
                 throw new IllegalArgumentException(
                         "SpmvPlan contains invalid or non-contiguous row intervals.");
             }
@@ -743,10 +953,13 @@ public final class SparseMatrixCSR {
         int previous = 0;
 
         for (int i = 0; i < rowPointers.length; i++) {
+
             int current = rowPointers[i];
 
-            if (current < previous || current < 0
+            if (current < previous
+                    || current < 0
                     || current > values.length) {
+
                 throw new IllegalArgumentException(
                         "Invalid row pointer at index " + i + ".");
             }
@@ -759,17 +972,34 @@ public final class SparseMatrixCSR {
                     "The last row pointer must equal NNZ.");
         }
 
-        for (int i = 0; i < columnIndices.length; i++) {
-            if (columnIndices[i] < 0 || columnIndices[i] >= columns) {
-                throw new IllegalArgumentException(
-                        "Column index out of bounds at position " + i + ".");
-            }
-        }
+        for (int row = 0; row < rows; row++) {
 
-        for (int i = 0; i < values.length; i++) {
-            if (!Double.isFinite(values[i])) {
-                throw new IllegalArgumentException(
-                        "CSR values must be finite at position " + i + ".");
+            int previousColumn = -1;
+
+            for (int index = rowPointers[row];
+                 index < rowPointers[row + 1];
+                 index++) {
+
+                int column = columnIndices[index];
+
+                if (column < 0 || column >= columns) {
+                    throw new IllegalArgumentException(
+                            "Column index out of bounds at position "
+                                    + index + ".");
+                }
+
+                if (column <= previousColumn) {
+                    throw new IllegalArgumentException(
+                            "Column indices must be strictly increasing within each row.");
+                }
+
+                if (!Double.isFinite(values[index])) {
+                    throw new IllegalArgumentException(
+                            "CSR values must be finite at position "
+                                    + index + ".");
+                }
+
+                previousColumn = column;
             }
         }
     }
