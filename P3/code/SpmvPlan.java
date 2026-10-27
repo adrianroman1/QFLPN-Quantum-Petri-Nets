@@ -6,18 +6,22 @@ import java.util.Objects;
 /**
  * Immutable execution plan for sparse matrix-vector multiplication (SpMV).
  *
- * <p>The plan partitions the CSR row range into contiguous, non-empty
- * intervals. Partition boundaries are selected using the cumulative number
- * of non-zero elements (NNZ), with a row-count fallback for matrices
- * containing no non-zero elements.</p>
+ * The plan partitions the CSR row range into contiguous, non-empty
+ * intervals. Partition boundaries are selected using cumulative NNZ,
+ * with a row-count fallback for matrices containing no non-zero elements.
  *
- * <p>A plan is bound to the exact CSR row-pointer structure from which it
- * was created. Compatibility checks compare the complete row-pointer array,
- * not merely the matrix dimensions or total NNZ.</p>
+ * The plan is bound to the exact CSR row-pointer structure from which
+ * it was created. Compatibility checks compare the complete row-pointer
+ * array, not merely matrix dimensions or total NNZ.
  *
- * <p>The plan does not own a ForkJoinPool and does not create or shut down
- * execution resources. Pool lifecycle remains the responsibility of the
- * caller.</p>
+ * The plan does not own a ForkJoinPool and never creates or shuts down
+ * execution resources.
+ *
+ * Threshold semantics are explicit:
+ * - ROW_THRESHOLD: threshold is a maximum row count for recursive tasks.
+ * - NNZ_THRESHOLD: threshold is a maximum NNZ count for recursive tasks.
+ *
+ * Existing create(...) overloads retain the documented NNZ semantics.
  */
 public final class SpmvPlan {
 
@@ -25,7 +29,9 @@ public final class SpmvPlan {
     private final int nnz;
     private final int threshold;
     private final int parallelism;
+
     private final MultiplyTask.SplitPolicy splitPolicy;
+    private final MultiplyTask.ThresholdMode thresholdMode;
 
     /**
      * Exact immutable snapshot of the CSR row-pointer structure.
@@ -46,20 +52,22 @@ public final class SpmvPlan {
             int[] rowPointers,
             int threshold,
             int parallelism,
-            MultiplyTask.SplitPolicy splitPolicy) {
+            MultiplyTask.SplitPolicy splitPolicy,
+            MultiplyTask.ThresholdMode thresholdMode) {
 
         validateArguments(
                 rowPointers,
                 threshold,
                 parallelism,
-                splitPolicy
-        );
+                splitPolicy,
+                thresholdMode);
 
         this.rows = rowPointers.length - 1;
         this.nnz = rowPointers[rowPointers.length - 1];
         this.threshold = threshold;
         this.parallelism = parallelism;
         this.splitPolicy = splitPolicy;
+        this.thresholdMode = thresholdMode;
 
         this.rowPointersSnapshot = rowPointers.clone();
 
@@ -73,15 +81,17 @@ public final class SpmvPlan {
                 rowPointersSnapshot,
                 startRows,
                 endRows,
-                nnz
-        );
+                nnz);
     }
 
     /**
      * Creates a plan using the specified split policy.
      *
+     * Backward-compatible semantics:
+     * threshold represents NNZ.
+     *
      * @param rowPointers CSR row-pointer array
-     * @param threshold minimum NNZ threshold used by recursive tasks
+     * @param threshold maximum NNZ processed directly by recursive tasks
      * @param parallelism requested maximum partition count
      * @param splitPolicy recursive task splitting policy
      * @return immutable execution plan
@@ -92,21 +102,19 @@ public final class SpmvPlan {
             int parallelism,
             MultiplyTask.SplitPolicy splitPolicy) {
 
-        return new SpmvPlan(
+        return create(
                 rowPointers,
                 threshold,
                 parallelism,
-                splitPolicy
-        );
+                splitPolicy,
+                MultiplyTask.ThresholdMode.NNZ_THRESHOLD);
     }
 
     /**
      * Creates a plan using binary NNZ splitting.
      *
-     * @param rowPointers CSR row-pointer array
-     * @param threshold minimum NNZ threshold used by recursive tasks
-     * @param parallelism requested maximum partition count
-     * @return immutable execution plan
+     * Backward-compatible semantics:
+     * threshold represents NNZ.
      */
     public static SpmvPlan create(
             int[] rowPointers,
@@ -117,48 +125,90 @@ public final class SpmvPlan {
                 rowPointers,
                 threshold,
                 parallelism,
-                MultiplyTask.SplitPolicy.BINARY_NNZ_SPLIT
-        );
+                MultiplyTask.SplitPolicy.BINARY_NNZ_SPLIT,
+                MultiplyTask.ThresholdMode.NNZ_THRESHOLD);
+    }
+
+    /**
+     * Creates a plan with explicit split policy and threshold semantics.
+     *
+     * @param rowPointers CSR row-pointer array
+     * @param threshold positive threshold value
+     * @param parallelism requested maximum partition count
+     * @param splitPolicy recursive task splitting policy
+     * @param thresholdMode unit used by the recursive stopping condition
+     * @return immutable execution plan
+     */
+    public static SpmvPlan create(
+            int[] rowPointers,
+            int threshold,
+            int parallelism,
+            MultiplyTask.SplitPolicy splitPolicy,
+            MultiplyTask.ThresholdMode thresholdMode) {
+
+        return new SpmvPlan(
+                rowPointers,
+                threshold,
+                parallelism,
+                splitPolicy,
+                thresholdMode);
+    }
+
+    /**
+     * Creates a plan with explicit threshold semantics and the default
+     * BINARY_NNZ_SPLIT policy.
+     */
+    public static SpmvPlan create(
+            int[] rowPointers,
+            int threshold,
+            int parallelism,
+            MultiplyTask.ThresholdMode thresholdMode) {
+
+        return create(
+                rowPointers,
+                threshold,
+                parallelism,
+                MultiplyTask.SplitPolicy.BINARY_NNZ_SPLIT,
+                thresholdMode);
     }
 
     private static void validateArguments(
             int[] rowPointers,
             int threshold,
             int parallelism,
-            MultiplyTask.SplitPolicy splitPolicy) {
+            MultiplyTask.SplitPolicy splitPolicy,
+            MultiplyTask.ThresholdMode thresholdMode) {
 
         Objects.requireNonNull(
                 rowPointers,
-                "rowPointers must not be null"
-        );
+                "rowPointers must not be null");
 
         Objects.requireNonNull(
                 splitPolicy,
-                "splitPolicy must not be null"
-        );
+                "splitPolicy must not be null");
+
+        Objects.requireNonNull(
+                thresholdMode,
+                "thresholdMode must not be null");
 
         if (threshold <= 0) {
             throw new IllegalArgumentException(
-                    "threshold must be greater than zero"
-            );
+                    "threshold must be greater than zero");
         }
 
         if (parallelism <= 0) {
             throw new IllegalArgumentException(
-                    "parallelism must be greater than zero"
-            );
+                    "parallelism must be greater than zero");
         }
 
         if (rowPointers.length == 0) {
             throw new IllegalArgumentException(
-                    "rowPointers must contain at least the initial zero"
-            );
+                    "rowPointers must contain at least the initial zero");
         }
 
         if (rowPointers[0] != 0) {
             throw new IllegalArgumentException(
-                    "rowPointers[0] must be zero"
-            );
+                    "rowPointers[0] must be zero");
         }
 
         int previous = 0;
@@ -168,14 +218,12 @@ public final class SpmvPlan {
 
             if (current < 0) {
                 throw new IllegalArgumentException(
-                        "rowPointers must not contain negative values"
-                );
+                        "rowPointers must not contain negative values");
             }
 
             if (current < previous) {
                 throw new IllegalArgumentException(
-                        "rowPointers must be monotonically non-decreasing"
-                );
+                        "rowPointers must be monotonically non-decreasing");
             }
 
             previous = current;
@@ -235,8 +283,7 @@ public final class SpmvPlan {
                     rows - (remainingPartitions - 1);
 
             /*
-             * Compute the target cumulative NNZ using long arithmetic
-             * to avoid intermediate integer overflow.
+             * Use long arithmetic for the cumulative NNZ target.
              */
             long targetNnz =
                     ((long) totalNnz * (partition + 1))
@@ -250,16 +297,10 @@ public final class SpmvPlan {
                 selectedEnd++;
             }
 
-            /*
-             * Avoid empty partitions and ensure forward progress.
-             */
             if (selectedEnd <= currentStart) {
                 selectedEnd = currentStart + 1;
             }
 
-            /*
-             * Do not consume rows reserved for subsequent partitions.
-             */
             if (selectedEnd > maximumEnd) {
                 selectedEnd = maximumEnd;
             }
@@ -270,8 +311,7 @@ public final class SpmvPlan {
 
         if (currentStart != rows) {
             throw new IllegalStateException(
-                    "Partition construction did not cover all CSR rows"
-            );
+                    "Partition construction did not cover all CSR rows");
         }
 
         validatePartitionCoverage(starts, ends, rows);
@@ -307,50 +347,43 @@ public final class SpmvPlan {
 
         if (starts.length != ends.length) {
             throw new IllegalStateException(
-                    "Partition boundary arrays have different lengths"
-            );
+                    "Partition boundary arrays have different lengths");
         }
 
         if (starts.length == 0) {
             if (rows != 0) {
                 throw new IllegalStateException(
-                        "Non-empty matrix has no partitions"
-                );
+                        "Non-empty matrix has no partitions");
             }
             return;
         }
 
         if (starts[0] != 0) {
             throw new IllegalStateException(
-                    "First partition must start at row zero"
-            );
+                    "First partition must start at row zero");
         }
 
         for (int i = 0; i < starts.length; i++) {
 
             if (starts[i] < 0 || ends[i] > rows) {
                 throw new IllegalStateException(
-                        "Partition boundary is outside the CSR row range"
-                );
+                        "Partition boundary is outside the CSR row range");
             }
 
             if (starts[i] >= ends[i]) {
                 throw new IllegalStateException(
-                        "Every partition must contain at least one row"
-                );
+                        "Every partition must contain at least one row");
             }
 
             if (i > 0 && starts[i] != ends[i - 1]) {
                 throw new IllegalStateException(
-                        "Partitions must be contiguous and non-overlapping"
-                );
+                        "Partitions must be contiguous and non-overlapping");
             }
         }
 
         if (ends[ends.length - 1] != rows) {
             throw new IllegalStateException(
-                    "Partitions must cover every CSR row"
-            );
+                    "Partitions must cover every CSR row");
         }
     }
 
@@ -372,6 +405,10 @@ public final class SpmvPlan {
 
     public MultiplyTask.SplitPolicy getSplitPolicy() {
         return splitPolicy;
+    }
+
+    public MultiplyTask.ThresholdMode getThresholdMode() {
+        return thresholdMode;
     }
 
     public int getPartitionCount() {
@@ -404,10 +441,6 @@ public final class SpmvPlan {
 
     /**
      * Returns the NNZ count assigned to a partition.
-     *
-     * @param partition partition index
-     * @param rowPointers CSR row-pointer array to verify
-     * @return number of non-zero elements in the partition
      */
     public int getPartitionNnz(
             int partition,
@@ -417,8 +450,7 @@ public final class SpmvPlan {
 
         if (!isCompatibleWith(rowPointers)) {
             throw new IllegalArgumentException(
-                    "SpmvPlan is incompatible with the supplied CSR structure"
-            );
+                    "SpmvPlan is incompatible with the supplied CSR structure");
         }
 
         return rowPointers[endRows[partition]]
@@ -428,9 +460,6 @@ public final class SpmvPlan {
     /**
      * Checks exact compatibility with the CSR structure used to create
      * this plan.
-     *
-     * @param rowPointers candidate CSR row-pointer array
-     * @return true only when the complete structure matches exactly
      */
     public boolean isCompatibleWith(int[] rowPointers) {
 
@@ -442,22 +471,14 @@ public final class SpmvPlan {
     }
 
     /**
-     * Compatibility alias for callers that use the shorter method name.
-     *
-     * @param rowPointers candidate CSR row-pointer array
-     * @return true only when the complete structure matches exactly
+     * Compatibility alias for callers using the shorter method name.
      */
     public boolean isCompatible(int[] rowPointers) {
         return isCompatibleWith(rowPointers);
     }
 
     /**
-     * Checks dimensions, total NNZ and the exact CSR row-pointer structure.
-     *
-     * @param candidateRows candidate matrix row count
-     * @param candidateNnz candidate matrix NNZ count
-     * @param rowPointers candidate CSR row-pointer array
-     * @return true only if all structural properties match
+     * Checks dimensions, total NNZ and exact CSR row-pointer structure.
      */
     public boolean isCompatible(
             int candidateRows,
@@ -472,8 +493,7 @@ public final class SpmvPlan {
     private void checkPartitionIndex(int partition) {
         if (partition < 0 || partition >= startRows.length) {
             throw new IndexOutOfBoundsException(
-                    "Invalid partition index: " + partition
-            );
+                    "Invalid partition index: " + partition);
         }
     }
 
@@ -490,6 +510,7 @@ public final class SpmvPlan {
                 + "rows=" + rows
                 + ", nnz=" + nnz
                 + ", threshold=" + threshold
+                + ", thresholdMode=" + thresholdMode
                 + ", parallelism=" + parallelism
                 + ", splitPolicy=" + splitPolicy
                 + ", partitionCount=" + startRows.length
