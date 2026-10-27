@@ -3,6 +3,7 @@ package hpc.csr;
 import java.util.Objects;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.IntFunction;
 
 /**
  * QFLPN computational engine for CSR sparse matrix-vector multiplication.
@@ -18,6 +19,12 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * - the plan is rebuilt atomically whenever the matrix is replaced.
  *
  * The matrix and its CSR representation are immutable after construction.
+ *
+ * Pool instrumentation:
+ * - production constructors use ForkJoinPool::new;
+ * - a package-private constructor permits controlled test instrumentation;
+ * - no public API exposes the internal ForkJoinPool;
+ * - persistent and temporary pools use the same factory.
  */
 public final class QFLPNCoreEngine implements AutoCloseable {
 
@@ -28,7 +35,20 @@ public final class QFLPNCoreEngine implements AutoCloseable {
 
     private final int dimension;
     private final int parallelism;
+
+    /**
+     * Persistent pool owned by this engine.
+     */
     private final ForkJoinPool forkJoinPool;
+
+    /**
+     * Pool factory.
+     *
+     * Package-private constructor injection allows tests in hpc.csr
+     * to retain references to created pools and verify their identity
+     * and lifecycle without exposing the engine's internal pool.
+     */
+    private final IntFunction<ForkJoinPool> poolFactory;
 
     private final ReentrantReadWriteLock lifecycleLock =
             new ReentrantReadWriteLock();
@@ -45,6 +65,25 @@ public final class QFLPNCoreEngine implements AutoCloseable {
     }
 
     public QFLPNCoreEngine(int n, int parallelism) {
+        this(n, parallelism, ForkJoinPool::new);
+    }
+
+    /**
+     * Package-private constructor for controlled pool instrumentation.
+     *
+     * This constructor is intentionally not public. Production callers
+     * use the public constructors, which create standard ForkJoinPool
+     * instances.
+     *
+     * Tests can inject a factory that records the exact pool instances
+     * created by the engine. The pool itself is never exposed through
+     * a public getter or diagnostic API.
+     */
+    QFLPNCoreEngine(
+            int n,
+            int parallelism,
+            IntFunction<ForkJoinPool> poolFactory) {
+
         if (n <= 0) {
             throw new IllegalArgumentException(
                     "Dimension must be greater than zero.");
@@ -55,13 +94,50 @@ public final class QFLPNCoreEngine implements AutoCloseable {
                     "Parallelism must be greater than zero.");
         }
 
+        this.poolFactory = Objects.requireNonNull(
+                poolFactory,
+                "poolFactory cannot be null.");
+
         this.dimension = n;
         this.parallelism = parallelism;
-        this.forkJoinPool = new ForkJoinPool(parallelism);
+
+        this.forkJoinPool = createPool(parallelism);
 
         this.matrix = null;
         this.spmvPlan = null;
         this.shutdown = false;
+    }
+
+    /**
+     * Creates a pool through the configured factory.
+     *
+     * The returned pool must have exactly the requested parallelism.
+     * An invalid pool is shut down before the constructor or operation
+     * fails.
+     */
+    private ForkJoinPool createPool(int requestedParallelism) {
+
+        ForkJoinPool createdPool = Objects.requireNonNull(
+                poolFactory.apply(requestedParallelism),
+                "Pool factory returned null.");
+
+        if (createdPool.getParallelism() != requestedParallelism) {
+            createdPool.shutdown();
+
+            throw new IllegalArgumentException(
+                    "Pool factory returned parallelism "
+                            + createdPool.getParallelism()
+                            + ", but "
+                            + requestedParallelism
+                            + " was requested.");
+        }
+
+        if (createdPool.isShutdown()) {
+            throw new IllegalArgumentException(
+                    "Pool factory returned an already shut down pool.");
+        }
+
+        return createdPool;
     }
 
     /**
@@ -217,12 +293,12 @@ public final class QFLPNCoreEngine implements AutoCloseable {
      * Parallel multiplication using an explicit threshold and
      * requested parallelism.
      *
-     * When requestedParallelism equals the engine parallelism, the
-     * persistent plan and persistent pool are reused.
+     * When requestedParallelism equals the engine parallelism and
+     * threshold equals DEFAULT_THRESHOLD, the persistent plan and
+     * persistent pool are reused.
      *
-     * When a different parallelism is explicitly requested, a temporary
-     * pool and a plan configured for that parallelism are created for
-     * backward compatibility. The temporary pool is always shut down.
+     * Otherwise, a temporary plan and pool are created for this
+     * invocation. The temporary pool is always shut down.
      *
      * Repeated production execution should use multiplyParallel(x).
      */
@@ -273,7 +349,7 @@ public final class QFLPNCoreEngine implements AutoCloseable {
                     DEFAULT_SPLIT_POLICY);
 
             ForkJoinPool temporaryPool =
-                    new ForkJoinPool(requestedParallelism);
+                    createPool(requestedParallelism);
 
             try {
                 return current.multiplyParallel(
