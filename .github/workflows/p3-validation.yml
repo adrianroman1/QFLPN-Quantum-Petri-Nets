@@ -45,7 +45,7 @@ jobs:
       THRESHOLD: "4096"
       PARALLELISM: "2"
 
-      # V3 is a separate workload and has its own dimension.
+      # Independent V3 benchmark configuration.
       P3_V3_DIMENSION: "4096"
       P3_V3_WARMUP: "5"
       P3_V3_ITERATIONS: "10"
@@ -55,9 +55,9 @@ jobs:
       P3_RAW_ROOT: P3/results/raw
 
     steps:
-      # ------------------------------------------------------------
-      # 1. SOURCE AND EXECUTION IDENTITY
-      # ------------------------------------------------------------
+      # ============================================================
+      # 1. CHECKOUT AND EXECUTION IDENTITY
+      # ============================================================
 
       - name: Checkout repository
         id: p3_checkout
@@ -75,27 +75,36 @@ jobs:
           WORKFLOW_RUN_ID="${GITHUB_RUN_ID}"
           RUN_ID="${P3_RUN_ID}"
 
-          if [[ ! "${SOURCE_COMMIT}" =~ ^[0-9a-f]{40}$ ]]; then
+          [[ "${SOURCE_COMMIT}" =~ ^[0-9a-f]{40}$ ]] || {
             echo "::error::Invalid source commit SHA."
             exit 1
-          fi
+          }
 
-          if [[ ! "${WORKFLOW_RUN_ID}" =~ ^[0-9]+$ ]]; then
+          [[ "${WORKFLOW_RUN_ID}" =~ ^[0-9]+$ ]] || {
             echo "::error::Invalid GitHub workflow run ID."
             exit 1
-          fi
+          }
 
-          if [[ ! "${RUN_ID}" =~ ^[A-Za-z0-9._-]+$ ]]; then
+          [[ "${RUN_ID}" =~ ^[A-Za-z0-9._-]+$ ]] || {
             echo "::error::Invalid P3 RUN_ID."
             exit 1
-          fi
+          }
 
           echo "P3_SOURCE_COMMIT=${SOURCE_COMMIT}" >> "${GITHUB_ENV}"
           echo "P3_WORKFLOW_RUN_ID=${WORKFLOW_RUN_ID}" >> "${GITHUB_ENV}"
 
-          mkdir -p \
-            "${P3_RAW_ROOT}/${RUN_ID}" \
-            "${P3_REPORTS}"
+          mkdir -p "${P3_RAW_ROOT}" "${P3_REPORTS}"
+
+          RAW="${P3_RAW_ROOT}/${RUN_ID}"
+
+          # A unique GitHub run ID must never reuse an existing run directory.
+          if [[ -e "${RAW}" || -L "${RAW}" ]]; then
+            echo "::error::RUN_ID directory already exists: ${RAW}"
+            echo "::error::Refusing to overwrite previous execution evidence."
+            exit 1
+          fi
+
+          mkdir "${RAW}"
 
           {
             echo "P3_RUN_ID=${RUN_ID}"
@@ -103,11 +112,14 @@ jobs:
             echo "P3_SOURCE_COMMIT=${SOURCE_COMMIT}"
             echo "P3_V2_DIMENSION=${N}"
             echo "P3_V3_DIMENSION=${P3_V3_DIMENSION}"
-          } | tee "${P3_RAW_ROOT}/${RUN_ID}/execution-identity.txt"
+          } > "${RAW}/execution-identity.txt"
 
-      # ------------------------------------------------------------
+          echo "P3_EXECUTION_IDENTITY: PASS"
+          cat "${RAW}/execution-identity.txt"
+
+      # ============================================================
       # 2. TOOLCHAINS
-      # ------------------------------------------------------------
+      # ============================================================
 
       - name: Set up Java 21
         id: p3_java_setup
@@ -137,9 +149,9 @@ jobs:
           java -version
           mvn -version
 
-      # ------------------------------------------------------------
+      # ============================================================
       # 3. REQUIRED FILES AND STATIC VALIDATION
-      # ------------------------------------------------------------
+      # ============================================================
 
       - name: Verify required P3 files
         id: p3_required_files
@@ -194,9 +206,9 @@ jobs:
 
           echo "P3_PYTHON_COMPILE: PASS"
 
-      # ------------------------------------------------------------
-      # 4. PYTHON TESTS
-      # ------------------------------------------------------------
+      # ============================================================
+      # 4. COMPLETE PYTHON TEST SUITE
+      # ============================================================
 
       - name: Run complete P3 Python test suite
         id: p3_python_tests
@@ -205,7 +217,6 @@ jobs:
           set -Eeuo pipefail
 
           RAW="${P3_RAW_ROOT}/${P3_RUN_ID}"
-          mkdir -p "${RAW}"
 
           set +e
           python -m pytest \
@@ -227,9 +238,9 @@ jobs:
 
           echo "P3_PYTHON_TESTS: PASS"
 
-      # ------------------------------------------------------------
+      # ============================================================
       # 5. MAVEN VALIDATION
-      # ------------------------------------------------------------
+      # ============================================================
 
       - name: Run root Maven tests when root pom exists
         id: p3_root_maven
@@ -243,7 +254,7 @@ jobs:
             mvn -B -ntp clean test \
               2>&1 | tee "${RAW}/root-maven.log"
           else
-            echo "Root Maven project not present; stage not applicable." \
+            echo "Root Maven project not present; not applicable." \
               | tee "${RAW}/root-maven.log"
           fi
 
@@ -267,9 +278,9 @@ jobs:
 
           echo "P3_MAVEN: PASS"
 
-      # ------------------------------------------------------------
+      # ============================================================
       # 6. V2 BENCHMARK — N = 1,000,000
-      # ------------------------------------------------------------
+      # ============================================================
 
       - name: Run canonical P3 V2 benchmark
         id: p3_benchmark_v2
@@ -283,6 +294,7 @@ jobs:
 
           export RUN_ID="${P3_RUN_ID}"
           export SOURCE_COMMIT="${P3_SOURCE_COMMIT}"
+          export P3_WORKFLOW_RUN_ID="${P3_WORKFLOW_RUN_ID}"
 
           export N="${N}"
           export WARMUP="${WARMUP}"
@@ -355,25 +367,24 @@ jobs:
 
           row = rows[0]
 
-          expected_n = int(os.environ["N"])
-          expected_warmup = int(os.environ["WARMUP"])
-          expected_iterations = int(os.environ["ITERATIONS"])
+          checks = {
+              "dimension": int(os.environ["N"]),
+              "warmup_iterations": int(os.environ["WARMUP"]),
+              "measured_iterations": int(os.environ["ITERATIONS"]),
+          }
 
-          if int(row["dimension"]) != expected_n:
-              raise SystemExit("V2 dimension mismatch.")
-
-          if int(row["warmup_iterations"]) != expected_warmup:
-              raise SystemExit("V2 warmup mismatch.")
-
-          if int(row["measured_iterations"]) != expected_iterations:
-              raise SystemExit("V2 measured iterations mismatch.")
+          for key, expected in checks.items():
+              if int(row[key]) != expected:
+                  raise SystemExit(
+                      f"V2 {key} mismatch: {row[key]} != {expected}"
+                  )
 
           print("P3_V2_VALIDATION: PASS")
           PY
 
-      # ------------------------------------------------------------
+      # ============================================================
       # 7. V3 BENCHMARK — A/B MATRIX 192
-      # ------------------------------------------------------------
+      # ============================================================
 
       - name: Run BenchmarkV3Runner A/B matrix
         id: p3_benchmark_v3
@@ -416,8 +427,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          mkdir -p P3/reports
-
           python P3/results/validate_benchmark_v3.py \
             --csv P3/benchmarks/benchmark_results_v3.csv \
             --run-id "${P3_RUN_ID}" \
@@ -449,14 +458,14 @@ jobs:
                       f"{report.get(key)!r} != {expected!r}"
                   )
 
-          if report.get("run_id") is None:
-              raise SystemExit("V3 report RUN_ID is missing.")
+          if report.get("run_id") != __import__("os").environ["P3_RUN_ID"]:
+              raise SystemExit("V3 report RUN_ID mismatch.")
 
-          if report.get("workflow_run_id") is None:
-              raise SystemExit("V3 workflow_run_id is missing.")
+          if report.get("workflow_run_id") != __import__("os").environ["P3_WORKFLOW_RUN_ID"]:
+              raise SystemExit("V3 report workflow_run_id mismatch.")
 
-          if report.get("commit_sha") is None:
-              raise SystemExit("V3 commit_sha is missing.")
+          if report.get("commit_sha") != __import__("os").environ["P3_SOURCE_COMMIT"]:
+              raise SystemExit("V3 report commit_sha mismatch.")
 
           policies = report.get("split_policies")
           if set(policies or []) != {
@@ -468,9 +477,9 @@ jobs:
           print("P3_V3_VALIDATION: PASS — 192/192")
           PY
 
-      # ------------------------------------------------------------
-      # 8. RUN-SPECIFIC V3 CHECKSUM
-      # ------------------------------------------------------------
+      # ============================================================
+      # 8. V3 CHECKSUM
+      # ============================================================
 
       - name: Generate V3 canonical CSV checksum
         id: p3_v3_checksum
@@ -499,9 +508,9 @@ jobs:
           print("P3_V3_CHECKSUM: PASS")
           PY
 
-      # ------------------------------------------------------------
-      # 9. PERSISTENT V2 REPORTS AND ENVIRONMENT PROVENANCE
-      # ------------------------------------------------------------
+      # ============================================================
+      # 9. PERSISTENT REPORTS AND ENVIRONMENT PROVENANCE
+      # ============================================================
 
       - name: Persist V2 reports and execution environment
         id: p3_benchmark_summary
@@ -511,12 +520,24 @@ jobs:
 
           RAW="${P3_RAW_ROOT}/${P3_RUN_ID}"
 
-          mkdir -p P3/reports
+          for file in \
+            benchmark-report.json \
+            benchmark-report.txt \
+            benchmark-report.md \
+            validation-report.json \
+            SHA256SUMS.txt
+          do
+            if [[ ! -s "${RAW}/${file}" || -L "${RAW}/${file}" ]]; then
+              echo "::error::Missing or unsafe V2 report: ${file}"
+              exit 1
+            fi
+          done
 
-          test -s "${RAW}/benchmark-report.json"
-          test -s "${RAW}/benchmark-report.txt"
-          test -s "${RAW}/benchmark-report.md"
-          test -s "${RAW}/validation-report.json"
+          cp "${RAW}/benchmark-report.json" \
+            P3/reports/benchmark-report.json
+
+          cp "${RAW}/benchmark-report.txt" \
+            P3/reports/benchmark-report.txt
 
           cp "${RAW}/benchmark-report.md" \
             P3/reports/benchmark-report.md
@@ -567,25 +588,34 @@ jobs:
               },
           }
 
-          path = Path("P3/reports/environment.json")
-          path.parent.mkdir(parents=True, exist_ok=True)
-          path.write_text(
-              json.dumps(payload, indent=2, sort_keys=True) + "\n",
+          reports = Path("P3/reports")
+          reports.mkdir(parents=True, exist_ok=True)
+
+          content = json.dumps(
+              payload,
+              indent=2,
+              sort_keys=True,
+              ensure_ascii=False,
+              allow_nan=False,
+          ) + "\n"
+
+          (reports / "environment.json").write_text(
+              content,
               encoding="utf-8",
           )
 
           raw = Path("P3/results/raw") / os.environ["P3_RUN_ID"]
           (raw / "environment.json").write_text(
-              json.dumps(payload, indent=2, sort_keys=True) + "\n",
+              content,
               encoding="utf-8",
           )
 
           print("P3_ENVIRONMENT_REPORT: PASS")
           PY
 
-      # ------------------------------------------------------------
+      # ============================================================
       # 10. CROSS-EVIDENCE CONSISTENCY
-      # ------------------------------------------------------------
+      # ============================================================
 
       - name: Verify V2 and V3 evidence consistency
         id: p3_evidence_consistency
@@ -635,9 +665,9 @@ jobs:
           print("P3_EVIDENCE_CONSISTENCY: PASS")
           PY
 
-      # ------------------------------------------------------------
-      # 11. INITIAL EVIDENCE ARTIFACT
-      # ------------------------------------------------------------
+      # ============================================================
+      # 11. UPLOAD PRE-INTEGRITY EVIDENCE
+      # ============================================================
 
       - name: Upload benchmark and validation evidence
         id: p3_artifact_upload
@@ -654,9 +684,9 @@ jobs:
             P3/benchmarks/benchmark_results_v3.csv
             P3/target/surefire-reports/
 
-      # ------------------------------------------------------------
-      # 12. CI OUTCOMES — CANONICAL REQUIRED_CI_STAGES CONTRACT
-      # ------------------------------------------------------------
+      # ============================================================
+      # 12. CI OUTCOMES — ONLY COMPLETED PRE-INTEGRITY STAGES
+      # ============================================================
 
       - name: Record p3_validation stage outcomes
         id: p3_record_outcomes
@@ -671,10 +701,10 @@ jobs:
 
           run_id = os.environ["P3_RUN_ID"]
           raw = Path("P3/results/raw") / run_id
-          raw.mkdir(parents=True, exist_ok=True)
 
-          # The complete Python suite covers the benchmark, manifest,
-          # evidence-consistency and final-package test modules.
+          if not raw.is_dir() or raw.is_symlink():
+              raise SystemExit("RUN_ID evidence directory is missing or unsafe.")
+
           python_status = "${{ steps.p3_python_tests.outcome }}"
 
           stages = {
@@ -682,6 +712,8 @@ jobs:
               "p3_required_files": "${{ steps.p3_required_files.outcome }}",
               "p3_python_compile": "${{ steps.p3_python_compile.outcome }}",
 
+              # These are separately named test gates, all backed by the
+              # complete pytest run above. No test is silently skipped.
               "p3_benchmark_tests": python_status,
               "p3_manifest_tests": python_status,
               "p3_final_package_tests": python_status,
@@ -698,14 +730,6 @@ jobs:
 
               "p3_benchmark_summary": "${{ steps.p3_benchmark_summary.outcome }}",
               "p3_evidence_consistency": "${{ steps.p3_evidence_consistency.outcome }}",
-
-              # These gates are executed immediately after this
-              # outcomes envelope is written. A failure makes the
-              # p3_validation job fail and is not treated as acceptance.
-              "p3_integrity_generate": "success",
-              "p3_integrity_verify": "success",
-              "p3_final_verification": "success",
-
               "p3_artifact_upload": "${{ steps.p3_artifact_upload.outcome }}",
           }
 
@@ -725,9 +749,6 @@ jobs:
               "p3_benchmark_v3_validation",
               "p3_benchmark_summary",
               "p3_evidence_consistency",
-              "p3_integrity_generate",
-              "p3_integrity_verify",
-              "p3_final_verification",
               "p3_artifact_upload",
           )
 
@@ -755,17 +776,30 @@ jobs:
           }
 
           path = raw / "ci-outcomes.json"
+
+          if path.exists() or path.is_symlink():
+              raise SystemExit(
+                  "ci-outcomes.json already exists; refusing to overwrite."
+              )
+
           path.write_text(
-              json.dumps(payload, indent=2, sort_keys=True) + "\n",
+              json.dumps(
+                  payload,
+                  indent=2,
+                  sort_keys=True,
+                  ensure_ascii=False,
+                  allow_nan=False,
+              ) + "\n",
               encoding="utf-8",
           )
 
           print("P3_CI_OUTCOMES: PASS")
+          print(f"P3_CI_OUTCOMES_RUN_ID={run_id}")
           PY
 
-      # ------------------------------------------------------------
-      # 13. GLOBAL MANIFEST AND SHA256SUMS
-      # ------------------------------------------------------------
+      # ============================================================
+      # 13. GLOBAL INTEGRITY GENERATION
+      # ============================================================
 
       - name: Generate global MANIFEST.txt and SHA256SUMS.txt
         id: p3_integrity_generate
@@ -778,7 +812,16 @@ jobs:
           test -s P3/MANIFEST.txt
           test -s P3/SHA256SUMS.txt
 
+          if [[ -L P3/MANIFEST.txt || -L P3/SHA256SUMS.txt ]]; then
+            echo "::error::Global integrity files must not be symlinks."
+            exit 1
+          fi
+
           echo "P3_INTEGRITY_GENERATION: PASS"
+
+      # ============================================================
+      # 14. INDEPENDENT INTEGRITY VERIFICATION
+      # ============================================================
 
       - name: Independently verify global integrity inventory
         id: p3_integrity_verify
@@ -801,25 +844,25 @@ jobs:
           if not isinstance(result, dict):
               raise SystemExit("Integrity verifier returned invalid result.")
 
-          if result.get("manifest_entries", 0) <= 0:
+          manifest_count = result.get("manifest_entries", 0)
+          checksum_count = result.get("sha256_entries_verified", 0)
+
+          if manifest_count <= 0:
               raise SystemExit("MANIFEST.txt is empty.")
 
-          if result.get("sha256_entries_verified", 0) <= 0:
+          if checksum_count <= 0:
               raise SystemExit("SHA256SUMS.txt is empty.")
 
-          if (
-              result["manifest_entries"]
-              != result["sha256_entries_verified"]
-          ):
+          if manifest_count != checksum_count:
               raise SystemExit("Manifest/checksum entry counts differ.")
 
           print("P3_GLOBAL_INTEGRITY: PASS")
           print(result)
           PY
 
-      # ------------------------------------------------------------
-      # 14. FINAL INDEPENDENT PACKAGE VERIFICATION
-      # ------------------------------------------------------------
+      # ============================================================
+      # 15. FINAL INDEPENDENT PACKAGE VERIFICATION
+      # ============================================================
 
       - name: Run verify_final_package.py — P3_ACCEPTED gate
         id: p3_final_verification
@@ -828,7 +871,7 @@ jobs:
           set -Eeuo pipefail
 
           RAW="${P3_RAW_ROOT}/${P3_RUN_ID}"
-          mkdir -p "${RAW}"
+          OUTPUT="${RUNNER_TEMP}/p3-final-package-verification.json"
 
           python P3/tools/verify_final_package.py \
             --root . \
@@ -841,16 +884,14 @@ jobs:
             --iterations "${ITERATIONS}" \
             --threshold "${THRESHOLD}" \
             --parallelism "${PARALLELISM}" \
-            | tee "${RUNNER_TEMP}/p3-final-package-verification.json"
+            | tee "${OUTPUT}"
 
-          python - <<'PY'
+          python - "${OUTPUT}" <<'PY'
           import json
+          import sys
           from pathlib import Path
 
-          path = Path(
-              __import__("os").environ["RUNNER_TEMP"]
-          ) / "p3-final-package-verification.json"
-
+          path = Path(sys.argv[1])
           result = json.loads(path.read_text(encoding="utf-8"))
 
           if result.get("verdict") != "P3_ACCEPTED":
@@ -875,61 +916,24 @@ jobs:
           if not isinstance(integrity, dict):
               raise SystemExit("Final integrity result is missing.")
 
+          if integrity.get("manifest_entries", 0) <= 0:
+              raise SystemExit("Final MANIFEST verification is empty.")
+
+          if integrity.get("sha256_entries_verified", 0) <= 0:
+              raise SystemExit("Final SHA256SUMS verification is empty.")
+
           print("P3_ACCEPTED")
           print("V2: PASS")
           print("V3: PASS — 192/192")
+          print("Evidence consistency: PASS")
           print("MANIFEST.txt: PASS")
           print("SHA256SUMS.txt: PASS")
           print("p3_validation: PASS")
           PY
 
-      # ------------------------------------------------------------
-      # 15. FAILURE RECORDING
-      # ------------------------------------------------------------
-
-      - name: Record final-verification failure and refresh integrity
-        id: p3_record_failure
-        if: failure() && steps.p3_final_verification.outcome == 'failure'
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          python - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          raw = Path("P3/results/raw") / os.environ["P3_RUN_ID"]
-          path = raw / "ci-outcomes.json"
-
-          if path.is_file() and not path.is_symlink():
-              payload = json.loads(path.read_text(encoding="utf-8"))
-          else:
-              payload = {
-                  "schema": "qflpn-p3-ci-outcomes-v1",
-                  "run_id": os.environ["P3_RUN_ID"],
-                  "source_commit": os.environ["P3_SOURCE_COMMIT"],
-                  "workflow_run_id": os.environ["P3_WORKFLOW_RUN_ID"],
-                  "stages": {},
-              }
-
-          payload.setdefault("stages", {})
-          payload["stages"]["p3_final_verification"] = "failure"
-
-          path.write_text(
-              json.dumps(payload, indent=2, sort_keys=True) + "\n",
-              encoding="utf-8",
-          )
-          PY
-
-          python P3/tools/compute_checksums.py
-
-          echo "P3_FINAL_VERIFICATION: FAIL"
-          echo "The workflow remains failed; failure evidence was preserved."
-
-      # ------------------------------------------------------------
-      # 16. FINAL EVIDENCE ARTIFACT
-      # ------------------------------------------------------------
+      # ============================================================
+      # 16. FINAL COMPLETE ARTIFACT
+      # ============================================================
 
       - name: Upload complete P3 validation package
         id: p3_final_artifact
