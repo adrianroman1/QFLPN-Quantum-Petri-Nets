@@ -1,17 +1,26 @@
 package hpc.csr;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.ForkJoinTask;
+import java.util.concurrent.RecursiveAction;
 
 /**
  * Immutable Compressed Sparse Row matrix.
  *
- * Duplicate column indices are supported. Their values are
- * interpreted additively by get(), multiply() and multiplyParallel().
+ * Duplicate column indices are aggregated additively during construction.
+ * The normalized representation has strictly increasing column indices
+ * within each row.
  *
- * The default parallel split policy is BINARY_NNZ_SPLIT.
- * ROW_BOUNDARY_SCAN remains available as an explicit baseline.
+ * Parallel execution supports:
+ * - legacy threshold-based recursive splitting;
+ * - reusable SpmvPlan instances;
+ * - caller-owned ForkJoinPool instances.
+ *
+ * The plan-based API never creates or shuts down a ForkJoinPool.
  */
 public final class SparseMatrixCSR {
 
@@ -39,13 +48,12 @@ public final class SparseMatrixCSR {
         Objects.requireNonNull(columnIndices, "columnIndices cannot be null");
         Objects.requireNonNull(rowPointers, "rowPointers cannot be null");
 
-        NormalizedCSR normalized =
-                normalizeAndValidate(
-                        values,
-                        columnIndices,
-                        rowPointers,
-                        rows,
-                        columns);
+        NormalizedCSR normalized = normalizeAndValidate(
+                values,
+                columnIndices,
+                rowPointers,
+                rows,
+                columns);
 
         this.values = normalized.values();
         this.columnIndices = normalized.columns();
@@ -70,50 +78,56 @@ public final class SparseMatrixCSR {
             throw new IllegalArgumentException(
                     "Number of columns cannot be negative.");
         }
+
+        if (rows == Integer.MAX_VALUE) {
+            throw new IllegalArgumentException(
+                    "Number of rows is too large for a CSR row-pointer array.");
+        }
     }
 
     /**
      * Validates and normalizes CSR input.
      *
-     * Each row is sorted by column index using primitive long keys.
-     * The low 32 bits retain the original input position, so equal
-     * column indices preserve their original order during aggregation.
+     * Each row is sorted by primitive long keys. The upper 32 bits contain
+     * the column index and the lower 32 bits contain the original absolute
+     * input position. Equal columns therefore retain deterministic input
+     * order during aggregation.
      *
-     * This avoids allocating one Integer object per nonzero entry.
+     * No Integer objects are allocated for sorting.
      */
     private static NormalizedCSR normalizeAndValidate(
-            double[] values,
-            int[] columnIndices,
-            int[] rowPointers,
+            double[] inputValues,
+            int[] inputColumns,
+            int[] inputRowPointers,
             int rows,
             int columns) {
 
-        if (values.length != columnIndices.length) {
+        if (inputValues.length != inputColumns.length) {
             throw new IllegalArgumentException(
                     "values and columnIndices must have the same length.");
         }
 
-        if (rows == Integer.MAX_VALUE || rowPointers.length != rows + 1) {
+        if (inputRowPointers.length != rows + 1) {
             throw new IllegalArgumentException(
                     "rowPointers length must be rows + 1.");
         }
 
-        if (rowPointers.length == 0 || rowPointers[0] != 0) {
+        if (inputRowPointers[0] != 0) {
             throw new IllegalArgumentException(
                     "rowPointers[0] must be 0.");
         }
 
         int previous = 0;
 
-        for (int i = 0; i < rowPointers.length; i++) {
-            int current = rowPointers[i];
+        for (int i = 0; i < inputRowPointers.length; i++) {
+            int current = inputRowPointers[i];
 
             if (current < 0 || current < previous) {
                 throw new IllegalArgumentException(
                         "rowPointers must be non-negative and monotonically non-decreasing.");
             }
 
-            if (current > values.length) {
+            if (current > inputValues.length) {
                 throw new IllegalArgumentException(
                         "rowPointers value exceeds NNZ at index " + i + ".");
             }
@@ -121,13 +135,13 @@ public final class SparseMatrixCSR {
             previous = current;
         }
 
-        if (rowPointers[rows] != values.length) {
+        if (inputRowPointers[rows] != inputValues.length) {
             throw new IllegalArgumentException(
                     "The last row pointer must equal NNZ.");
         }
 
-        for (int i = 0; i < columnIndices.length; i++) {
-            int column = columnIndices[i];
+        for (int i = 0; i < inputColumns.length; i++) {
+            int column = inputColumns[i];
 
             if (column < 0 || column >= columns) {
                 throw new IllegalArgumentException(
@@ -136,107 +150,87 @@ public final class SparseMatrixCSR {
             }
         }
 
-        for (int i = 0; i < values.length; i++) {
-            if (!Double.isFinite(values[i])) {
+        for (int i = 0; i < inputValues.length; i++) {
+            if (!Double.isFinite(inputValues[i])) {
                 throw new IllegalArgumentException(
                         "CSR values must be finite. Invalid value at position "
-                                + i + ": " + values[i]);
+                                + i + ": " + inputValues[i]);
             }
         }
 
-        int[] compactColumns = new int[values.length];
-        double[] compactValues = new double[values.length];
-        int[] compactRowPointers = new int[rows + 1];
-
-        compactRowPointers[0] = 0;
+        int[] normalizedColumns = new int[inputValues.length];
+        double[] normalizedValues = new double[inputValues.length];
+        int[] normalizedRowPointers = new int[rows + 1];
 
         int writeIndex = 0;
+        normalizedRowPointers[0] = 0;
 
         for (int row = 0; row < rows; row++) {
-            int rowStart = rowPointers[row];
-            int rowEnd = rowPointers[row + 1];
+            int rowStart = inputRowPointers[row];
+            int rowEnd = inputRowPointers[row + 1];
             int count = rowEnd - rowStart;
 
             if (count == 0) {
-                compactRowPointers[row + 1] = writeIndex;
+                normalizedRowPointers[row + 1] = writeIndex;
                 continue;
             }
 
-            /*
-             * Key layout:
-             *
-             * bits 63..32: column index
-             * bits 31..0 : original absolute input index
-             *
-             * Column indices are non-negative, so signed long sorting
-             * preserves ascending column order. The original index
-             * provides deterministic ordering for duplicate columns.
-             */
             long[] order = new long[count];
 
             for (int i = 0; i < count; i++) {
                 int originalIndex = rowStart + i;
-                int column = columnIndices[originalIndex];
+                int column = inputColumns[originalIndex];
 
-                order[i] =
-                        ((long) column << 32)
-                                | (originalIndex & 0xffffffffL);
+                order[i] = ((long) column << 32)
+                        | (originalIndex & 0xffffffffL);
             }
 
             Arrays.sort(order);
 
             int rowWrite = 0;
 
-            for (int pos = 0; pos < order.length; pos++) {
-                int index = (int) order[pos];
-
-                int currentColumn = columnIndices[index];
-                double currentValue = values[index];
+            for (long key : order) {
+                int originalIndex = (int) key;
+                int currentColumn = inputColumns[originalIndex];
+                double currentValue = inputValues[originalIndex];
 
                 if (rowWrite > 0
-                        && compactColumns[writeIndex + rowWrite - 1]
+                        && normalizedColumns[writeIndex + rowWrite - 1]
                         == currentColumn) {
 
                     int duplicatePosition =
                             writeIndex + rowWrite - 1;
 
-                    double aggregatedValue =
-                            compactValues[duplicatePosition] + currentValue;
+                    double aggregated =
+                            normalizedValues[duplicatePosition]
+                                    + currentValue;
 
-                    if (!Double.isFinite(aggregatedValue)) {
+                    if (!Double.isFinite(aggregated)) {
                         throw new IllegalArgumentException(
                                 "Duplicate CSR aggregation overflow at row "
                                         + row + ", column " + currentColumn
                                         + ": aggregated value is not finite.");
                     }
 
-                    compactValues[duplicatePosition] = aggregatedValue;
-                    continue;
-                }
+                    normalizedValues[duplicatePosition] = aggregated;
+                } else {
+                    normalizedColumns[writeIndex + rowWrite] =
+                            currentColumn;
 
-                compactColumns[writeIndex + rowWrite] = currentColumn;
-                compactValues[writeIndex + rowWrite] = currentValue;
-                rowWrite++;
+                    normalizedValues[writeIndex + rowWrite] =
+                            currentValue;
+
+                    rowWrite++;
+                }
             }
 
             writeIndex += rowWrite;
-            compactRowPointers[row + 1] = writeIndex;
+            normalizedRowPointers[row + 1] = writeIndex;
         }
 
-        int finalNnz = compactRowPointers[rows];
-
-        int[] normalizedColumns =
-                Arrays.copyOf(compactColumns, finalNnz);
-
-        double[] normalizedValues =
-                Arrays.copyOf(compactValues, finalNnz);
-
-        int[] normalizedRowPointers =
-                Arrays.copyOf(compactRowPointers, rows + 1);
-
         return new NormalizedCSR(
-                normalizedColumns,
-                normalizedValues,
+                Arrays.copyOf(normalizedColumns, writeIndex),
+                Arrays.copyOf(normalizedValues, writeIndex),
                 normalizedRowPointers);
     }
 
@@ -253,37 +247,46 @@ public final class SparseMatrixCSR {
     }
 
     /**
-     * Sequential CSR matrix-vector multiplication into a caller-owned
-     * output array.
+     * Sequential multiplication into a caller-owned output array.
      *
-     * If x and y are the same array, x is snapshotted before any output
-     * element is overwritten.
+     * In-place multiplication is supported by snapshotting the input.
      */
     public void multiplyInto(double[] x, double[] y) {
         validateInputVector(x);
         validateOutputVector(y);
 
-        double[] input = (x == y)
+        double[] input = x == y
                 ? Arrays.copyOf(x, x.length)
                 : x;
 
-        for (int row = 0; row < rows; row++) {
+        multiplyRows(input, y, 0, rows);
+    }
+
+    private void multiplyRows(
+            double[] input,
+            double[] output,
+            int startRow,
+            int endRow) {
+
+        for (int row = startRow; row < endRow; row++) {
             double sum = 0.0;
 
-            int begin = rowPointers[row];
-            int end = rowPointers[row + 1];
+            for (int index = rowPointers[row];
+                 index < rowPointers[row + 1];
+                 index++) {
 
-            for (int index = begin; index < end; index++) {
                 sum += values[index] * input[columnIndices[index]];
             }
 
-            y[row] = sum;
+            output[row] = sum;
         }
     }
 
     /**
-     * Parallel multiplication using the default threshold, available
-     * processor count and BINARY_NNZ_SPLIT policy.
+     * Legacy convenience API.
+     *
+     * Creates and shuts down a pool for this call. For repeated execution,
+     * prefer the SpmvPlan and caller-owned-pool overloads.
      */
     public double[] multiplyParallel(double[] x) {
         return multiplyParallel(
@@ -294,9 +297,7 @@ public final class SparseMatrixCSR {
     }
 
     /**
-     * Backward-compatible API.
-     *
-     * The default split policy is BINARY_NNZ_SPLIT.
+     * Legacy convenience API.
      */
     public double[] multiplyParallel(
             double[] x,
@@ -311,7 +312,7 @@ public final class SparseMatrixCSR {
     }
 
     /**
-     * Parallel multiplication with an explicitly selected split policy.
+     * Legacy convenience API with an explicit split policy.
      */
     public double[] multiplyParallel(
             double[] x,
@@ -321,27 +322,28 @@ public final class SparseMatrixCSR {
 
         validateInputVector(x);
         validateParallelConfiguration(threshold, parallelism);
+        Objects.requireNonNull(splitPolicy, "splitPolicy cannot be null");
 
-        Objects.requireNonNull(
-                splitPolicy,
-                "splitPolicy cannot be null");
+        double[] output = new double[rows];
 
-        double[] y = new double[rows];
+        ForkJoinPool pool = new ForkJoinPool(parallelism);
 
-        multiplyParallelInto(
-                x,
-                y,
-                threshold,
-                parallelism,
-                splitPolicy);
+        try {
+            multiplyParallelInto(
+                    x,
+                    output,
+                    threshold,
+                    pool,
+                    splitPolicy);
+        } finally {
+            pool.shutdown();
+        }
 
-        return y;
+        return output;
     }
 
     /**
-     * Backward-compatible API.
-     *
-     * The default split policy is BINARY_NNZ_SPLIT.
+     * Legacy convenience API. Creates and shuts down a pool for this call.
      */
     public void multiplyParallelInto(
             double[] x,
@@ -358,9 +360,10 @@ public final class SparseMatrixCSR {
     }
 
     /**
-     * Parallel multiplication with an explicitly selected split policy.
+     * Legacy convenience API with an explicit split policy.
      *
-     * A new ForkJoinPool is created and shut down by this method.
+     * This overload owns the pool lifecycle. Use the ForkJoinPool overload
+     * or the SpmvPlan overload for persistent-pool execution.
      */
     public void multiplyParallelInto(
             double[] x,
@@ -372,10 +375,7 @@ public final class SparseMatrixCSR {
         validateInputVector(x);
         validateOutputVector(y);
         validateParallelConfiguration(threshold, parallelism);
-
-        Objects.requireNonNull(
-                splitPolicy,
-                "splitPolicy cannot be null");
+        Objects.requireNonNull(splitPolicy, "splitPolicy cannot be null");
 
         ForkJoinPool pool = new ForkJoinPool(parallelism);
 
@@ -392,7 +392,9 @@ public final class SparseMatrixCSR {
     }
 
     /**
-     * Backward-compatible overload using BINARY_NNZ_SPLIT.
+     * Backward-compatible overload using the default split policy.
+     *
+     * The caller owns the pool. This method never shuts it down.
      */
     public void multiplyParallelInto(
             double[] x,
@@ -409,16 +411,10 @@ public final class SparseMatrixCSR {
     }
 
     /**
-     * Parallel multiplication using a caller-owned ForkJoinPool and an
-     * explicit split policy.
+     * Parallel multiplication using a caller-owned ForkJoinPool.
      *
-     * The pool is not shut down by this method.
-     *
-     * MultiplyTask.forValidatedCsr reuses the input vector when it is
-     * distinct from the output vector. When x == y, it snapshots the
-     * input to preserve in-place multiplication semantics.
-     *
-     * When x != y, callers must not mutate x concurrently with this call.
+     * The caller owns the pool lifecycle. This method never creates,
+     * shuts down, or otherwise changes ownership of the supplied pool.
      */
     public void multiplyParallelInto(
             double[] x,
@@ -429,30 +425,22 @@ public final class SparseMatrixCSR {
 
         validateInputVector(x);
         validateOutputVector(y);
+        validateThreshold(threshold);
 
-        Objects.requireNonNull(
-                pool,
-                "ForkJoinPool cannot be null.");
+        Objects.requireNonNull(pool, "ForkJoinPool cannot be null.");
+        Objects.requireNonNull(splitPolicy, "splitPolicy cannot be null.");
 
-        Objects.requireNonNull(
-                splitPolicy,
-                "splitPolicy cannot be null.");
+        ensurePoolActive(pool);
 
-        if (threshold <= 0) {
-            throw new IllegalArgumentException(
-                    "Parallel threshold must be greater than zero.");
-        }
-
-        if (pool.isShutdown()) {
-            throw new IllegalStateException(
-                    "ForkJoinPool is already shut down.");
-        }
+        double[] input = x == y
+                ? Arrays.copyOf(x, x.length)
+                : x;
 
         MultiplyTask task = MultiplyTask.forValidatedCsr(
                 values,
                 columnIndices,
                 rowPointers,
-                x,
+                input,
                 y,
                 0,
                 rows,
@@ -462,18 +450,167 @@ public final class SparseMatrixCSR {
         pool.invoke(task);
     }
 
+    /**
+     * Allocates the output vector and executes using an existing plan
+     * and caller-owned pool.
+     *
+     * The plan must have been created for this matrix's exact row-pointer
+     * structure.
+     */
+    public double[] multiplyParallel(
+            double[] x,
+            SpmvPlan plan,
+            ForkJoinPool pool) {
+
+        validateInputVector(x);
+
+        double[] output = new double[rows];
+
+        multiplyParallelInto(x, output, plan, pool);
+
+        return output;
+    }
+
+    /**
+     * Executes a precomputed SpMV plan.
+     *
+     * Each planned row interval is submitted as an independent
+     * MultiplyTask. The plan determines the top-level partitioning;
+     * MultiplyTask retains its existing recursive splitting behaviour
+     * inside each interval.
+     *
+     * The supplied pool is reused and remains owned by the caller.
+     */
+    public void multiplyParallelInto(
+            double[] x,
+            double[] y,
+            SpmvPlan plan,
+            ForkJoinPool pool) {
+
+        validateInputVector(x);
+        validateOutputVector(y);
+
+        Objects.requireNonNull(plan, "SpmvPlan cannot be null.");
+        Objects.requireNonNull(pool, "ForkJoinPool cannot be null.");
+
+        ensurePoolActive(pool);
+
+        if (!plan.isCompatibleWith(rowPointers)) {
+            throw new IllegalArgumentException(
+                    "SpmvPlan is not compatible with this matrix's CSR row pointers.");
+        }
+
+        int threshold = plan.getThreshold();
+        validateThreshold(threshold);
+
+        MultiplyTask.SplitPolicy policy = plan.getSplitPolicy();
+        Objects.requireNonNull(
+                policy,
+                "SpmvPlan split policy cannot be null.");
+
+        double[] input = x == y
+                ? Arrays.copyOf(x, x.length)
+                : x;
+
+        int partitionCount = plan.getPartitionCount();
+
+        if (partitionCount == 0) {
+            if (rows != 0) {
+                throw new IllegalArgumentException(
+                        "SpmvPlan contains no partitions for a non-empty matrix.");
+            }
+            return;
+        }
+
+        List<MultiplyTask> tasks =
+                new ArrayList<>(partitionCount);
+
+        int expectedStart = 0;
+
+        for (int partition = 0;
+             partition < partitionCount;
+             partition++) {
+
+            int startRow = plan.getStartRow(partition);
+            int endRow = plan.getEndRow(partition);
+
+            if (startRow != expectedStart
+                    || endRow < startRow
+                    || endRow > rows) {
+                throw new IllegalArgumentException(
+                        "SpmvPlan contains invalid or non-contiguous row intervals.");
+            }
+
+            if (startRow == endRow) {
+                throw new IllegalArgumentException(
+                        "SpmvPlan contains an empty partition.");
+            }
+
+            tasks.add(MultiplyTask.forValidatedCsr(
+                    values,
+                    columnIndices,
+                    rowPointers,
+                    input,
+                    y,
+                    startRow,
+                    endRow,
+                    threshold,
+                    policy));
+
+            expectedStart = endRow;
+        }
+
+        if (expectedStart != rows) {
+            throw new IllegalArgumentException(
+                    "SpmvPlan does not cover every matrix row.");
+        }
+
+        pool.invoke(new PlannedMultiplyAction(tasks));
+    }
+
+    /**
+     * Root action for a collection of disjoint planned row intervals.
+     */
+    private static final class PlannedMultiplyAction
+            extends RecursiveAction {
+
+        private static final long serialVersionUID = 1L;
+
+        private final List<MultiplyTask> tasks;
+
+        private PlannedMultiplyAction(List<MultiplyTask> tasks) {
+            this.tasks = List.copyOf(tasks);
+        }
+
+        @Override
+        protected void compute() {
+            ForkJoinTask.invokeAll(tasks);
+        }
+    }
+
+    private static void ensurePoolActive(ForkJoinPool pool) {
+        if (pool.isShutdown() || pool.isTerminated()) {
+            throw new IllegalStateException(
+                    "ForkJoinPool is shut down or terminated.");
+        }
+    }
+
     private static void validateParallelConfiguration(
             int threshold,
             int parallelism) {
 
-        if (threshold <= 0) {
-            throw new IllegalArgumentException(
-                    "Parallel threshold must be greater than zero.");
-        }
+        validateThreshold(threshold);
 
         if (parallelism <= 0) {
             throw new IllegalArgumentException(
                     "Parallelism must be greater than zero.");
+        }
+    }
+
+    private static void validateThreshold(int threshold) {
+        if (threshold <= 0) {
+            throw new IllegalArgumentException(
+                    "Parallel threshold must be greater than zero.");
         }
     }
 
@@ -588,19 +725,19 @@ public final class SparseMatrixCSR {
             int rows,
             int columns) {
 
+        if (rows < 0 || columns < 0 || rows == Integer.MAX_VALUE) {
+            throw new IllegalArgumentException(
+                    "Invalid CSR dimensions.");
+        }
+
         if (values.length != columnIndices.length) {
             throw new IllegalArgumentException(
                     "values and columnIndices must have the same length.");
         }
 
-        if (rows == Integer.MAX_VALUE || rowPointers.length != rows + 1) {
+        if (rowPointers.length != rows + 1 || rowPointers[0] != 0) {
             throw new IllegalArgumentException(
-                    "rowPointers length must be rows + 1.");
-        }
-
-        if (rowPointers.length == 0 || rowPointers[0] != 0) {
-            throw new IllegalArgumentException(
-                    "rowPointers[0] must be 0.");
+                    "Invalid CSR row-pointer array.");
         }
 
         int previous = 0;
@@ -608,14 +745,10 @@ public final class SparseMatrixCSR {
         for (int i = 0; i < rowPointers.length; i++) {
             int current = rowPointers[i];
 
-            if (current < 0 || current < previous) {
+            if (current < previous || current < 0
+                    || current > values.length) {
                 throw new IllegalArgumentException(
-                        "rowPointers must be non-negative and monotonically non-decreasing.");
-            }
-
-            if (current > values.length) {
-                throw new IllegalArgumentException(
-                        "rowPointers value exceeds NNZ at index " + i + ".");
+                        "Invalid row pointer at index " + i + ".");
             }
 
             previous = current;
@@ -627,20 +760,16 @@ public final class SparseMatrixCSR {
         }
 
         for (int i = 0; i < columnIndices.length; i++) {
-            int column = columnIndices[i];
-
-            if (column < 0 || column >= columns) {
+            if (columnIndices[i] < 0 || columnIndices[i] >= columns) {
                 throw new IllegalArgumentException(
-                        "Column index out of bounds at position "
-                                + i + ": " + column);
+                        "Column index out of bounds at position " + i + ".");
             }
         }
 
         for (int i = 0; i < values.length; i++) {
             if (!Double.isFinite(values[i])) {
                 throw new IllegalArgumentException(
-                        "CSR values must be finite. Invalid value at position "
-                                + i + ": " + values[i]);
+                        "CSR values must be finite at position " + i + ".");
             }
         }
     }
