@@ -1,13 +1,15 @@
 package hpc.csr;
 
+import java.util.Arrays;
 import java.util.concurrent.ForkJoinPool;
 
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MultiplyTaskTest {
 
@@ -38,70 +40,21 @@ class MultiplyTaskTest {
         return new double[] {7.0, 22.0, 23.0, 46.0};
     }
 
-    private static double[] execute(
-            double[] values,
-            int[] columns,
-            int[] rowPointers,
-            double[] input,
-            int rows,
-            int threshold,
-            MultiplyTask.SplitPolicy splitPolicy,
-            MultiplyTask.ThresholdMode thresholdMode,
-            int parallelism) {
-
-        double[] output = new double[rows];
-
-        MultiplyTask task = new MultiplyTask(
-                values,
-                columns,
-                rowPointers,
-                input,
-                output,
-                0,
-                rows,
-                threshold,
-                splitPolicy,
-                thresholdMode);
-
+    private static void invoke(MultiplyTask task, int parallelism) {
         try (ForkJoinPool pool = new ForkJoinPool(parallelism)) {
             pool.invoke(task);
         }
-
-        return output;
-    }
-
-    private static double[] execute(
-            double[] values,
-            int[] columns,
-            int[] rowPointers,
-            double[] input,
-            int rows,
-            int threshold,
-            MultiplyTask.SplitPolicy splitPolicy,
-            MultiplyTask.ThresholdMode thresholdMode) {
-
-        return execute(
-                values,
-                columns,
-                rowPointers,
-                input,
-                rows,
-                threshold,
-                splitPolicy,
-                thresholdMode,
-                4);
     }
 
     private static double[] sequentialOracle(
             double[] values,
             int[] columns,
             int[] rowPointers,
-            double[] input,
-            int rows) {
+            double[] input) {
 
-        double[] result = new double[rows];
+        double[] result = new double[rowPointers.length - 1];
 
-        for (int row = 0; row < rows; row++) {
+        for (int row = 0; row < result.length; row++) {
             double sum = 0.0;
 
             for (int index = rowPointers[row];
@@ -118,7 +71,7 @@ class MultiplyTaskTest {
     }
 
     @Test
-    void shouldExposeTaskMetadata() {
+    void shouldExposeBackwardCompatibleTaskMetadata() {
         MultiplyTask task = new MultiplyTask(
                 values(), columns(), rowPointers(), input(),
                 new double[4], 0, 4, 2);
@@ -137,52 +90,99 @@ class MultiplyTaskTest {
     @Test
     void shouldExposeExplicitThresholdMode() {
         MultiplyTask task = new MultiplyTask(
-                values(),
-                columns(),
-                rowPointers(),
-                input(),
+                values(), columns(), rowPointers(), input(),
                 new double[4],
-                0,
-                4,
-                3,
-                MultiplyTask.SplitPolicy.ROW_BOUNDARY_SCAN,
+                0, 4, 2,
+                MultiplyTask.SplitPolicy.BINARY_NNZ_SPLIT,
                 MultiplyTask.ThresholdMode.NNZ_THRESHOLD);
 
         assertEquals(
                 MultiplyTask.ThresholdMode.NNZ_THRESHOLD,
                 task.getThresholdMode());
-
-        assertEquals(
-                MultiplyTask.SplitPolicy.ROW_BOUNDARY_SCAN,
-                task.getSplitPolicy());
     }
 
     @Test
-    void shouldComputeEntireMatrixWithLargeThreshold() {
+    void shouldComputeEntireMatrixWithLargeRowThreshold() {
         double[] output = new double[4];
 
         MultiplyTask task = new MultiplyTask(
                 values(), columns(), rowPointers(), input(),
                 output, 0, 4, 100);
 
-        try (ForkJoinPool pool = new ForkJoinPool(2)) {
-            pool.invoke(task);
-        }
+        invoke(task, 2);
 
         assertArrayEquals(expected(), output, TOLERANCE);
     }
 
     @Test
-    void shouldComputeEntireMatrixWithRecursiveSplitting() {
+    void shouldComputeEntireMatrixWithRecursiveRowThreshold() {
         double[] output = new double[4];
 
         MultiplyTask task = new MultiplyTask(
                 values(), columns(), rowPointers(), input(),
                 output, 0, 4, 1);
 
-        try (ForkJoinPool pool = new ForkJoinPool(2)) {
-            pool.invoke(task);
-        }
+        invoke(task, 2);
+
+        assertArrayEquals(expected(), output, TOLERANCE);
+    }
+
+    @Test
+    void shouldComputeEntireMatrixWithNnzThreshold() {
+        double[] output = new double[4];
+
+        MultiplyTask task = new MultiplyTask(
+                values(), columns(), rowPointers(), input(),
+                output, 0, 4, 2,
+                MultiplyTask.SplitPolicy.BINARY_NNZ_SPLIT,
+                MultiplyTask.ThresholdMode.NNZ_THRESHOLD);
+
+        invoke(task, 2);
+
+        assertArrayEquals(expected(), output, TOLERANCE);
+    }
+
+    @Test
+    void shouldComputeWithNnzThresholdLargerThanIntervalNnz() {
+        double[] output = new double[4];
+
+        MultiplyTask task = new MultiplyTask(
+                values(), columns(), rowPointers(), input(),
+                output, 0, 4, 100,
+                MultiplyTask.SplitPolicy.BINARY_NNZ_SPLIT,
+                MultiplyTask.ThresholdMode.NNZ_THRESHOLD);
+
+        invoke(task, 2);
+
+        assertArrayEquals(expected(), output, TOLERANCE);
+    }
+
+    @Test
+    void shouldComputeWithRowThresholdAndRowBoundaryScan() {
+        double[] output = new double[4];
+
+        MultiplyTask task = new MultiplyTask(
+                values(), columns(), rowPointers(), input(),
+                output, 0, 4, 1,
+                MultiplyTask.SplitPolicy.ROW_BOUNDARY_SCAN,
+                MultiplyTask.ThresholdMode.ROW_THRESHOLD);
+
+        invoke(task, 2);
+
+        assertArrayEquals(expected(), output, TOLERANCE);
+    }
+
+    @Test
+    void shouldComputeWithNnzThresholdAndRowBoundaryScan() {
+        double[] output = new double[4];
+
+        MultiplyTask task = new MultiplyTask(
+                values(), columns(), rowPointers(), input(),
+                output, 0, 4, 1,
+                MultiplyTask.SplitPolicy.ROW_BOUNDARY_SCAN,
+                MultiplyTask.ThresholdMode.NNZ_THRESHOLD);
+
+        invoke(task, 2);
 
         assertArrayEquals(expected(), output, TOLERANCE);
     }
@@ -195,9 +195,7 @@ class MultiplyTaskTest {
                 values(), columns(), rowPointers(), input(),
                 output, 1, 3, 1);
 
-        try (ForkJoinPool pool = new ForkJoinPool(2)) {
-            pool.invoke(task);
-        }
+        invoke(task, 2);
 
         assertEquals(-1.0, output[0], TOLERANCE);
         assertEquals(22.0, output[1], TOLERANCE);
@@ -213,9 +211,7 @@ class MultiplyTaskTest {
                 values(), columns(), rowPointers(), input(),
                 output, 2, 3, 1);
 
-        try (ForkJoinPool pool = new ForkJoinPool(2)) {
-            pool.invoke(task);
-        }
+        invoke(task, 2);
 
         assertEquals(-1.0, output[0], TOLERANCE);
         assertEquals(-1.0, output[1], TOLERANCE);
@@ -231,9 +227,7 @@ class MultiplyTaskTest {
                 values(), columns(), rowPointers(), input(),
                 output, 2, 2, 1);
 
-        try (ForkJoinPool pool = new ForkJoinPool(2)) {
-            pool.invoke(task);
-        }
+        invoke(task, 2);
 
         assertArrayEquals(
                 new double[] {11.0, 22.0, 33.0, 44.0},
@@ -285,14 +279,8 @@ class MultiplyTaskTest {
     void shouldRejectNullSplitPolicy() {
         assertThrows(NullPointerException.class,
                 () -> new MultiplyTask(
-                        values(),
-                        columns(),
-                        rowPointers(),
-                        input(),
-                        new double[4],
-                        0,
-                        4,
-                        1,
+                        values(), columns(), rowPointers(), input(),
+                        new double[4], 0, 4, 1,
                         null,
                         MultiplyTask.ThresholdMode.ROW_THRESHOLD));
     }
@@ -301,14 +289,8 @@ class MultiplyTaskTest {
     void shouldRejectNullThresholdMode() {
         assertThrows(NullPointerException.class,
                 () -> new MultiplyTask(
-                        values(),
-                        columns(),
-                        rowPointers(),
-                        input(),
-                        new double[4],
-                        0,
-                        4,
-                        1,
+                        values(), columns(), rowPointers(), input(),
+                        new double[4], 0, 4, 1,
                         MultiplyTask.SplitPolicy.BINARY_NNZ_SPLIT,
                         null));
     }
@@ -330,7 +312,7 @@ class MultiplyTaskTest {
     }
 
     @Test
-    void shouldRejectEndRowOutsideCSRRange() {
+    void shouldRejectEndRowOutsideCsrRange() {
         assertThrows(IllegalArgumentException.class,
                 () -> new MultiplyTask(
                         values(), columns(), rowPointers(), input(),
@@ -374,9 +356,66 @@ class MultiplyTaskTest {
                         0, 0, 1));
     }
 
+    @Test
+    void shouldRejectDecreasingRowPointers() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new MultiplyTask(
+                        new double[] {1.0},
+                        new int[] {0},
+                        new int[] {0, 1, 0},
+                        new double[] {2.0},
+                        new double[2],
+                        0, 2, 1));
+    }
+
+    @Test
+    void shouldRejectFinalRowPointerDifferentFromNnz() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new MultiplyTask(
+                        new double[] {1.0},
+                        new int[] {0},
+                        new int[] {0, 0},
+                        new double[] {2.0},
+                        new double[1],
+                        0, 1, 1));
+    }
+
+    @Test
+    void shouldRejectColumnOutsideInputVector() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new MultiplyTask(
+                        new double[] {1.0},
+                        new int[] {1},
+                        new int[] {0, 1},
+                        new double[] {2.0},
+                        new double[1],
+                        0, 1, 1));
+    }
+
+    @Test
+    void shouldRejectNonFiniteCsrValues() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new MultiplyTask(
+                        new double[] {Double.NaN},
+                        new int[] {0},
+                        new int[] {0, 1},
+                        new double[] {2.0},
+                        new double[1],
+                        0, 1, 1));
+
+        assertThrows(IllegalArgumentException.class,
+                () -> new MultiplyTask(
+                        new double[] {Double.POSITIVE_INFINITY},
+                        new int[] {0},
+                        new int[] {0, 1},
+                        new double[] {2.0},
+                        new double[1],
+                        0, 1, 1));
+    }
+
     /**
-     * Regression test for a rectangular 100 x 2 matrix.
-     * Row indices are independent of input-vector column indices.
+     * Regression for a rectangular matrix with 100 rows and 2 columns.
+     * A row index is not a column index.
      */
     @Test
     void shouldComputeRectangularMatrixWithMoreRowsThanColumns() {
@@ -415,11 +454,11 @@ class MultiplyTaskTest {
                 rectangularOutput,
                 0,
                 rows,
-                1);
+                1,
+                MultiplyTask.SplitPolicy.BINARY_NNZ_SPLIT,
+                MultiplyTask.ThresholdMode.ROW_THRESHOLD);
 
-        try (ForkJoinPool pool = new ForkJoinPool(4)) {
-            pool.invoke(task);
-        }
+        invoke(task, 4);
 
         assertArrayEquals(
                 expectedOutput,
@@ -468,9 +507,7 @@ class MultiplyTaskTest {
                 output,
                 0, 3, 1);
 
-        try (ForkJoinPool pool = new ForkJoinPool(2)) {
-            pool.invoke(task);
-        }
+        invoke(task, 2);
 
         assertArrayEquals(
                 new double[] {5.0, 0.0, 22.0},
@@ -478,391 +515,90 @@ class MultiplyTaskTest {
                 TOLERANCE);
     }
 
-    /**
-     * ROW_THRESHOLD is based on row count, not NNZ count.
-     *
-     * This matrix has 100 rows but only 4 nonzero elements.
-     */
     @Test
-    void rowThresholdShouldHandleManyRowsWithFewNonzeros() {
-        int rows = 100;
+    void shouldHandleAllEmptyRowsWithNnzThreshold() {
+        double[] output = {9.0, 9.0, 9.0, 9.0};
 
-        double[] sparseValues = {2.0, 3.0, 5.0, 7.0};
-        int[] sparseColumns = {0, 1, 0, 1};
-        int[] sparseRowPointers = new int[rows + 1];
+        MultiplyTask task = new MultiplyTask(
+                new double[0],
+                new int[0],
+                new int[] {0, 0, 0, 0, 0},
+                new double[] {1.0},
+                output,
+                0, 4, 1,
+                MultiplyTask.SplitPolicy.BINARY_NNZ_SPLIT,
+                MultiplyTask.ThresholdMode.NNZ_THRESHOLD);
 
-        for (int row = 0; row <= rows; row++) {
-            if (row < 25) {
-                sparseRowPointers[row] = 0;
-            } else if (row < 50) {
-                sparseRowPointers[row] = 1;
-            } else if (row < 75) {
-                sparseRowPointers[row] = 2;
-            } else if (row < 100) {
-                sparseRowPointers[row] = 3;
-            } else {
-                sparseRowPointers[row] = 4;
-            }
-        }
+        invoke(task, 4);
+
+        assertArrayEquals(
+                new double[] {0.0, 0.0, 0.0, 0.0},
+                output,
+                TOLERANCE);
+    }
+
+    @Test
+    void shouldHandleNnzConcentratedInOneRow() {
+        double[] concentratedValues = {
+                1.0, 2.0, 3.0, 4.0, 5.0, 6.0
+        };
+
+        int[] concentratedColumns = {
+                0, 1, 0, 1, 0, 1
+        };
+
+        int[] concentratedRowPointers = {
+                0, 0, 0, 6, 6, 6
+        };
 
         double[] vector = {2.0, 3.0};
+        double[] output = new double[5];
 
-        double[] actual = execute(
-                sparseValues,
-                sparseColumns,
-                sparseRowPointers,
+        MultiplyTask task = new MultiplyTask(
+                concentratedValues,
+                concentratedColumns,
+                concentratedRowPointers,
                 vector,
-                rows,
-                10,
-                MultiplyTask.SplitPolicy.BINARY_NNZ_SPLIT,
-                MultiplyTask.ThresholdMode.ROW_THRESHOLD);
-
-        double[] expected = sequentialOracle(
-                sparseValues,
-                sparseColumns,
-                sparseRowPointers,
-                vector,
-                rows);
-
-        assertArrayEquals(expected, actual, TOLERANCE);
-    }
-
-    /**
-     * NNZ_THRESHOLD is based on the number of nonzeros in the interval,
-     * not on its row count.
-     *
-     * The 100-row interval contains only 4 nonzeros.
-     */
-    @Test
-    void nnzThresholdShouldHandleManyRowsWithFewNonzeros() {
-        int rows = 100;
-
-        double[] sparseValues = {2.0, 3.0, 5.0, 7.0};
-        int[] sparseColumns = {0, 1, 0, 1};
-        int[] sparseRowPointers = new int[rows + 1];
-
-        for (int row = 0; row <= rows; row++) {
-            if (row < 25) {
-                sparseRowPointers[row] = 0;
-            } else if (row < 50) {
-                sparseRowPointers[row] = 1;
-            } else if (row < 75) {
-                sparseRowPointers[row] = 2;
-            } else if (row < 100) {
-                sparseRowPointers[row] = 3;
-            } else {
-                sparseRowPointers[row] = 4;
-            }
-        }
-
-        double[] vector = {2.0, 3.0};
-
-        double[] actual = execute(
-                sparseValues,
-                sparseColumns,
-                sparseRowPointers,
-                vector,
-                rows,
-                10,
+                output,
+                0, 5, 1,
                 MultiplyTask.SplitPolicy.BINARY_NNZ_SPLIT,
                 MultiplyTask.ThresholdMode.NNZ_THRESHOLD);
 
-        double[] expected = sequentialOracle(
-                sparseValues,
-                sparseColumns,
-                sparseRowPointers,
-                vector,
-                rows);
+        invoke(task, 4);
 
-        assertArrayEquals(expected, actual, TOLERANCE);
-    }
-
-    /**
-     * Four rows contain 40 nonzeros. This distinguishes a row-count
-     * threshold from an NNZ threshold in the opposite direction.
-     */
-    @Test
-    void nnzThresholdShouldHandleFewRowsWithManyNonzeros() {
-        int rows = 4;
-        int entriesPerRow = 10;
-        int nnz = rows * entriesPerRow;
-
-        double[] sparseValues = new double[nnz];
-        int[] sparseColumns = new int[nnz];
-        int[] sparseRowPointers = new int[rows + 1];
-        double[] vector = new double[entriesPerRow];
-
-        for (int column = 0; column < entriesPerRow; column++) {
-            vector[column] = column + 1.0;
-        }
-
-        for (int index = 0; index < nnz; index++) {
-            sparseValues[index] = 1.0;
-            sparseColumns[index] = index % entriesPerRow;
-        }
-
-        for (int row = 0; row <= rows; row++) {
-            sparseRowPointers[row] = row * entriesPerRow;
-        }
-
-        double[] actual = execute(
-                sparseValues,
-                sparseColumns,
-                sparseRowPointers,
-                vector,
-                rows,
-                5,
-                MultiplyTask.SplitPolicy.BINARY_NNZ_SPLIT,
-                MultiplyTask.ThresholdMode.NNZ_THRESHOLD);
-
-        double[] expected = sequentialOracle(
-                sparseValues,
-                sparseColumns,
-                sparseRowPointers,
-                vector,
-                rows);
-
-        assertArrayEquals(expected, actual, TOLERANCE);
+        assertArrayEquals(
+                sequentialOracle(
+                        concentratedValues,
+                        concentratedColumns,
+                        concentratedRowPointers,
+                        vector),
+                output,
+                TOLERANCE);
     }
 
     @Test
-    void rowThresholdShouldSupportThresholdEqualToRowCount() {
-        double[] actual = execute(
+    void shouldPreserveInputWhenInputAndOutputAlias() {
+        double[] aliasedVector = {1.0, 2.0, 3.0, 4.0};
+
+        MultiplyTask task = new MultiplyTask(
                 values(),
                 columns(),
                 rowPointers(),
-                input(),
-                4,
-                4,
-                MultiplyTask.SplitPolicy.BINARY_NNZ_SPLIT,
-                MultiplyTask.ThresholdMode.ROW_THRESHOLD);
+                aliasedVector,
+                aliasedVector,
+                0, 4, 1);
 
-        assertArrayEquals(expected(), actual, TOLERANCE);
+        invoke(task, 2);
+
+        assertArrayEquals(expected(), aliasedVector, TOLERANCE);
     }
 
     @Test
-    void nnzThresholdShouldSupportThresholdEqualToNnzCount() {
-        double[] actual = execute(
-                values(),
-                columns(),
-                rowPointers(),
-                input(),
-                4,
-                8,
-                MultiplyTask.SplitPolicy.BINARY_NNZ_SPLIT,
-                MultiplyTask.ThresholdMode.NNZ_THRESHOLD);
-
-        assertArrayEquals(expected(), actual, TOLERANCE);
-    }
-
-    @Test
-    void nnzThresholdShouldSupportThresholdGreaterThanNnzCount() {
-        double[] actual = execute(
-                values(),
-                columns(),
-                rowPointers(),
-                input(),
-                4,
-                100,
-                MultiplyTask.SplitPolicy.ROW_BOUNDARY_SCAN,
-                MultiplyTask.ThresholdMode.NNZ_THRESHOLD);
-
-        assertArrayEquals(expected(), actual, TOLERANCE);
-    }
-
-    @Test
-    void shouldHandleAnEntirelyEmptyMatrixWithNnzThreshold() {
-        int rows = 16;
-
-        double[] emptyValues = new double[0];
-        int[] emptyColumns = new int[0];
-        int[] emptyRowPointers = new int[rows + 1];
-        double[] vector = {1.0, 2.0, 3.0};
-
-        double[] actual = execute(
-                emptyValues,
-                emptyColumns,
-                emptyRowPointers,
-                vector,
-                rows,
-                1,
-                MultiplyTask.SplitPolicy.BINARY_NNZ_SPLIT,
-                MultiplyTask.ThresholdMode.NNZ_THRESHOLD);
-
-        assertArrayEquals(new double[rows], actual, TOLERANCE);
-    }
-
-    @Test
-    void shouldHandleAnEntirelyEmptyMatrixWithRowThreshold() {
-        int rows = 16;
-
-        double[] emptyValues = new double[0];
-        int[] emptyColumns = new int[0];
-        int[] emptyRowPointers = new int[rows + 1];
-        double[] vector = {1.0, 2.0, 3.0};
-
-        double[] actual = execute(
-                emptyValues,
-                emptyColumns,
-                emptyRowPointers,
-                vector,
-                rows,
-                2,
-                MultiplyTask.SplitPolicy.ROW_BOUNDARY_SCAN,
-                MultiplyTask.ThresholdMode.ROW_THRESHOLD);
-
-        assertArrayEquals(new double[rows], actual, TOLERANCE);
-    }
-
-    @Test
-    void bothSplitPoliciesShouldProduceEquivalentResultsWithRowThreshold() {
-        double[] binary = execute(
-                values(),
-                columns(),
-                rowPointers(),
-                input(),
-                4,
-                1,
-                MultiplyTask.SplitPolicy.BINARY_NNZ_SPLIT,
-                MultiplyTask.ThresholdMode.ROW_THRESHOLD);
-
-        double[] scan = execute(
-                values(),
-                columns(),
-                rowPointers(),
-                input(),
-                4,
-                1,
-                MultiplyTask.SplitPolicy.ROW_BOUNDARY_SCAN,
-                MultiplyTask.ThresholdMode.ROW_THRESHOLD);
-
-        assertArrayEquals(binary, scan, TOLERANCE);
-        assertArrayEquals(expected(), binary, TOLERANCE);
-    }
-
-    @Test
-    void bothSplitPoliciesShouldProduceEquivalentResultsWithNnzThreshold() {
-        double[] binary = execute(
-                values(),
-                columns(),
-                rowPointers(),
-                input(),
-                4,
-                1,
-                MultiplyTask.SplitPolicy.BINARY_NNZ_SPLIT,
-                MultiplyTask.ThresholdMode.NNZ_THRESHOLD);
-
-        double[] scan = execute(
-                values(),
-                columns(),
-                rowPointers(),
-                input(),
-                4,
-                1,
-                MultiplyTask.SplitPolicy.ROW_BOUNDARY_SCAN,
-                MultiplyTask.ThresholdMode.NNZ_THRESHOLD);
-
-        assertArrayEquals(binary, scan, TOLERANCE);
-        assertArrayEquals(expected(), binary, TOLERANCE);
-    }
-
-    @Test
-    void bothThresholdModesShouldMatchSequentialOracleForBothPolicies() {
-        double[] oracle = sequentialOracle(
-                values(),
-                columns(),
-                rowPointers(),
-                input(),
-                4);
-
-        for (MultiplyTask.SplitPolicy policy
-                : MultiplyTask.SplitPolicy.values()) {
-
-            for (MultiplyTask.ThresholdMode mode
-                    : MultiplyTask.ThresholdMode.values()) {
-
-                double[] actual = execute(
-                        values(),
-                        columns(),
-                        rowPointers(),
-                        input(),
-                        4,
-                        1,
-                        policy,
-                        mode);
-
-                assertArrayEquals(
-                        oracle,
-                        actual,
-                        TOLERANCE,
-                        "Mismatch for policy=" + policy + ", mode=" + mode);
-            }
-        }
-    }
-
-    @Test
-    void bothPoliciesShouldHandleConsecutiveEmptyRows() {
-        double[] matrixValues = {2.0, 3.0};
-        int[] matrixColumns = {0, 1};
-
-        /*
-         * Rows 1, 2 and 3 are empty.
-         * The nonzero elements belong to rows 0 and 4.
-         */
-        int[] matrixRowPointers = {0, 1, 1, 1, 1, 2};
-        double[] vector = {5.0, 7.0};
-
-        double[] expected = {10.0, 0.0, 0.0, 0.0, 21.0};
-
-        for (MultiplyTask.SplitPolicy policy
-                : MultiplyTask.SplitPolicy.values()) {
-
-            double[] actual = execute(
-                    matrixValues,
-                    matrixColumns,
-                    matrixRowPointers,
-                    vector,
-                    5,
-                    1,
-                    policy,
-                    MultiplyTask.ThresholdMode.ROW_THRESHOLD);
-
-            assertArrayEquals(
-                    expected,
-                    actual,
-                    TOLERANCE,
-                    "Incorrect result for split policy " + policy);
-        }
-    }
-
-    @Test
-    void recursiveAndDirectExecutionShouldProduceIdenticalResults() {
-        double[] directOutput = new double[4];
-        double[] recursiveOutput = new double[4];
-
-        MultiplyTask directTask = new MultiplyTask(
-                values(), columns(), rowPointers(), input(),
-                directOutput, 0, 4, 100);
-
-        MultiplyTask recursiveTask = new MultiplyTask(
-                values(), columns(), rowPointers(), input(),
-                recursiveOutput, 0, 4, 1);
-
-        try (ForkJoinPool pool = new ForkJoinPool(2)) {
-            pool.invoke(directTask);
-            pool.invoke(recursiveTask);
-        }
-
-        assertArrayEquals(directOutput, recursiveOutput, TOLERANCE);
-    }
-
-    @Test
-    void publicConstructorShouldDefensivelyCopyCsrAndInputArrays() {
+    void shouldDefensivelyCopyCallerOwnedInputAndCsrArrays() {
         double[] sourceValues = values();
         int[] sourceColumns = columns();
         int[] sourceRowPointers = rowPointers();
         double[] sourceInput = input();
-
         double[] output = new double[4];
 
         MultiplyTask task = new MultiplyTask(
@@ -871,72 +607,23 @@ class MultiplyTaskTest {
                 sourceRowPointers,
                 sourceInput,
                 output,
-                0,
-                4,
-                100);
+                0, 4, 1);
 
-        sourceValues[0] = 999.0;
-        sourceColumns[0] = 3;
-        sourceRowPointers[1] = 0;
-        sourceInput[0] = 999.0;
+        Arrays.fill(sourceValues, 100.0);
+        Arrays.fill(sourceColumns, 0);
+        Arrays.fill(sourceRowPointers, 0);
+        Arrays.fill(sourceInput, 100.0);
 
-        try (ForkJoinPool pool = new ForkJoinPool(2)) {
-            pool.invoke(task);
-        }
+        invoke(task, 2);
 
         assertArrayEquals(expected(), output, TOLERANCE);
+        assertNotSame(sourceValues, output);
     }
 
     @Test
-    void shouldPreserveInputWhenInputAndOutputAreTheSameArray() {
-        double[] matrixValues = {2.0, 3.0, 4.0, 5.0};
-        int[] matrixColumns = {0, 1, 0, 1};
-        int[] matrixRowPointers = {0, 2, 4};
-
-        double[] inPlace = {7.0, 11.0};
-        double[] expected = {
-                2.0 * 7.0 + 3.0 * 11.0,
-                4.0 * 7.0 + 5.0 * 11.0
-        };
-
-        MultiplyTask task = new MultiplyTask(
-                matrixValues,
-                matrixColumns,
-                matrixRowPointers,
-                inPlace,
-                inPlace,
-                0,
-                2,
-                1,
-                MultiplyTask.SplitPolicy.BINARY_NNZ_SPLIT,
-                MultiplyTask.ThresholdMode.NNZ_THRESHOLD);
-
-        try (ForkJoinPool pool = new ForkJoinPool(2)) {
-            pool.invoke(task);
-        }
-
-        assertArrayEquals(expected, inPlace, TOLERANCE);
-    }
-
-    @Test
-    void shouldReturnNonNullThresholdModeForLegacyConstructor() {
-        MultiplyTask task = new MultiplyTask(
-                values(), columns(), rowPointers(), input(),
-                new double[4], 0, 4, 2);
-
-        assertNotNull(task.getThresholdMode());
-        assertEquals(
-                MultiplyTask.ThresholdMode.ROW_THRESHOLD,
-                task.getThresholdMode());
-    }
-
-    @Test
-    void shouldHandleSingleNonzeroElement() {
-        double[] matrixValues = {4.0};
-        int[] matrixColumns = {0};
-        int[] matrixRowPointers = {0, 1, 1, 1};
-        double[] vector = {3.0, 5.0};
-        double[] expected = {12.0, 0.0, 0.0};
+    void bothSplitPoliciesShouldMatchIndependentSequentialOracle() {
+        double[] oracle = sequentialOracle(
+                values(), columns(), rowPointers(), input());
 
         for (MultiplyTask.SplitPolicy policy
                 : MultiplyTask.SplitPolicy.values()) {
@@ -944,21 +631,162 @@ class MultiplyTaskTest {
             for (MultiplyTask.ThresholdMode mode
                     : MultiplyTask.ThresholdMode.values()) {
 
-                double[] actual = execute(
-                        matrixValues,
-                        matrixColumns,
-                        matrixRowPointers,
-                        vector,
-                        3,
+                double[] output = new double[4];
+
+                MultiplyTask task = new MultiplyTask(
+                        values(),
+                        columns(),
+                        rowPointers(),
+                        input(),
+                        output,
+                        0,
+                        4,
                         1,
                         policy,
                         mode);
 
+                invoke(task, 4);
+
                 assertArrayEquals(
-                        expected,
-                        actual,
-                        TOLERANCE);
+                        oracle,
+                        output,
+                        TOLERANCE,
+                        "Mismatch for " + policy + " / " + mode);
             }
+        }
+    }
+
+    @Test
+    void shouldComputeLargeRowCountWithSmallInputDimension() {
+        int rows = 100;
+        int nnzPerRow = 2;
+
+        double[] largeValues = new double[rows * nnzPerRow];
+        int[] largeColumns = new int[rows * nnzPerRow];
+        int[] largeRowPointers = new int[rows + 1];
+
+        double[] smallInput = {2.0, 3.0};
+        double[] output = new double[rows];
+
+        for (int row = 0; row < rows; row++) {
+            int offset = row * nnzPerRow;
+
+            largeValues[offset] = 1.0;
+            largeValues[offset + 1] = 1.0;
+
+            largeColumns[offset] = 0;
+            largeColumns[offset + 1] = 1;
+
+            largeRowPointers[row] = offset;
+        }
+
+        largeRowPointers[rows] = rows * nnzPerRow;
+
+        MultiplyTask task = new MultiplyTask(
+                largeValues,
+                largeColumns,
+                largeRowPointers,
+                smallInput,
+                output,
+                0,
+                rows,
+                10,
+                MultiplyTask.SplitPolicy.BINARY_NNZ_SPLIT,
+                MultiplyTask.ThresholdMode.ROW_THRESHOLD);
+
+        invoke(task, 4);
+
+        for (double value : output) {
+            assertEquals(5.0, value, TOLERANCE);
+        }
+    }
+
+    @Test
+    void shouldAcceptThresholdEqualToIntervalNnz() {
+        double[] output = new double[4];
+
+        MultiplyTask task = new MultiplyTask(
+                values(),
+                columns(),
+                rowPointers(),
+                input(),
+                output,
+                0,
+                4,
+                8,
+                MultiplyTask.SplitPolicy.BINARY_NNZ_SPLIT,
+                MultiplyTask.ThresholdMode.NNZ_THRESHOLD);
+
+        invoke(task, 2);
+
+        assertArrayEquals(expected(), output, TOLERANCE);
+    }
+
+    @Test
+    void shouldAcceptThresholdEqualToIntervalRowCount() {
+        double[] output = new double[4];
+
+        MultiplyTask task = new MultiplyTask(
+                values(),
+                columns(),
+                rowPointers(),
+                input(),
+                output,
+                0,
+                4,
+                4,
+                MultiplyTask.SplitPolicy.BINARY_NNZ_SPLIT,
+                MultiplyTask.ThresholdMode.ROW_THRESHOLD);
+
+        invoke(task, 2);
+
+        assertArrayEquals(expected(), output, TOLERANCE);
+    }
+
+    @Test
+    void shouldComputePartialIntervalWithNnzThreshold() {
+        double[] output = {-1.0, -1.0, -1.0, -1.0};
+
+        MultiplyTask task = new MultiplyTask(
+                values(),
+                columns(),
+                rowPointers(),
+                input(),
+                output,
+                1,
+                3,
+                1,
+                MultiplyTask.SplitPolicy.ROW_BOUNDARY_SCAN,
+                MultiplyTask.ThresholdMode.NNZ_THRESHOLD);
+
+        invoke(task, 2);
+
+        assertArrayEquals(
+                new double[] {-1.0, 22.0, 23.0, -1.0},
+                output,
+                TOLERANCE);
+    }
+
+    @Test
+    void shouldProduceFiniteResultsForFiniteInputsAndValues() {
+        double[] output = new double[4];
+
+        MultiplyTask task = new MultiplyTask(
+                values(),
+                columns(),
+                rowPointers(),
+                input(),
+                output,
+                0,
+                4,
+                1,
+                MultiplyTask.SplitPolicy.BINARY_NNZ_SPLIT,
+                MultiplyTask.ThresholdMode.NNZ_THRESHOLD);
+
+        invoke(task, 4);
+
+        for (double value : output) {
+            assertTrue(Double.isFinite(value));
         }
     }
 }
