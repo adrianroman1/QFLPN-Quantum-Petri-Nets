@@ -4,13 +4,13 @@ package hpc.csr;
  * Canonical benchmark scales for the QFLPN CSR/SpMV implementation.
  *
  * Timed benchmark scales:
- *   1M, 2M, 7M, 10M and 30M.
+ *   1M, 10M and 70M.
  *
  * Resource-envelope scale:
- *   100M. This scale is reserved for memory modelling and resource
- *   preflight. It must not be used to publish execution-time results.
+ *   100M. This scale is reserved exclusively for memory modelling
+ *   and resource preflight. It must never produce execution-time results.
  *
- * QFLPN_12 is retained as a small compatibility and correctness fixture.
+ * QFLPN_12 is retained as a correctness and compatibility fixture.
  */
 public enum BenchmarkScale {
 
@@ -33,33 +33,17 @@ public enum BenchmarkScale {
     /**
      * Second timed scalability point.
      */
-    QFLPN_2M(
-            "QFLPN-2M",
-            2_000_000,
-            ScaleRole.TIMED_BENCHMARK),
-
-    /**
-     * Third timed scalability point.
-     */
-    QFLPN_7M(
-            "QFLPN-7M",
-            7_000_000,
-            ScaleRole.TIMED_BENCHMARK),
-
-    /**
-     * Fourth timed scalability point.
-     */
     QFLPN_10M(
             "QFLPN-10M",
             10_000_000,
             ScaleRole.TIMED_BENCHMARK),
 
     /**
-     * Largest planned timed scalability point.
+     * Largest timed scalability point.
      */
-    QFLPN_30M(
-            "QFLPN-30M",
-            30_000_000,
+    QFLPN_70M(
+            "QFLPN-70M",
+            70_000_000,
             ScaleRole.TIMED_BENCHMARK),
 
     /**
@@ -76,36 +60,13 @@ public enum BenchmarkScale {
      * Classification of a benchmark scale.
      */
     public enum ScaleRole {
-
-        /**
-         * Small fixture for correctness and compatibility tests.
-         */
         CORRECTNESS_FIXTURE,
-
-        /**
-         * Scale eligible for timed benchmark execution.
-         */
         TIMED_BENCHMARK,
-
-        /**
-         * Scale used only for resource and memory modelling.
-         */
         RESOURCE_ENVELOPE_ONLY
     }
 
-    /**
-     * Identifier used in reports and benchmark artifacts.
-     */
     private final String benchmarkId;
-
-    /**
-     * Matrix dimension N.
-     */
     private final int dimension;
-
-    /**
-     * Intended experimental role.
-     */
     private final ScaleRole role;
 
     BenchmarkScale(
@@ -113,21 +74,17 @@ public enum BenchmarkScale {
             int dimension,
             ScaleRole role) {
 
-        if (benchmarkId == null
-                || benchmarkId.isBlank()) {
-
+        if (benchmarkId == null || benchmarkId.isBlank()) {
             throw new IllegalArgumentException(
                     "Benchmark identifier must not be blank.");
         }
 
         if (dimension <= 0) {
-
             throw new IllegalArgumentException(
                     "Benchmark dimension must be positive.");
         }
 
         if (role == null) {
-
             throw new IllegalArgumentException(
                     "Benchmark scale role must not be null.");
         }
@@ -139,105 +96,74 @@ public enum BenchmarkScale {
 
     /**
      * Returns the stable benchmark identifier.
-     *
-     * @return identifier such as QFLPN-1M
      */
     public String benchmarkId() {
-
         return benchmarkId;
     }
 
     /**
      * Returns the square matrix dimension N.
-     *
-     * @return matrix dimension
      */
     public int dimension() {
-
         return dimension;
     }
 
     /**
      * Returns the scale classification.
-     *
-     * @return benchmark role
      */
     public ScaleRole role() {
-
         return role;
     }
 
     /**
      * Returns whether this scale is eligible for timed benchmarking.
-     *
-     * The 100M resource-envelope scale is deliberately excluded.
-     *
-     * @return true only for timed benchmark scales
      */
     public boolean isTimedBenchmark() {
-
         return role == ScaleRole.TIMED_BENCHMARK;
     }
 
     /**
      * Returns whether this scale is reserved for resource modelling.
-     *
-     * @return true only for the resource-envelope scale
      */
     public boolean isResourceEnvelopeOnly() {
-
         return role == ScaleRole.RESOURCE_ENVELOPE_ONLY;
     }
 
     /**
      * Returns whether this scale is a correctness fixture.
-     *
-     * @return true only for the small correctness fixture
      */
     public boolean isCorrectnessFixture() {
-
         return role == ScaleRole.CORRECTNESS_FIXTURE;
     }
 
     /**
      * Returns the modelled number of non-zero elements.
      *
-     * The current scalability model assumes:
-     *
+     * Assumption:
      *     NNZ = 2 * N
      *
-     * This is a scale model, not a measurement of a generated workload.
-     *
-     * @return modelled non-zero count
+     * This is a resource-model assumption, not a measured workload value.
      */
     public long nonZeroCount() {
-
-        return 2L * dimension;
+        return Math.multiplyExact(2L, (long) dimension);
     }
 
     /**
-     * Estimates the payload size of the CSR arrays under the current
-     * storage model:
+     * Estimates the payload size of the CSR arrays.
      *
-     *   values:     8 bytes per non-zero element (double)
-     *   columns:    4 bytes per non-zero element (int)
-     *   rowPointers: 4 bytes per row pointer (int)
+     * values:      8 bytes per non-zero element
+     * columns:     4 bytes per non-zero element
+     * rowPointers: 4 bytes per row pointer
      *
      * Formula:
+     *     12 * NNZ + 4 * (N + 1)
      *
-     *   12 * NNZ + 4 * (N + 1)
+     * This excludes temporary buffers, JVM object and array headers,
+     * vectors, thread stacks and garbage-collector overhead.
      *
-     * This estimate excludes JVM object headers, array headers,
-     * temporary construction buffers, input/output vectors, thread
-     * stacks, garbage-collector overhead and all non-CSR allocations.
-     *
-     * It is therefore a lower-level CSR payload estimate, not a
-     * prediction of peak JVM heap usage.
-     *
-     * @return estimated CSR array payload in bytes
+     * It is not an estimate of peak JVM heap usage.
      */
     public long estimatedCsrArrayBytes() {
-
         long nnz = nonZeroCount();
 
         return Math.addExact(
@@ -248,21 +174,12 @@ public enum BenchmarkScale {
     }
 
     /**
-     * Resolves a benchmark scale from its identifier.
+     * Resolves a benchmark scale by identifier.
      *
      * Matching is case-insensitive and ignores surrounding whitespace.
-     *
-     * @param value identifier such as QFLPN-1M
-     * @return matching benchmark scale
-     * @throws IllegalArgumentException when the identifier is blank
-     *                                   or unknown
      */
-    public static BenchmarkScale fromBenchmarkId(
-            String value) {
-
-        if (value == null
-                || value.isBlank()) {
-
+    public static BenchmarkScale fromBenchmarkId(String value) {
+        if (value == null || value.isBlank()) {
             throw new IllegalArgumentException(
                     "Benchmark identifier must not be blank.");
         }
@@ -270,10 +187,7 @@ public enum BenchmarkScale {
         String normalized = value.trim();
 
         for (BenchmarkScale scale : values()) {
-
-            if (scale.benchmarkId.equalsIgnoreCase(
-                    normalized)) {
-
+            if (scale.benchmarkId.equalsIgnoreCase(normalized)) {
                 return scale;
             }
         }
@@ -285,44 +199,29 @@ public enum BenchmarkScale {
     /**
      * Resolves a predefined scale from matrix dimension N.
      *
-     * This method also resolves the 100M resource-envelope scale.
-     * Call isTimedBenchmark() before starting a timed experiment.
-     *
-     * @param dimension matrix dimension
-     * @return matching predefined scale
-     * @throws IllegalArgumentException when N is not predefined
+     * This method also resolves the 100M resource-envelope scale
+     * and the QFLPN-12 correctness fixture.
      */
-    public static BenchmarkScale fromDimension(
-            int dimension) {
-
+    public static BenchmarkScale fromDimension(int dimension) {
         for (BenchmarkScale scale : values()) {
-
             if (scale.dimension == dimension) {
                 return scale;
             }
         }
 
         throw new IllegalArgumentException(
-                "No predefined benchmark scale for N="
-                        + dimension);
+                "No predefined benchmark scale for N=" + dimension);
     }
 
     /**
-     * Resolves a scale that is explicitly eligible for timed execution.
+     * Resolves a scale explicitly eligible for timed execution.
      *
-     * The resource-envelope scale and correctness fixture are rejected.
-     *
-     * @param dimension matrix dimension
-     * @return timed benchmark scale
-     * @throws IllegalArgumentException when N is not a timed scale
+     * Correctness fixtures and resource-envelope scales are rejected.
      */
-    public static BenchmarkScale fromTimedDimension(
-            int dimension) {
-
+    public static BenchmarkScale fromTimedDimension(int dimension) {
         BenchmarkScale scale = fromDimension(dimension);
 
         if (!scale.isTimedBenchmark()) {
-
             throw new IllegalArgumentException(
                     "N=" + dimension
                             + " is not eligible for timed benchmarking. "
@@ -334,16 +233,11 @@ public enum BenchmarkScale {
 
     @Override
     public String toString() {
-
         return benchmarkId
-                + "(N="
-                + dimension
-                + ", NNZ="
-                + nonZeroCount()
-                + ", role="
-                + role
-                + ", CSR-array-bytes="
-                + estimatedCsrArrayBytes()
+                + "(N=" + dimension
+                + ", NNZ=" + nonZeroCount()
+                + ", role=" + role
+                + ", CSR-array-bytes=" + estimatedCsrArrayBytes()
                 + ")";
     }
 }
