@@ -362,10 +362,9 @@ class BenchmarkV3RunnerTest {
     }
 
     @Test
-    void resourceEnvelopeScaleIsNotAcceptedForTimedExecution() {
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> BenchmarkV3Runner.requireSupportedDimension(
+    void oneHundredMillionIsAnAuthorizedTimedScale() {
+        assertDoesNotThrow(
+                () -> BenchmarkV3Runner.requireTimedBenchmarkDimension(
                         100_000_000));
     }
 
@@ -373,11 +372,18 @@ class BenchmarkV3RunnerTest {
     void correctnessFixtureIsNotAcceptedAsTimedScale() {
         assertThrows(
                 IllegalArgumentException.class,
-                () -> BenchmarkV3Runner.requireSupportedDimension(12));
+                () -> BenchmarkV3Runner.requireTimedBenchmarkDimension(12));
     }
 
     @Test
-    void historicalDevelopmentDimensionRemainsSupported() {
+    void arbitraryDimensionIsNotAcceptedAsTimedScale() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> BenchmarkV3Runner.requireTimedBenchmarkDimension(128));
+    }
+
+    @Test
+    void historicalDevelopmentDimensionRemainsSupportedForGeneration() {
         assertDoesNotThrow(
                 () -> BenchmarkV3Runner.requireSupportedDimension(
                         BenchmarkV3Runner.DIMENSION));
@@ -459,7 +465,6 @@ class BenchmarkV3RunnerTest {
         assertTrue(preflight.requiredWithHeadroomBytes() >=
                 preflight.estimatedRequiredBytes());
 
-        // API-ul recordului curent folosește maximumHeapBytes().
         assertTrue(preflight.maximumHeapBytes() > 0L);
         assertTrue(preflight.availableBytes() >= 0L);
     }
