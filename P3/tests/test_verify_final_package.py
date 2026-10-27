@@ -5,13 +5,12 @@ The fixtures follow the current contracts implemented by
 P3/tools/verify_final_package.py:
 
 - CI outcomes use qflpn-p3-ci-outcomes-v1;
-- mandatory stages are stored under the "stages" object;
+- mandatory pre-integrity stages are stored under "stages";
+- integrity-generation and final-verification stages are not required
+  as entries in ci-outcomes.json;
 - RUN_ID, source_commit and workflow_run_id are bound explicitly;
 - evidence consistency uses qflpn-p3-evidence-consistency-v2;
 - global MANIFEST.txt and SHA256SUMS.txt are independently verified.
-
-Benchmark and cross-evidence execution are isolated in package-orchestration
-tests. Their authoritative validators have dedicated test modules.
 """
 
 from __future__ import annotations
@@ -78,6 +77,12 @@ EVIDENCE_ITEMS = (
     "v3_authoritative_validator",
     "v3_persistent_report",
     "v3_checksums",
+)
+
+REMOVED_OUTCOME_STAGES = (
+    "p3_integrity_generate",
+    "p3_integrity_verify",
+    "p3_final_verification",
 )
 
 V3_AB_RESULT = {
@@ -212,11 +217,7 @@ def fake_evidence_consistency(
     source_commit: str,
     workflow_run_id: str | None,
 ) -> dict[str, Any]:
-    """Validate report provenance for isolated orchestration tests.
-
-    The complete evidence-consistency implementation is tested separately
-    by test_verify_evidence_consistency.py.
-    """
+    """Validate report provenance for isolated orchestration tests."""
     report_path = (
         root
         / "P3"
@@ -633,6 +634,18 @@ def test_global_integrity_rejects_missing_checksums(
 # p3_validation mandatory CI stages
 # ---------------------------------------------------------------------------
 
+def test_removed_integrity_stages_are_not_ci_outcomes_requirements() -> None:
+    """Integrity execution is verified directly, not via early outcomes."""
+    required = set(MODULE.REQUIRED_CI_STAGES)
+
+    for stage in REMOVED_OUTCOME_STAGES:
+        assert stage not in required
+
+
+def test_artifact_upload_remains_a_mandatory_ci_stage() -> None:
+    assert "p3_artifact_upload" in MODULE.REQUIRED_CI_STAGES
+
+
 def test_ci_outcomes_requires_every_mandatory_stage(
     tmp_path: Path,
 ) -> None:
@@ -647,6 +660,37 @@ def test_ci_outcomes_requires_every_mandatory_stage(
         value == "success"
         for value in result.values()
     )
+
+
+def test_ci_outcomes_accepts_absence_of_removed_integrity_stages(
+    tmp_path: Path,
+) -> None:
+    """The three post-outcomes stages must not be required in the JSON."""
+    path = tmp_path / "ci-outcomes.json"
+
+    stages = {
+        stage: "success"
+        for stage in MODULE.REQUIRED_CI_STAGES
+    }
+
+    for stage in REMOVED_OUTCOME_STAGES:
+        stages.pop(stage, None)
+
+    write_json(
+        path,
+        {
+            "schema": CI_SCHEMA,
+            "run_id": RUN_ID,
+            "source_commit": SOURCE_COMMIT,
+            "workflow_run_id": WORKFLOW_RUN_ID,
+            "stages": stages,
+        },
+    )
+
+    result = verify_ci_outcomes_fixture(path)
+
+    assert set(result) == set(MODULE.REQUIRED_CI_STAGES)
+    assert not (set(REMOVED_OUTCOME_STAGES) & set(result))
 
 
 def test_ci_outcomes_rejects_missing_stage(
