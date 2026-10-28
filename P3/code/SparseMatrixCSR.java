@@ -858,7 +858,7 @@ public final class SparseMatrixCSR {
                     endRow,
                     threshold,
                     policy,
-                    DEFAULT_THRESHOLD_MODE));
+                    plan.getThresholdMode()));
 
             expectedStart = endRow;
         }
