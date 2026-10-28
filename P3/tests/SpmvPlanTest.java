@@ -689,6 +689,194 @@ class SpmvPlanTest {
     }
 
     @Test
+    void shouldAcceptTenMillionThresholdInNnzMode() {
+        int[] rowPointers = createUniformRowPointers(1_000, 10);
+
+        SpmvPlan plan = SpmvPlan.create(
+                rowPointers,
+                10_000_000,
+                664,
+                MultiplyTask.ThresholdMode.NNZ_THRESHOLD
+        );
+
+        assertEquals(10_000_000, plan.getThreshold());
+        assertEquals(664, plan.getParallelism());
+        assertEquals(
+                MultiplyTask.ThresholdMode.NNZ_THRESHOLD,
+                plan.getThresholdMode()
+        );
+        assertEquals(664, plan.getPartitionCount());
+        assertCompletePartitionCoverage(plan);
+    }
+
+    @Test
+    void shouldAcceptTenMillionThresholdInRowMode() {
+        int[] rowPointers = createUniformRowPointers(1_000, 10);
+
+        SpmvPlan plan = SpmvPlan.create(
+                rowPointers,
+                10_000_000,
+                664,
+                MultiplyTask.ThresholdMode.ROW_THRESHOLD
+        );
+
+        assertEquals(10_000_000, plan.getThreshold());
+        assertEquals(
+                MultiplyTask.ThresholdMode.ROW_THRESHOLD,
+                plan.getThresholdMode()
+        );
+        assertEquals(664, plan.getParallelism());
+        assertEquals(664, plan.getPartitionCount());
+        assertCompletePartitionCoverage(plan);
+    }
+
+    @Test
+    void shouldAcceptParallelism664WhenRowsAreFewerThanRequestedWorkers() {
+        int[] rowPointers = createUniformRowPointers(100, 2);
+
+        SpmvPlan plan = SpmvPlan.create(
+                rowPointers,
+                4096,
+                664
+        );
+
+        assertEquals(664, plan.getParallelism());
+        assertEquals(100, plan.getPartitionCount());
+        assertCompletePartitionCoverage(plan);
+    }
+
+    @Test
+    void shouldCreate664PartitionsWhenAtLeast664RowsExist() {
+        int[] rowPointers = createUniformRowPointers(1_000, 1);
+
+        SpmvPlan plan = SpmvPlan.create(
+                rowPointers,
+                4096,
+                664
+        );
+
+        assertEquals(664, plan.getPartitionCount());
+        assertEquals(664, plan.getParallelism());
+        assertCompletePartitionCoverage(plan);
+    }
+
+    @Test
+    void shouldPreserveAllNnzWith664PartitionsAndSkewedRows() {
+        int rows = 1_000;
+        int[] rowPointers = new int[rows + 1];
+
+        for (int row = 0; row < rows; row++) {
+            int rowNnz = row < 900 ? 1 : 100;
+            rowPointers[row + 1] = rowPointers[row] + rowNnz;
+        }
+
+        SpmvPlan plan = SpmvPlan.create(
+                rowPointers,
+                10_000_000,
+                664,
+                MultiplyTask.SplitPolicy.BINARY_NNZ_SPLIT,
+                MultiplyTask.ThresholdMode.NNZ_THRESHOLD
+        );
+
+        assertEquals(664, plan.getPartitionCount());
+        assertCompletePartitionCoverage(plan);
+
+        long assignedNnz = 0L;
+
+        for (int partition = 0;
+             partition < plan.getPartitionCount();
+             partition++) {
+
+            assignedNnz += plan.getPartitionNnz(
+                    partition,
+                    rowPointers
+            );
+        }
+
+        assertEquals(plan.getNnz(), assignedNnz);
+    }
+
+    @Test
+    void shouldKeepPlanSnapshotIndependentAfterSourceMutation() {
+        int[] source = createUniformRowPointers(100, 3);
+        int[] original = source.clone();
+
+        SpmvPlan plan = SpmvPlan.create(
+                source,
+                100,
+                8
+        );
+
+        source[10] = source[9];
+
+        assertTrue(plan.isCompatibleWith(original));
+        assertFalse(plan.isCompatibleWith(source));
+    }
+
+    @Test
+    void shouldRejectPartitionNnzWhenCandidateHasSameTotalsButDifferentRows() {
+        int[] original = {0, 1, 3, 6, 8};
+        int[] different = {0, 2, 3, 5, 8};
+
+        SpmvPlan plan = SpmvPlan.create(
+                original,
+                2,
+                2
+        );
+
+        assertEquals(original[4], different[4]);
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> plan.getPartitionNnz(0, different)
+        );
+    }
+
+    @Test
+    void shouldHandleThresholdLargerThanTotalNnz() {
+        int[] rowPointers = {0, 1, 2, 3, 4, 5};
+
+        SpmvPlan plan = SpmvPlan.create(
+                rowPointers,
+                10_000_000,
+                4,
+                MultiplyTask.ThresholdMode.NNZ_THRESHOLD
+        );
+
+        assertEquals(5, plan.getNnz());
+        assertEquals(10_000_000, plan.getThreshold());
+        assertEquals(4, plan.getPartitionCount());
+        assertCompletePartitionCoverage(plan);
+    }
+
+    @Test
+    void shouldHandleThresholdLargerThanRowCount() {
+        int[] rowPointers = {0, 10, 20, 30, 40, 50};
+
+        SpmvPlan plan = SpmvPlan.create(
+                rowPointers,
+                10_000_000,
+                4,
+                MultiplyTask.ThresholdMode.ROW_THRESHOLD
+        );
+
+        assertEquals(5, plan.getRows());
+        assertEquals(10_000_000, plan.getThreshold());
+        assertEquals(4, plan.getPartitionCount());
+        assertCompletePartitionCoverage(plan);
+    }
+
+    @Test
+    void shouldRejectPartitionNnzForInvalidPartitionIndexBeforeReadingStructure() {
+        SpmvPlan plan = createPlan();
+
+        assertThrows(
+                IndexOutOfBoundsException.class,
+                () -> plan.getPartitionNnz(-1, ROW_POINTERS)
+        );
+    }
+
+    @Test
     void toStringShouldDescribePlanMetadata() {
         SpmvPlan plan = createPlan();
 
@@ -701,5 +889,53 @@ class SpmvPlanTest {
         assertTrue(description.contains("thresholdMode=NNZ_THRESHOLD"));
         assertTrue(description.contains("parallelism=4"));
         assertTrue(description.contains("partitionCount=4"));
+    }
+
+    private static int[] createUniformRowPointers(
+            int rows,
+            int nnzPerRow) {
+
+        int[] rowPointers = new int[rows + 1];
+
+        for (int row = 0; row < rows; row++) {
+            rowPointers[row + 1] =
+                    rowPointers[row] + nnzPerRow;
+        }
+
+        return rowPointers;
+    }
+
+    private static void assertCompletePartitionCoverage(
+            SpmvPlan plan) {
+
+        if (plan.getRows() == 0) {
+            assertEquals(0, plan.getPartitionCount());
+            return;
+        }
+
+        assertTrue(plan.getPartitionCount() > 0);
+        assertEquals(0, plan.getStartRow(0));
+        assertEquals(
+                plan.getRows(),
+                plan.getEndRow(plan.getPartitionCount() - 1)
+        );
+
+        int expectedStart = 0;
+
+        for (int partition = 0;
+             partition < plan.getPartitionCount();
+             partition++) {
+
+            int start = plan.getStartRow(partition);
+            int end = plan.getEndRow(partition);
+
+            assertEquals(expectedStart, start);
+            assertTrue(start < end);
+            assertTrue(end <= plan.getRows());
+
+            expectedStart = end;
+        }
+
+        assertEquals(plan.getRows(), expectedStart);
     }
 }
