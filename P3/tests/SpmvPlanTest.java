@@ -8,6 +8,8 @@ class SpmvPlanTest {
 
     private static final int THRESHOLD = 4096;
     private static final int PARALLELISM = 4;
+    private static final int TEN_MILLION = 10_000_000;
+    private static final int PARALLELISM_664 = 664;
 
     private static final int[] ROW_POINTERS = {
             0, 2, 4, 6, 8
@@ -127,22 +129,17 @@ class SpmvPlanTest {
     void shouldPartitionAllRowsIntoContiguousNonEmptyIntervals() {
         SpmvPlan plan = createPlan();
 
-        int[] starts = plan.getStartRows();
-        int[] ends = plan.getEndRows();
+        assertCompletePartitionCoverage(plan);
 
-        assertEquals(plan.getPartitionCount(), starts.length);
-        assertEquals(plan.getPartitionCount(), ends.length);
+        assertEquals(
+                plan.getPartitionCount(),
+                plan.getStartRows().length
+        );
 
-        assertEquals(0, starts[0]);
-        assertEquals(plan.getRows(), ends[ends.length - 1]);
-
-        for (int i = 0; i < starts.length; i++) {
-            assertTrue(starts[i] < ends[i]);
-
-            if (i > 0) {
-                assertEquals(ends[i - 1], starts[i]);
-            }
-        }
+        assertEquals(
+                plan.getPartitionCount(),
+                plan.getEndRows().length
+        );
     }
 
     @Test
@@ -158,8 +155,10 @@ class SpmvPlanTest {
 
     @Test
     void shouldCreateOnePartitionForOneRow() {
+        int[] rowPointers = {0, 5};
+
         SpmvPlan plan = SpmvPlan.create(
-                new int[]{0, 5},
+                rowPointers,
                 THRESHOLD,
                 16
         );
@@ -167,7 +166,7 @@ class SpmvPlanTest {
         assertEquals(1, plan.getPartitionCount());
         assertEquals(0, plan.getStartRow(0));
         assertEquals(1, plan.getEndRow(0));
-        assertEquals(5, plan.getPartitionNnz(0, new int[]{0, 5}));
+        assertEquals(5, plan.getPartitionNnz(0, rowPointers));
     }
 
     @Test
@@ -207,6 +206,8 @@ class SpmvPlanTest {
                 new int[]{2, 5, 8},
                 plan.getEndRows()
         );
+
+        assertCompletePartitionCoverage(plan);
     }
 
     @Test
@@ -218,10 +219,7 @@ class SpmvPlanTest {
         );
 
         assertEquals(5, plan.getPartitionCount());
-
-        for (int i = 0; i < plan.getPartitionCount(); i++) {
-            assertTrue(plan.getStartRow(i) < plan.getEndRow(i));
-        }
+        assertCompletePartitionCoverage(plan);
     }
 
     @Test
@@ -241,6 +239,8 @@ class SpmvPlanTest {
                 new int[]{2, 4, 6, 8},
                 plan.getEndRows()
         );
+
+        assertCompletePartitionCoverage(plan);
     }
 
     @Test
@@ -251,19 +251,7 @@ class SpmvPlanTest {
                 4
         );
 
-        int[] starts = plan.getStartRows();
-        int[] ends = plan.getEndRows();
-
-        assertEquals(0, starts[0]);
-        assertEquals(8, ends[ends.length - 1]);
-
-        for (int i = 0; i < starts.length; i++) {
-            assertTrue(starts[i] < ends[i]);
-
-            if (i > 0) {
-                assertEquals(ends[i - 1], starts[i]);
-            }
-        }
+        assertCompletePartitionCoverage(plan);
     }
 
     @Test
@@ -281,6 +269,7 @@ class SpmvPlanTest {
         }
 
         assertEquals(6, plan.getEndRow(3));
+        assertCompletePartitionCoverage(plan);
     }
 
     @Test
@@ -538,9 +527,7 @@ class SpmvPlanTest {
 
         assertEquals(5, plan.getRows());
         assertEquals(5, plan.getNnz());
-
-        assertEquals(0, plan.getStartRow(0));
-        assertEquals(5, plan.getEndRow(2));
+        assertCompletePartitionCoverage(plan);
     }
 
     @Test
@@ -694,18 +681,20 @@ class SpmvPlanTest {
 
         SpmvPlan plan = SpmvPlan.create(
                 rowPointers,
-                10_000_000,
-                664,
+                TEN_MILLION,
+                PARALLELISM_664,
                 MultiplyTask.ThresholdMode.NNZ_THRESHOLD
         );
 
-        assertEquals(10_000_000, plan.getThreshold());
-        assertEquals(664, plan.getParallelism());
+        assertEquals(TEN_MILLION, plan.getThreshold());
+        assertEquals(PARALLELISM_664, plan.getParallelism());
+
         assertEquals(
                 MultiplyTask.ThresholdMode.NNZ_THRESHOLD,
                 plan.getThresholdMode()
         );
-        assertEquals(664, plan.getPartitionCount());
+
+        assertEquals(PARALLELISM_664, plan.getPartitionCount());
         assertCompletePartitionCoverage(plan);
     }
 
@@ -715,18 +704,20 @@ class SpmvPlanTest {
 
         SpmvPlan plan = SpmvPlan.create(
                 rowPointers,
-                10_000_000,
-                664,
+                TEN_MILLION,
+                PARALLELISM_664,
                 MultiplyTask.ThresholdMode.ROW_THRESHOLD
         );
 
-        assertEquals(10_000_000, plan.getThreshold());
+        assertEquals(TEN_MILLION, plan.getThreshold());
+
         assertEquals(
                 MultiplyTask.ThresholdMode.ROW_THRESHOLD,
                 plan.getThresholdMode()
         );
-        assertEquals(664, plan.getParallelism());
-        assertEquals(664, plan.getPartitionCount());
+
+        assertEquals(PARALLELISM_664, plan.getParallelism());
+        assertEquals(PARALLELISM_664, plan.getPartitionCount());
         assertCompletePartitionCoverage(plan);
     }
 
@@ -736,11 +727,11 @@ class SpmvPlanTest {
 
         SpmvPlan plan = SpmvPlan.create(
                 rowPointers,
-                4096,
-                664
+                THRESHOLD,
+                PARALLELISM_664
         );
 
-        assertEquals(664, plan.getParallelism());
+        assertEquals(PARALLELISM_664, plan.getParallelism());
         assertEquals(100, plan.getPartitionCount());
         assertCompletePartitionCoverage(plan);
     }
@@ -751,12 +742,12 @@ class SpmvPlanTest {
 
         SpmvPlan plan = SpmvPlan.create(
                 rowPointers,
-                4096,
-                664
+                THRESHOLD,
+                PARALLELISM_664
         );
 
-        assertEquals(664, plan.getPartitionCount());
-        assertEquals(664, plan.getParallelism());
+        assertEquals(PARALLELISM_664, plan.getPartitionCount());
+        assertEquals(PARALLELISM_664, plan.getParallelism());
         assertCompletePartitionCoverage(plan);
     }
 
@@ -772,13 +763,13 @@ class SpmvPlanTest {
 
         SpmvPlan plan = SpmvPlan.create(
                 rowPointers,
-                10_000_000,
-                664,
+                TEN_MILLION,
+                PARALLELISM_664,
                 MultiplyTask.SplitPolicy.BINARY_NNZ_SPLIT,
                 MultiplyTask.ThresholdMode.NNZ_THRESHOLD
         );
 
-        assertEquals(664, plan.getPartitionCount());
+        assertEquals(PARALLELISM_664, plan.getPartitionCount());
         assertCompletePartitionCoverage(plan);
 
         long assignedNnz = 0L;
@@ -838,13 +829,13 @@ class SpmvPlanTest {
 
         SpmvPlan plan = SpmvPlan.create(
                 rowPointers,
-                10_000_000,
+                TEN_MILLION,
                 4,
                 MultiplyTask.ThresholdMode.NNZ_THRESHOLD
         );
 
         assertEquals(5, plan.getNnz());
-        assertEquals(10_000_000, plan.getThreshold());
+        assertEquals(TEN_MILLION, plan.getThreshold());
         assertEquals(4, plan.getPartitionCount());
         assertCompletePartitionCoverage(plan);
     }
@@ -855,13 +846,13 @@ class SpmvPlanTest {
 
         SpmvPlan plan = SpmvPlan.create(
                 rowPointers,
-                10_000_000,
+                TEN_MILLION,
                 4,
                 MultiplyTask.ThresholdMode.ROW_THRESHOLD
         );
 
         assertEquals(5, plan.getRows());
-        assertEquals(10_000_000, plan.getThreshold());
+        assertEquals(TEN_MILLION, plan.getThreshold());
         assertEquals(4, plan.getPartitionCount());
         assertCompletePartitionCoverage(plan);
     }
@@ -915,6 +906,7 @@ class SpmvPlanTest {
 
         assertTrue(plan.getPartitionCount() > 0);
         assertEquals(0, plan.getStartRow(0));
+
         assertEquals(
                 plan.getRows(),
                 plan.getEndRow(plan.getPartitionCount() - 1)
