@@ -224,7 +224,9 @@ public final class MultiplyTask extends RecursiveAction {
         this.thresholdMode = thresholdMode;
     }
 
-    private enum TrustedData { INSTANCE }
+    private enum TrustedData {
+        INSTANCE
+    }
 
     private static void validateCsr(
             double[] values,
