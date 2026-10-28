@@ -95,6 +95,26 @@ class SparseMatrixCSRConstructionTest {
     }
 
     @Test
+    void constructorSupportsCompletelyEmptyMatrix() {
+        SparseMatrixCSR matrix =
+                new SparseMatrixCSR(
+                        new double[0],
+                        new int[0],
+                        new int[] {0, 0, 0, 0},
+                        3,
+                        5);
+
+        assertTrue(matrix.isValid());
+        assertEquals(3, matrix.getRows());
+        assertEquals(5, matrix.getColumns());
+        assertEquals(0, matrix.getNnz());
+
+        assertArrayEquals(
+                new int[] {0, 0, 0, 0},
+                matrix.getRowPointers());
+    }
+
+    @Test
     void constructorDefensivelyCopiesInputArrays() {
         double[] values = {2.0, 3.0};
         int[] columns = {0, 1};
@@ -106,6 +126,38 @@ class SparseMatrixCSRConstructionTest {
         values[0] = 99.0;
         columns[0] = 1;
         pointers[1] = 2;
+
+        assertArrayEquals(
+                new double[] {2.0, 3.0},
+                matrix.getValues(),
+                0.0);
+
+        assertArrayEquals(
+                new int[] {0, 1},
+                matrix.getColumnIndices());
+
+        assertArrayEquals(
+                new int[] {0, 1, 2},
+                matrix.getRowPointers());
+    }
+
+    @Test
+    void returnedArraysAreDefensiveCopies() {
+        SparseMatrixCSR matrix =
+                new SparseMatrixCSR(
+                        new double[] {2.0, 3.0},
+                        new int[] {0, 1},
+                        new int[] {0, 1, 2},
+                        2,
+                        2);
+
+        double[] returnedValues = matrix.getValues();
+        int[] returnedColumns = matrix.getColumnIndices();
+        int[] returnedPointers = matrix.getRowPointers();
+
+        returnedValues[0] = 100.0;
+        returnedColumns[0] = 1;
+        returnedPointers[1] = 2;
 
         assertArrayEquals(
                 new double[] {2.0, 3.0},
@@ -636,5 +688,14 @@ class SparseMatrixCSRConstructionTest {
                 () -> BenchmarkV3Runner.preflightWorkload(
                         "UNIFORM_100",
                         30_000_000));
+    }
+
+    @Test
+    void preflightRejectsUniformHundredAtOneHundredMillionBeforeAllocation() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> BenchmarkV3Runner.preflightWorkload(
+                        "UNIFORM_100",
+                        100_000_000));
     }
 }
