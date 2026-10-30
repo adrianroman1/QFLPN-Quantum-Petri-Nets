@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 """Tests for the P3 fail-closed native MPI validation runner."""
 
@@ -603,9 +604,16 @@ def install_successful_mpi_simulation(
         if command[0] == launcher:
             request = Path(command[-2])
             response = Path(command[-1])
-            rows, columns, row_ptr, col_idx, values, vector = (
-                mpi_runner.build_test_matrix(128, 128)
+
+            assert request.is_file()
+
+            rows = 128
+            columns = 128
+
+            row_ptr, col_idx, values, vector = (
+                mpi_runner.build_test_matrix(rows, columns)
             )
+
             reference = mpi_runner.sequential_csr_reference(
                 rows,
                 row_ptr,
@@ -613,9 +621,21 @@ def install_successful_mpi_simulation(
                 values,
                 vector,
             )
-            output = reference if actual_values is None else actual_values
+
+            output = (
+                reference
+                if actual_values is None
+                else actual_values
+            )
+
             write_response(response, output)
-            return subprocess.CompletedProcess(command, 0, "MPI ok\n", "")
+
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                "MPI ok\n",
+                "",
+            )
 
         raise AssertionError(f"Unexpected command: {command!r}")
 
