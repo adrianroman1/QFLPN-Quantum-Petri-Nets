@@ -86,7 +86,7 @@ REMOVED_OUTCOME_STAGES = (
 )
 
 V3_AB_RESULT = {
-    "schema": "qflpn-benchmark-v3-validation-v2",
+    "schema": "qflqn-benchmark-v3-validation-v2",
     "run_id": RUN_ID,
     "run_contract": "AB_192",
     "validated_records": 192,
@@ -151,7 +151,7 @@ def make_ci_outcomes(
     source_commit: str = SOURCE_COMMIT,
     workflow_run_id: str = WORKFLOW_RUN_ID,
 ) -> None:
-    """Create a valid qflpn-p3-ci-outcomes-v1 envelope."""
+    """Create a valid qflqn-p3-ci-outcomes-v1 envelope."""
     write_json(
         path,
         {
@@ -372,7 +372,7 @@ def fake_v2(
     assert expected == EXPECTED
 
     return {
-        "schema": "qflpn-benchmark-v2",
+        "schema": "qflqn-benchmark-v2",
         "run_id": RUN_ID,
         "records": 1,
         "dimension": EXPECTED["dimension"],
@@ -861,12 +861,12 @@ def test_valid_package_orchestration_is_accepted(
 
     assert (
         result["benchmark_v2"]["schema"]
-        == "qflpn-benchmark-v2"
+        == "qflqn-benchmark-v2"
     )
 
     assert (
         result["benchmark_v3"]["schema"]
-        == "qflpn-benchmark-v3-validation-v2"
+        == "qflqn-benchmark-v3-validation-v2"
     )
 
     assert result["benchmark_v3"]["run_contract"] == "AB_192"
