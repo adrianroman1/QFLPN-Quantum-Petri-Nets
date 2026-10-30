@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """Tests for the P3 fail-closed native MPI validation runner."""
 
