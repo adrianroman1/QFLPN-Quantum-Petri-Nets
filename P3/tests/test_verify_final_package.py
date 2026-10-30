@@ -9,7 +9,7 @@ P3/tools/verify_final_package.py:
 - integrity-generation and final-verification stages are not required
   as entries in ci-outcomes.json;
 - RUN_ID, source_commit and workflow_run_id are bound explicitly;
-- evidence consistency uses qflpn-p3-evidence-consistency-v2;
+- evidence consistency uses qflqn-p3-evidence-consistency-v2;
 - global MANIFEST.txt and SHA256SUMS.txt are independently verified.
 """
 
@@ -59,8 +59,8 @@ SOURCE_COMMIT = "a" * 40
 WRONG_SOURCE_COMMIT = "b" * 40
 WORKFLOW_RUN_ID = "12345"
 
-CI_SCHEMA = "qflpn-p3-ci-outcomes-v1"
-EVIDENCE_SCHEMA = "qflpn-p3-evidence-consistency-v2"
+CI_SCHEMA = "qflqn-p3-ci-outcomes-v1"
+EVIDENCE_SCHEMA = "qflqn-p3-evidence-consistency-v2"
 
 EXPECTED = {
     "dimension": 1_000_000,
@@ -211,6 +211,100 @@ def make_evidence_report(
     )
 
 
+def make_mpi_evidence(
+    root: Path,
+    *,
+    run_id: str = RUN_ID,
+    source_commit: str = SOURCE_COMMIT,
+    workflow_run_id: str = WORKFLOW_RUN_ID,
+) -> None:
+    """Create internally consistent MPI evidence for package tests.
+
+    This fixture follows the production report contract. The production
+    verifier remains active: it checks the report, executable digest,
+    build log, output logs, numerical tolerances and provenance.
+    """
+    executable_path = root / MODULE.MPI_EXECUTABLE
+    executable_path.parent.mkdir(parents=True, exist_ok=True)
+
+    write_text(
+        executable_path,
+        "#!/bin/sh\n"
+        "exit 0\n",
+    )
+    executable_path.chmod(0o755)
+
+    write_text(
+        root / MODULE.MPI_BUILD_LOG,
+        "MPI native build fixture\n"
+        "STDOUT:\n"
+        "MPI compiler test output\n"
+        "STDERR:\n"
+        "MPI compiler test diagnostics: none\n"
+        "EXIT_CODE=0\n",
+    )
+
+    write_text(
+        root / MODULE.MPI_STDOUT,
+        "MPI test execution passed\n",
+    )
+    write_text(
+        root / MODULE.MPI_STDERR,
+        "",
+    )
+
+    write_json(
+        root / MODULE.MPI_REPORT,
+        {
+            "schema": MODULE.MPI_SCHEMA,
+            "validation": "PASS",
+            "run_id": run_id,
+            "source_commit": source_commit,
+            "workflow_run_id": workflow_run_id,
+            "workflow_run_attempt": 1,
+            "repository": "adrianroman1/QFLPN-Quantum-Petri-Nets",
+            "native_build": {
+                "status": "PASS",
+                "compiler": "mpicc",
+                "compiler_path": "/test-tools/mpicc",
+                "compiler_version": "MPI test compiler version",
+                "source_file": MODULE.MPI_SOURCE,
+                "executable": MODULE.MPI_EXECUTABLE,
+                "executable_sha256": sha256_file(executable_path),
+                "exit_code": 0,
+            },
+            "execution": {
+                "status": "PASS",
+                "launcher": "/test-tools/mpirun",
+                "process_count": 2,
+                "exit_code": 0,
+                "skipped": False,
+                "timeout": False,
+                "stdout_file": MODULE.MPI_STDOUT,
+                "stderr_file": MODULE.MPI_STDERR,
+            },
+            "numerical_validation": {
+                "status": "PASS",
+                "reference": "sequential_csr",
+                "rows": 128,
+                "columns": 128,
+                "nnz": 384,
+                "max_absolute_error": 0.0,
+                "max_relative_error": 0.0,
+                "absolute_tolerance": 1.0e-12,
+                "relative_tolerance": 1.0e-12,
+                "max_reference_magnitude": 12.0,
+                "comparison": "PASS",
+            },
+            "provenance": {
+                "commit_verified": True,
+                "run_id_verified": True,
+                "workflow_run_id_verified": True,
+            },
+        },
+    )
+
+
 def fake_evidence_consistency(
     root: Path,
     run_id: str,
@@ -348,6 +442,7 @@ def make_package(
 
     make_required_files(root)
     make_evidence_report(root)
+    make_mpi_evidence(root)
 
     outcomes_path = tmp_path / "ci-outcomes.json"
 
