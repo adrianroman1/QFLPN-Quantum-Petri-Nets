@@ -1,0 +1,48 @@
+{
+  "schema": "qflpn-p3-mpi-validation-v1",
+  "validation": "PASS",
+  "run_id": "p3-123456789-1",
+  "source_commit": "0123456789abcdef0123456789abcdef01234567",
+  "workflow_run_id": "123456789",
+  "workflow_run_attempt": 1,
+  "created_utc": "2026-10-30T12:00:00Z",
+  "native_build": {
+    "status": "PASS",
+    "compiler": "mpicc",
+    "compiler_version": "REPLACE_WITH_ACTUAL_VERSION",
+    "source_file": "P3/hpc/mpi/native/p3_mpi_spmv.c",
+    "executable": "P3/target/mpi/p3_mpi_spmv",
+    "executable_sha256": "REPLACE_WITH_ACTUAL_64_HEX_SHA256",
+    "exit_code": 0
+  },
+  "execution": {
+    "status": "PASS",
+    "launcher": "mpirun",
+    "process_count": 2,
+    "exit_code": 0,
+    "skipped": false,
+    "timeout": false,
+    "stdout_file": "P3/reports/mpi-stdout.log",
+    "stderr_file": "P3/reports/mpi-stderr.log"
+  },
+  "numerical_validation": {
+    "status": "PASS",
+    "reference": "sequential_csr",
+    "rows": 1000,
+    "columns": 1000,
+    "nnz": 2000,
+    "max_absolute_error": 0.0,
+    "max_relative_error": 0.0,
+    "absolute_tolerance": 1e-12,
+    "relative_tolerance": 1e-10,
+    "comparison": "PASS"
+  },
+  "provenance": {
+    "repository": "adrianroman1/QFLPN-Quantum-Petri-Nets",
+    "branch": "main",
+    "commit_verified": true,
+    "run_id_verified": true,
+    "workflow_run_id_verified": true,
+    "workflow_run_attempt_verified": true
+  }
+}
