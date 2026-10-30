@@ -1,182 +1,93 @@
 {
-  "schema": "qflpn-p3-hpc-configuration",
-  "schema_version": "1.0.0",
-  "configuration_id": "P3-HPC-664-REFERENCE",
-  "configuration_status": "PROPOSED_NOT_HARDWARE_VERIFIED",
+  "schema": "qflpn-p3-hpc-configuration-v1",
+  "configuration_id": "p3-hpc-16n-664c-4tib",
+  "project": "QFLPN",
+  "component": "P3",
+  "title": "Sparse Quantum-Fuzzy Logical Petri Nets — HPC Reference Configuration",
+  "status": "PROPOSED_NOT_HARDWARE_VERIFIED",
+  "acceptance_gate": "p3_validation",
 
-  "project": {
-    "name": "QFLPN",
-    "component": "P3",
-    "description": "Sparse Quantum-Fuzzy Logical Petri Nets: CSR/SpMV Algorithms and Large-Scale State Evolution",
-    "matrix_format": "CSR",
-    "operation": "y = A * x",
-    "matrix_semantics": {
-      "N": "number_of_states_and_matrix_rows",
-      "M": "number_of_matrix_columns",
-      "NNZ": "number_of_stored_nonzero_entries",
-      "qubit_count_is_N": false
-    }
+  "provenance": {
+    "repository": "adrianroman1/QFLPN-Quantum-Petri-Nets",
+    "source_commit_required": true,
+    "workflow_run_id_required": true,
+    "run_id_required": true,
+    "inventory_required_before_benchmark": true,
+    "hardware_claims_require_runtime_evidence": true
   },
 
-  "acceptance": {
-    "central_workflow": "p3_validation",
-    "required": true,
-    "p1_modification_allowed": false,
-    "final_verdict": "P3_ACCEPTED",
-    "fail_closed": true,
-    "require_same_commit": true,
-    "require_same_run_id": true,
-    "require_manifest": true,
-    "require_sha256_checksums": true,
-    "require_independent_integrity_verification": true,
-    "unmeasured_performance_may_pass": false,
-    "missing_data_may_pass": false,
-    "hpc_not_executed_status": "NOT_EVALUATED"
+  "cluster": {
+    "node_count": 16,
+    "physical_cores_target": 664,
+    "memory_gib_total": 4096,
+    "memory_tib_total": 4,
+    "memory_type": "ECC",
+    "cpu_reference": "AMD EPYC 9005 or equivalent",
+    "storage_per_node": {
+      "type": "enterprise NVMe",
+      "device_count": 2
+    },
+    "network_reference": "InfiniBand NDR 400 Gb/s or equivalent",
+    "scheduler": "Slurm",
+    "operating_system": "Linux Server",
+    "java": "JDK 21",
+    "build_system": "Maven",
+    "distributed_runtime": "MPI"
   },
 
-  "hardware_reference": {
-    "verification_status": "NOT_VERIFIED",
-    "compute_nodes": 16,
-    "physical_cores_total": 664,
-    "memory_total_gib": 4096,
-    "memory_total_tib": 4,
-    "memory_per_node_gib": 256,
-
-    "node_groups": [
+  "node_allocation": {
+    "groups": [
       {
-        "group_id": "NODE_GROUP_42",
         "node_count": 8,
         "physical_cores_per_node": 42,
-        "total_physical_cores": 336,
-        "memory_per_node_gib": 256
+        "memory_gib_per_node": 256,
+        "group_cores": 336
       },
       {
-        "group_id": "NODE_GROUP_41",
         "node_count": 8,
         "physical_cores_per_node": 41,
-        "total_physical_cores": 328,
-        "memory_per_node_gib": 256
+        "memory_gib_per_node": 256,
+        "group_cores": 328
       }
     ],
-
-    "processor": {
-      "target_family": "AMD EPYC 9005 or equivalent",
-      "exact_model": "UNSPECIFIED",
-      "physical_core_count_must_be_verified": true,
-      "socket_count": "DISCOVER_AT_PREFLIGHT",
-      "smt_enabled": "DISCOVER_AT_PREFLIGHT"
-    },
-
-    "memory": {
-      "type": "ECC",
-      "capacity_per_node_gib": 256,
-      "numa_topology": "DISCOVER_AT_PREFLIGHT",
-      "memory_bandwidth": "MEASURE_ON_HARDWARE"
-    },
-
-    "storage": {
-      "target": "2 x enterprise NVMe per compute node",
-      "exact_model": "UNSPECIFIED"
-    },
-
-    "network": {
-      "target": "InfiniBand NDR 400 Gb/s or equivalent",
-      "exact_adapter": "UNSPECIFIED",
-      "measured_bandwidth_required": true,
-      "measured_latency_required": true
-    }
+    "expected_total_nodes": 16,
+    "expected_total_physical_cores": 664,
+    "expected_total_memory_gib": 4096,
+    "allocation_must_match_inventory": true,
+    "allocation_must_match_slurm": true,
+    "allocation_must_match_cpu_affinity": true
   },
 
-  "software_reference": {
-    "operating_system": "Linux",
-    "java_version": 21,
-    "build_system": "Maven",
-    "scheduler": "Slurm",
-    "distributed_communication": "MPI",
-    "mpi_implementation": "UNSELECTED",
-    "mpi_version": "DISCOVER_AT_PREFLIGHT",
-    "maven_version": "RECORD_AT_RUNTIME",
-    "kernel_version": "RECORD_AT_RUNTIME"
+  "derived_capacity": {
+    "memory_gib_per_physical_core": 6.1686746988,
+    "memory_bytes_total": 4398046511104,
+    "memory_bytes_per_node": 274877906944,
+    "core_count_is_target_not_guarantee": true
   },
 
-  "execution_models": {
+  "execution_layers": {
     "intra_node": {
       "enabled": true,
       "strategies": [
         "SEQ",
         "FJ_PLAN",
-        "STATIC"
+        "STATIC_CHUNK"
       ],
       "runtime": "Java ForkJoinPool",
-      "memory_model": "SHARED_MEMORY"
+      "memory_model": "shared_memory"
     },
-
     "inter_node": {
       "enabled": true,
-      "implementation_status": "NOT_IMPLEMENTED",
-      "runtime": "MPI",
-      "memory_model": "DISTRIBUTED_MEMORY",
-      "strategies": [
-        "MPI_CSR_ROW_PARTITION"
-      ],
-      "communication_measurement_required": true
+      "strategy": "MPI",
+      "runtime": "native MPI",
+      "memory_model": "distributed_memory",
+      "minimum_process_count": 2,
+      "multi_node_execution_required_for_cluster_claim": true
     }
   },
 
-  "csr": {
-    "index_type": "int32",
-    "value_type": "float64",
-    "row_pointer_type": "int32",
-    "canonical_columns": true,
-    "fixed_row_accumulation_order": true,
-    "duplicate_entries_policy": "AGGREGATE_DURING_NORMALIZATION",
-    "input_arrays_must_be_validated": true,
-    "integer_index_capacity_must_be_checked": true
-  },
-
-  "benchmark": {
-    "run_id_source": "p3_validation",
-    "source_commit_required": true,
-    "environment_inventory_required": true,
-    "raw_measurements_required": true,
-    "randomized_strategy_order": true,
-
-    "dimensions": {
-      "smoke": [
-        1000000
-      ],
-      "calibration": [
-        1000000,
-        10000000
-      ],
-      "extended": [
-        10000000,
-        30000000
-      ],
-      "hpc": [
-        70000000,
-        100000000
-      ]
-    },
-
-    "workloads": [
-      "UNIFORM_2",
-      "POWERLAW",
-      "DIAGONAL",
-      "BANDED",
-      "EMPTY_ROWS",
-      "SKEWED_ROWS",
-      "HEAVY_ROW",
-      "QFLPN_REAL"
-    ],
-
-    "strategies": [
-      "SEQ",
-      "FJ_PLAN",
-      "STATIC"
-    ],
-
-    "parallelism": [
+  "worker_sweep": {
+    "values": [
       1,
       2,
       4,
@@ -190,12 +101,21 @@
       640,
       664
     ],
-
-    "oversubscription_diagnostics": [
+    "oversubscription_diagnostic": [
       672
     ],
+    "must_record_physical_cores": true,
+    "must_record_logical_cpus": true,
+    "must_record_java_workers": true,
+    "must_record_mpi_ranks": true,
+    "must_record_nodes": true,
+    "must_record_slurm_allocation": true,
+    "must_record_cpu_affinity": true,
+    "must_not_assume_worker_count_equals_physical_cores": true
+  },
 
-    "thresholds": [
+  "threshold_sweep": {
+    "values": [
       256,
       512,
       1024,
@@ -204,230 +124,219 @@
       8192,
       16384
     ],
-
-    "sampling": {
-      "minimum_forks": 5,
-      "warmup_iterations_per_fork": 10,
-      "timed_iterations_per_fork": 10,
-      "minimum_timed_samples_per_configuration": 30,
-      "target_timed_samples_per_configuration": 50,
-      "independent_jvm_per_fork": true
-    },
-
-    "execution_phases": [
-      {
-        "phase": "SMOKE",
-        "purpose": "Correctness and execution overhead",
-        "dimensions": [
-          1000000
-        ],
-        "parallelism": [
-          1,
-          2,
-          4
-        ],
-        "thresholds": [
-          4096
-        ]
-      },
-      {
-        "phase": "THRESHOLD_CALIBRATION",
-        "purpose": "Measure task granularity and select candidate thresholds",
-        "dimensions": [
-          1000000,
-          10000000
-        ],
-        "parallelism": [
-          1,
-          2,
-          4
-        ],
-        "thresholds": [
-          256,
-          512,
-          1024,
-          2048,
-          4096,
-          8192,
-          16384
-        ]
-      },
-      {
-        "phase": "INTRA_NODE_SCALING",
-        "purpose": "Measure shared-memory strong scaling",
-        "dimensions": [
-          10000000,
-          30000000
-        ],
-        "parallelism": [
-          1,
-          2,
-          4,
-          8,
-          16,
-          32,
-          64
-        ],
-        "threshold_selection": "USE_CALIBRATED_THRESHOLDS"
-      },
-      {
-        "phase": "HPC_SCALING",
-        "purpose": "Measure distributed strong and weak scaling",
-        "dimensions": [
-          10000000,
-          30000000,
-          70000000,
-          100000000
-        ],
-        "parallelism": [
-          64,
-          128,
-          256,
-          512,
-          640,
-          664
-        ],
-        "threshold_selection": "USE_CALIBRATED_THRESHOLDS",
-        "requires_mpi": true,
-        "requires_slurm": true,
-        "requires_verified_hardware": true
-      }
-    ]
-  },
-
-  "performance_metrics": {
-    "required": [
-      "elapsed_time_ms",
-      "setup_time_ms",
-      "speedup",
-      "parallel_efficiency",
-      "nnz_per_second",
-      "flops_per_second",
-      "load_imbalance",
-      "task_scheduling_overhead",
-      "synchronization_time",
-      "peak_memory_bytes",
-      "garbage_collection_time",
-      "modeled_effective_gbs"
-    ],
-
-    "hardware_counters": {
-      "required_for_measured_roofline": true,
-      "dram_read_bytes": "MEASURE_IF_SUPPORTED",
-      "dram_write_bytes": "MEASURE_IF_SUPPORTED",
-      "cache_misses": "MEASURE_IF_SUPPORTED",
-      "memory_stalls": "MEASURE_IF_SUPPORTED"
-    },
-
-    "bandwidth": {
-      "modeled_bandwidth_label": "MODELED_EFFECTIVE_GBS",
-      "hardware_bandwidth_label": "MEASURED_DRAM_GBS",
-      "must_not_conflate_modeled_and_measured": true,
-      "stream_benchmark": "STANDARD_STREAM_OR_EXPLICITLY_NAMED_CUSTOM_TRIAD"
+    "default_is_not_assumed_optimal": true,
+    "adaptive_threshold_model": {
+      "enabled_as_research_hypothesis": true,
+      "features": [
+        "N",
+        "NNZ",
+        "worker_count",
+        "nnz_per_row_standard_deviation",
+        "memory_locality",
+        "cache_topology",
+        "numa_topology"
+      ],
+      "must_be_fitted_from_measurements": true,
+      "must_be_evaluated_on_held_out_matrices": true
     }
   },
 
-  "statistics": {
-    "confidence_level": 0.95,
-    "bootstrap_resamples": 10000,
-    "bootstrap_method": "HIERARCHICAL_FORK_THEN_ITERATION",
-    "paired_speedup_required": true,
-    "report_median": true,
-    "report_mean": true,
-    "report_standard_deviation": true,
-    "report_iqr": true,
-    "report_mad": true,
-    "report_sample_count": true,
-    "report_fork_count": true,
-    "empty_samples_status": "FAIL",
-    "insufficient_samples_status": "FAIL",
-    "not_evaluable_status": "NOT_EVALUATED"
-  },
-
-  "numerical_validation": {
-    "reference_strategy": "SEQ",
-    "intra_node_bitwise_comparison": true,
-    "mpi_comparison": "DOCUMENTED_NUMERICAL_TOLERANCE",
-    "absolute_error_required": true,
-    "relative_error_required": true,
-    "nan_policy": "REJECT_INPUT",
-    "infinity_policy": "REJECT_INPUT",
-    "overflow_detection_required": true,
-    "deterministic_input_seed_required": true
-  },
-
-  "memory_model": {
-    "csr_payload_bytes": "16 * NNZ + 4 * (N + 1)",
-    "vector_payload_bytes": "8 * N + 8 * N",
-    "modeled_spmv_traffic_bytes": "12 * NNZ + 4 * (N + 1) + 16 * N",
-    "model_excludes_runtime_overhead": true,
-    "model_is_not_hardware_dram_measurement": true,
-    "preflight_required_before_large_allocations": true
-  },
-
-  "hpc_partitioning": {
-    "intra_node": [
-      "ROW_BOUNDARY_SCAN",
-      "BINARY_NNZ_SPLIT",
-      "STATIC_NNZ_CHUNK"
+  "matrix_campaign": {
+    "dimensions": [
+      {
+        "rows": 1000000,
+        "purpose": "CI smoke benchmark",
+        "execution_class": "ci"
+      },
+      {
+        "rows": 2000000,
+        "purpose": "comparative validation",
+        "execution_class": "ci_or_hpc"
+      },
+      {
+        "rows": 7000000,
+        "purpose": "intermediate scaling",
+        "execution_class": "hpc"
+      },
+      {
+        "rows": 10000000,
+        "purpose": "main experimental size",
+        "execution_class": "hpc"
+      },
+      {
+        "rows": 30000000,
+        "purpose": "extended scaling",
+        "execution_class": "hpc"
+      },
+      {
+        "rows": 70000000,
+        "purpose": "large-scale HPC",
+        "execution_class": "hpc_preflight_required"
+      },
+      {
+        "rows": 100000000,
+        "purpose": "maximum target scale",
+        "execution_class": "hpc_preflight_required"
+      }
     ],
-    "inter_node": [
-      "CONTIGUOUS_CSR_ROW_PARTITION",
-      "DISTRIBUTED_VECTOR_POLICY"
+    "default_nnz_per_row": 2,
+    "nnz_is_estimate_until_generated": true,
+    "matrix_families": [
+      "uniform",
+      "power_law",
+      "empty_rows",
+      "long_rows",
+      "imbalanced_rows",
+      "qflpn_real"
     ],
-    "distributed_vector_policy": "MUST_BE_SELECTED_AND_DOCUMENTED",
-    "single_heavy_row_policy": "MUST_BE_TESTED",
-    "load_balance_metrics_required": true
-  },
-
-  "slurm": {
-    "preflight_required": true,
-    "job_accounting_required": true,
-    "allocation_must_be_verified": true,
-    "cpu_binding_must_be_recorded": true,
-    "memory_binding_must_be_recorded": true,
-    "scripts": [
-      "P3/hpc/slurm/p3-hpc-preflight.sbatch",
-      "P3/hpc/slurm/p3-hpc-benchmark.sbatch",
-      "P3/hpc/slurm/p3-hpc-validate.sbatch"
+    "required_matrix_metadata": [
+      "N",
+      "M",
+      "NNZ",
+      "density",
+      "mean_nnz_per_row",
+      "stddev_nnz_per_row",
+      "median_nnz_per_row",
+      "max_nnz_per_row",
+      "empty_row_fraction",
+      "row_distribution"
     ]
   },
 
-  "required_artifacts": [
-    "benchmark.csv",
-    "benchmark.json",
-    "worker_metrics.csv",
-    "cluster_inventory.json",
-    "node_inventory.json",
-    "confidence_intervals.json",
-    "scaling_analysis.json",
-    "load_balance.json",
-    "HPC_REPORT.md",
-    "HPC_REPORT.txt",
-    "HPC_SUMMARY.json",
-    "MANIFEST.txt",
-    "SHA256SUMS.txt"
-  ],
-
-  "integration": {
-    "central_workflow": ".github/workflows/p3-validation.yml",
-    "central_job": "p3_validation",
-    "hpc_results_must_be_validated_by_central_workflow": true,
-    "existing_v2_validation_must_be_preserved": true,
-    "existing_v3_validation_must_be_preserved": true,
-    "existing_integrity_chain_must_be_preserved": true,
-    "hpc_not_run_must_not_be_reported_as_pass": true,
-    "p3_acceptance_requires_same_commit_and_run_identity": true
+  "csr_memory_model": {
+    "native_uint64_rowptr_uint64_colind_double_values": {
+      "bytes": "8*(N+1)+16*NNZ"
+    },
+    "native_approximation_when_nnz_equals_2n": {
+      "bytes": "40*N"
+    },
+    "java_double_values_int_colind_int_rowptr": {
+      "bytes": "8*NNZ+4*NNZ+4*(N+1)"
+    },
+    "java_approximation_when_nnz_equals_2n": {
+      "bytes": "28*N"
+    },
+    "additional_vector_bytes_approximation": "16*N",
+    "memory_estimates_are_not_peak_rss": true,
+    "preflight_must_include_temporary_buffers": true,
+    "preflight_must_include_per_rank_replication": true
   },
 
-  "provenance": {
-    "source_commit_required": true,
-    "workflow_run_id_required": true,
-    "run_id_required": true,
-    "hardware_inventory_required": true,
-    "software_versions_required": true,
-    "configuration_hash_required": true,
-    "raw_data_immutable": true,
-    "reproduction_must_not_checkout_in_users_working_tree": true
+  "experimental_methods": {
+    "partitioning_strategies": [
+      "ROW_BOUNDARY_SCAN",
+      "BINARY_NNZ_SPLIT",
+      "STATIC_CHUNK",
+      "MULTI_TASK",
+      "ADAPTIVE"
+    ],
+    "benchmark_metrics": [
+      "runtime_ns",
+      "speedup",
+      "parallel_efficiency",
+      "nnz_per_second",
+      "estimated_bandwidth_gb_per_second",
+      "measured_bandwidth_gb_per_second",
+      "arithmetic_intensity",
+      "flops_per_second",
+      "scheduling_overhead",
+      "synchronization_time",
+      "worker_imbalance",
+      "worker_nnz_distribution"
+    ],
+    "speedup_definition": "T_seq / T_parallel",
+    "efficiency_definition": "speedup / worker_count",
+    "worker_imbalance_definition": "max_worker_time / mean_worker_time",
+    "statistical_method": {
+      "bootstrap": "hierarchical",
+      "resampling_units": [
+        "independent_jvm_forks",
+        "iterations_within_forks"
+      ],
+      "required_statistics": [
+        "mean",
+        "median",
+        "standard_deviation",
+        "IQR",
+        "MAD",
+        "confidence_interval_95",
+        "fork_count",
+        "observation_count",
+        "runtime_distribution"
+      ]
+    }
+  },
+
+  "roofline": {
+    "enabled": true,
+    "model": "P <= min(P_peak, B_mem * I)",
+    "bandwidth_classification": [
+      "modeled_bandwidth",
+      "measured_hardware_bandwidth"
+    ],
+    "stream_claim_allowed": false,
+    "memory_triad_label": "P3 Memory Triad Microbenchmark",
+    "hardware_counters_required_for_measured_dram_bandwidth": true
+  },
+
+  "hpc_preflight": {
+    "required": true,
+    "minimum_free_memory_fraction": 0.20,
+    "must_check": [
+      "cpu_model",
+      "socket_count",
+      "physical_cores",
+      "logical_cpus",
+      "frequency",
+      "numa_topology",
+      "cache_topology",
+      "total_memory",
+      "available_memory",
+      "cpu_affinity",
+      "cpuset",
+      "cpu_quota",
+      "cgroup_version",
+      "kernel_version",
+      "java_version",
+      "java_gc",
+      "java_heap",
+      "mpi_version",
+      "slurm_version",
+      "slurm_allocated_nodes",
+      "slurm_allocated_cpus"
+    ],
+    "large_matrix_runs_require_success": true,
+    "inventory_per_node_required": true
+  },
+
+  "mpi_validation": {
+    "enabled": true,
+    "minimum_process_count": 2,
+    "must_verify_executable_sha256": true,
+    "must_verify_build_log": true,
+    "must_verify_stdout": true,
+    "must_verify_stderr": true,
+    "must_verify_source_commit": true,
+    "must_verify_run_id": true,
+    "must_verify_workflow_run_id": true,
+    "must_verify_workflow_run_attempt": true,
+    "must_compare_against_independent_sequential_csr": true,
+    "must_fail_on_skip": true,
+    "must_fail_on_timeout": true,
+    "must_fail_on_missing_artifact": true,
+    "must_fail_on_numerical_mismatch": true
+  },
+
+  "acceptance": {
+    "single_gate": "p3_validation",
+    "all_hpc_checks_must_be_registered_in_ci_outcomes": true,
+    "all_artifacts_must_share_run_id": true,
+    "all_artifacts_must_share_source_commit": true,
+    "all_artifacts_must_share_workflow_run_id": true,
+    "manifest_generated_after_all_evidence": true,
+    "sha256_generated_after_manifest_inventory": true,
+    "independent_integrity_verification_required": true,
+    "no_acceptance_on_missing_or_skipped_stage": true,
+    "no_performance_claim_without_measured_result": true
   }
 }
