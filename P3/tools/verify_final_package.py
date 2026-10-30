@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 """Independent, fail-closed acceptance verifier for the complete P3 package.
 
+The only acceptance gate is p3_validation.
+
 Acceptance requires:
-- all mandatory p3_validation stages to succeed;
+- mandatory p3_validation stages to succeed;
 - canonical V2 and V3 benchmark validation;
 - consistent RUN_ID, source_commit and workflow_run_id provenance;
 - PASS evidence-consistency report;
 - independently verified MPI build, execution and numerical evidence;
+- exact MPI executable path and verified build log;
 - independently reconstructed MANIFEST.txt and SHA256SUMS.txt.
 
-MPI evidence is mandatory. A missing, skipped, failed, incomplete or
-incorrectly attributed MPI execution rejects the package.
+A missing, skipped, failed, incomplete or incorrectly attributed MPI
+execution rejects the package.
 """
 
 from __future__ import annotations
@@ -49,6 +52,13 @@ EXCLUDED_SUFFIXES = {".pyc", ".pyo"}
 
 MPI_REPORT = "P3/reports/mpi-validation.json"
 MPI_SOURCE = "P3/hpc/mpi/native/p3_mpi_spmv.c"
+MPI_RUNNER = "P3/hpc/mpi/run_mpi_validation.py"
+MPI_EXECUTABLE = "P3/target/mpi/p3_mpi_spmv"
+MPI_BUILD_LOG = "P3/reports/mpi-build.log"
+MPI_STDOUT = "P3/reports/mpi-stdout.log"
+MPI_STDERR = "P3/reports/mpi-stderr.log"
+
+MPI_SCHEMA = "qflqn-p3-mpi-validation-v1"
 
 REQUIRED_PACKAGE_FILES = (
     "P3/pom.xml",
@@ -68,12 +78,13 @@ REQUIRED_PACKAGE_FILES = (
     "P3/reports/benchmark-v3-validation.json",
     "P3/reports/evidence-consistency.json",
     MPI_SOURCE,
+    MPI_RUNNER,
     MPI_REPORT,
+    MPI_BUILD_LOG,
+    MPI_STDOUT,
+    MPI_STDERR,
 )
 
-# These identifiers must be present in ci-outcomes.json and have status
-# exactly "success". The workflow integration must create this stage only
-# after native MPI build, multi-process execution and numerical validation.
 REQUIRED_CI_STAGES = (
     "p3_environment",
     "p3_required_files",
@@ -112,6 +123,11 @@ def regular_file(path: Path, label: str) -> None:
     )
 
 
+def nonempty_file(path: Path, label: str) -> None:
+    regular_file(path, label)
+    require(path.stat().st_size > 0, f"{label} is empty: {path}")
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -143,15 +159,16 @@ def safe_p3_file(root: Path, relative: str, label: str) -> Path:
         f"{label} has an unsafe P3-relative path: {relative!r}",
     )
 
-    target = Path(root).resolve() / PurePosixPath(relative)
-    p3_root = (Path(root).resolve() / "P3").resolve()
+    root = Path(root).resolve()
+    target = root / PurePosixPath(relative)
+    p3_root = (root / "P3").resolve()
 
     require(
         target.resolve(strict=False).is_relative_to(p3_root),
         f"{label} resolves outside P3: {relative}",
     )
 
-    current = Path(root).resolve()
+    current = root
     for part in PurePosixPath(relative).parts:
         current = current / part
         require(
@@ -266,6 +283,7 @@ def parse_checksums(path: Path) -> dict[str, str]:
         assert match is not None
 
         digest, relative = match.groups()
+
         require(
             HEX64_RE.fullmatch(digest) is not None,
             f"Invalid SHA-256 digest on line {number}",
@@ -278,6 +296,7 @@ def parse_checksums(path: Path) -> dict[str, str]:
             relative not in result,
             f"Duplicate checksum path: {relative}",
         )
+
         result[relative] = digest
 
     require(
@@ -444,25 +463,26 @@ def verify_mpi(
     source_commit: str,
     workflow_run_id: str | None,
 ) -> dict[str, Any]:
-    """Verify native MPI build, real multi-process execution and provenance.
+    """Verify native MPI build, multi-process execution and provenance.
 
-    Required report schema: qflpn-p3-mpi-validation-v1
+    The report schema is the exact schema emitted by run_mpi_validation.py.
 
-    Numerical acceptance uses:
+    Numerical acceptance:
         max_absolute_error <= absolute_tolerance
                                  + relative_tolerance
                                    * max_reference_magnitude
 
-    The verifier independently checks the executable SHA-256 and the
-    existence of all referenced source, executable and log files.
+    The verifier recalculates the executable digest and checks the build
+    log, source, stdout and stderr files independently.
     """
     root = Path(root).resolve()
+
     report_path = safe_p3_file(root, MPI_REPORT, "MPI validation report")
     report = load_json(report_path, "MPI validation report")
 
     require(
-        report.get("schema") == "qflpn-p3-mpi-validation-v1",
-        "MPI validation schema mismatch",
+        report.get("schema") == MPI_SCHEMA,
+        f"MPI validation schema mismatch; expected {MPI_SCHEMA}",
     )
     require(
         report.get("validation") == "PASS",
@@ -508,11 +528,21 @@ def verify_mpi(
     )
 
     source_path = safe_p3_file(root, MPI_SOURCE, "MPI native source")
+
     executable_relative = build.get("executable")
+    require(
+        executable_relative == MPI_EXECUTABLE,
+        f"MPI executable path must be exactly {MPI_EXECUTABLE}",
+    )
     executable_path = safe_p3_file(
         root,
-        executable_relative,
+        MPI_EXECUTABLE,
         "MPI native executable",
+    )
+
+    require(
+        os.access(executable_path, os.X_OK),
+        "MPI native executable does not have execute permission",
     )
 
     executable_digest = build.get("executable_sha256")
@@ -526,6 +556,26 @@ def verify_mpi(
         "MPI executable SHA-256 mismatch",
     )
 
+    build_log_path = safe_p3_file(
+        root,
+        MPI_BUILD_LOG,
+        "MPI native build log",
+    )
+    build_log = build_log_path.read_text(encoding="utf-8", errors="replace")
+
+    require(
+        bool(build_log.strip()),
+        "MPI native build log is empty",
+    )
+    require(
+        "EXIT_CODE=0" in build_log,
+        "MPI build log does not record EXIT_CODE=0",
+    )
+    require(
+        "STDERR:" in build_log and "STDOUT:" in build_log,
+        "MPI build log does not contain both compiler output streams",
+    )
+
     execution = report.get("execution")
     require(isinstance(execution, dict), "MPI execution object is missing")
     require(
@@ -537,11 +587,13 @@ def verify_mpi(
         and bool(execution["launcher"].strip()),
         "MPI launcher is missing",
     )
+
     process_count = positive_integer(
         execution.get("process_count"),
         "MPI process_count",
         minimum=2,
     )
+
     require(
         execution.get("exit_code") == 0
         and not isinstance(execution.get("exit_code"), bool),
@@ -558,8 +610,18 @@ def verify_mpi(
 
     stdout_relative = execution.get("stdout_file")
     stderr_relative = execution.get("stderr_file")
-    stdout_path = safe_p3_file(root, stdout_relative, "MPI stdout log")
-    stderr_path = safe_p3_file(root, stderr_relative, "MPI stderr log")
+
+    require(
+        stdout_relative == MPI_STDOUT,
+        "MPI stdout path mismatch",
+    )
+    require(
+        stderr_relative == MPI_STDERR,
+        "MPI stderr path mismatch",
+    )
+
+    stdout_path = safe_p3_file(root, MPI_STDOUT, "MPI stdout log")
+    stderr_path = safe_p3_file(root, MPI_STDERR, "MPI stderr log")
 
     numerical = report.get("numerical_validation")
     require(
@@ -581,7 +643,11 @@ def verify_mpi(
 
     rows = positive_integer(numerical.get("rows"), "MPI rows")
     columns = positive_integer(numerical.get("columns"), "MPI columns")
-    nnz = positive_integer(numerical.get("nnz"), "MPI nnz", minimum=0)
+    nnz = positive_integer(
+        numerical.get("nnz"),
+        "MPI nnz",
+        minimum=0,
+    )
 
     max_abs = finite_number(
         numerical.get("max_absolute_error"),
@@ -634,9 +700,8 @@ def verify_mpi(
         "MPI provenance workflow_run_id_verified is not true",
     )
 
-    # The report's claims above are not accepted as independent proof:
-    # the identity fields have already been compared with the invocation
-    # arguments and the executable digest has been recalculated here.
+    # The claims in the provenance object are not treated as standalone proof:
+    # all identity fields have been independently compared with CLI inputs.
     return {
         "schema": report["schema"],
         "validation": "PASS",
@@ -644,16 +709,18 @@ def verify_mpi(
         "source_commit": source_commit,
         "workflow_run_id": workflow_run_id,
         "native_source": MPI_SOURCE,
-        "native_executable": executable_relative,
+        "native_executable": MPI_EXECUTABLE,
         "native_executable_sha256": executable_digest,
+        "native_build_log": MPI_BUILD_LOG,
+        "native_build_log_bytes": build_log_path.stat().st_size,
         "process_count": process_count,
         "rows": rows,
         "columns": columns,
         "nnz": nnz,
         "max_absolute_error": max_abs,
         "allowed_absolute_error": allowed_error,
-        "stdout_file": stdout_relative,
-        "stderr_file": stderr_relative,
+        "stdout_file": MPI_STDOUT,
+        "stderr_file": MPI_STDERR,
         "source_file_verified": source_path.is_file(),
         "stdout_file_verified": stdout_path.is_file(),
         "stderr_file_verified": stderr_path.is_file(),
@@ -719,6 +786,7 @@ def verify_v2(
             raise VerificationError(
                 f"V2 invalid integer field: {csv_key}"
             ) from exc
+
         require(
             csv_value == result_value,
             f"V2 CSV/validator mismatch: {csv_key}",
@@ -732,6 +800,7 @@ def verify_v2(
     ):
         csv_value = finite_number(row.get(csv_key), csv_key)
         result_value = finite_number(latest.get(result_key), result_key)
+
         require(
             math.isclose(
                 csv_value,
@@ -921,7 +990,10 @@ def verify_evidence_consistency(
         report.get("validation") == "PASS",
         "Evidence consistency report is not PASS",
     )
-    require(report.get("run_id") == run_id, "Evidence consistency RUN_ID mismatch")
+    require(
+        report.get("run_id") == run_id,
+        "Evidence consistency RUN_ID mismatch",
+    )
     require(
         report.get("source_commit") == source_commit,
         "Evidence consistency source_commit mismatch",
@@ -1028,6 +1100,7 @@ def verify_package(
         "threshold",
         "parallelism",
     }
+
     require(
         set(expected) == required_expected,
         "V2 expected-configuration keys mismatch: "
@@ -1063,8 +1136,7 @@ def verify_package(
     )
     mpi = verify_mpi(root, run_id, source_commit, workflow_run_id)
 
-    # Global integrity is checked last so that every generated artifact,
-    # including mpi-validation.json, executable and logs, is covered.
+    # Global integrity is checked last, after all evidence is generated.
     integrity = verify_global_integrity(root)
 
     return {
