@@ -6,7 +6,6 @@
   "title": "Sparse Quantum-Fuzzy Logical Petri Nets — HPC Reference Configuration",
   "status": "PROPOSED_NOT_HARDWARE_VERIFIED",
   "acceptance_gate": "p3_validation",
-
   "provenance": {
     "repository": "adrianroman1/QFLPN-Quantum-Petri-Nets",
     "source_commit_required": true,
@@ -15,7 +14,6 @@
     "inventory_required_before_benchmark": true,
     "hardware_claims_require_runtime_evidence": true
   },
-
   "cluster": {
     "node_count": 16,
     "physical_cores_target": 664,
@@ -34,7 +32,6 @@
     "build_system": "Maven",
     "distributed_runtime": "MPI"
   },
-
   "node_allocation": {
     "groups": [
       {
@@ -57,14 +54,12 @@
     "allocation_must_match_slurm": true,
     "allocation_must_match_cpu_affinity": true
   },
-
   "derived_capacity": {
     "memory_gib_per_physical_core": 6.1686746988,
     "memory_bytes_total": 4398046511104,
     "memory_bytes_per_node": 274877906944,
     "core_count_is_target_not_guarantee": true
   },
-
   "execution_layers": {
     "intra_node": {
       "enabled": true,
@@ -85,7 +80,6 @@
       "multi_node_execution_required_for_cluster_claim": true
     }
   },
-
   "worker_sweep": {
     "values": [
       1, 2, 4, 8, 16, 32,
@@ -101,7 +95,6 @@
     "must_record_cpu_affinity": true,
     "must_not_assume_worker_count_equals_physical_cores": true
   },
-
   "threshold_sweep": {
     "values": [
       256, 512, 1024, 2048,
@@ -123,7 +116,6 @@
       "must_be_evaluated_on_held_out_matrices": true
     }
   },
-
   "matrix_campaign": {
     "dimensions": [
       {
@@ -185,7 +177,6 @@
       "row_distribution"
     ]
   },
-
   "csr_memory_model": {
     "native_uint64_rowptr_uint64_colind_double_values": {
       "bytes": "8*(N+1)+16*NNZ"
@@ -204,7 +195,6 @@
     "preflight_must_include_temporary_buffers": true,
     "preflight_must_include_per_rank_replication": true
   },
-
   "experimental_methods": {
     "partitioning_strategies": [
       "ROW_BOUNDARY_SCAN",
@@ -249,7 +239,6 @@
       ]
     }
   },
-
   "roofline": {
     "enabled": true,
     "model": "P <= min(P_peak, B_mem * I)",
@@ -261,7 +250,6 @@
     "memory_triad_label": "P3 Memory Triad Microbenchmark",
     "hardware_counters_required_for_measured_dram_bandwidth": true
   },
-
   "hpc_preflight": {
     "required": true,
     "minimum_free_memory_fraction": 0.20,
@@ -291,7 +279,6 @@
     "large_matrix_runs_require_success": true,
     "inventory_per_node_required": true
   },
-
   "mpi_validation": {
     "enabled": true,
     "minimum_process_count": 2,
@@ -309,7 +296,6 @@
     "must_fail_on_missing_artifact": true,
     "must_fail_on_numerical_mismatch": true
   },
-
   "acceptance": {
     "single_gate": "p3_validation",
     "all_hpc_checks_must_be_registered_in_ci_outcomes": true,
