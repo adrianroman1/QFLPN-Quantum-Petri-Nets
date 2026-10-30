@@ -34,11 +34,11 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA = "qflpn-p3-hpc-inventory"
+SCHEMA = "qflqn-p3-hpc-inventory"
 SCHEMA_VERSION = "1.1.0"
 SUPPORTED_CONFIG_SCHEMAS = {
-    "qflpn-p3-hpc-configuration",
-    "qflpn-p3-hpc-configuration-v1",
+    "qflqn-p3-hpc-configuration",
+    "qflqn-p3-hpc-configuration-v1",
 }
 
 
@@ -177,37 +177,37 @@ def parse_cpuinfo() -> dict[str, Any]:
 
 
 def parse_cpu_list(value: str | None) -> list[int] | None:
-    """Parse Linux CPU-list syntax, e.g. 0-3,8,10-11."""
-    if not value:
+    """Parse strict Linux CPU-list syntax, e.g. 0-3,8,10-11.
+
+    Empty segments, whitespace, malformed ranges and negative CPU IDs
+    are rejected. Duplicate CPU IDs are accepted and deduplicated.
+    """
+    if not isinstance(value, str) or not value:
+        return None
+
+    if re.fullmatch(
+        r"\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*",
+        value,
+    ) is None:
         return None
 
     cpus: set[int] = set()
 
     try:
         for item in value.split(","):
-            item = item.strip()
-
-            if not item:
-                continue
-
             if "-" in item:
                 left, right = item.split("-", 1)
-                start, end = int(left), int(right)
+                start = int(left)
+                end = int(right)
 
-                if start < 0 or end < start:
+                if end < start:
                     return None
 
                 cpus.update(range(start, end + 1))
-
             else:
-                cpu = int(item)
+                cpus.add(int(item))
 
-                if cpu < 0:
-                    return None
-
-                cpus.add(cpu)
-
-    except ValueError:
+    except (ValueError, OverflowError):
         return None
 
     return sorted(cpus)
@@ -525,7 +525,7 @@ def read_reference_targets(
             f"schema={schema!r}; supported={sorted(SUPPORTED_CONFIG_SCHEMAS)}"
         )
 
-    if schema == "qflpn-p3-hpc-configuration-v1":
+    if schema == "qflqn-p3-hpc-configuration-v1":
         cluster = config.get("cluster")
         if not isinstance(cluster, dict):
             raise ValueError("CONFIG_CLUSTER_INVALID")
@@ -639,7 +639,6 @@ def validate_reference(
     observed_affinity = affinity.get("cpu_count")
     observed_memory = memory.get("total_gib")
 
-    local_expected_cores = None
     local_expected_memory = expected_memory
 
     allocation = config.get("node_allocation", {})
@@ -791,7 +790,9 @@ def collect(
         ) from exc
 
     if not isinstance(config, dict):
-        raise ValueError("Rădăcina configurației trebuie să fie obiect JSON.")
+        raise ValueError(
+            "Rădăcina configurației trebuie să fie un obiect JSON"
+        )
 
     expected_nodes, expected_cores, expected_memory = (
         read_reference_targets(config)
@@ -840,7 +841,9 @@ def collect(
         "scheduler": {
             "slurm": discover_slurm(),
         },
-        "software": discover_software(),
+        "software": {
+            **discover_software(),
+        },
         "measurement_capabilities": {
             "dram_hardware_counters": "NOT_PROBED",
             "network_bandwidth": "NOT_MEASURED",
