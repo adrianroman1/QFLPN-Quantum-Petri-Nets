@@ -1,3 +1,53 @@
+/*
+ * P3 — Distributed CSR Sparse Matrix-Vector Multiplication
+ *
+ * Native MPI backend.
+ *
+ * Build:
+ *   mpicc -std=c11 -O3 -Wall -Wextra -Wpedantic \
+ *     -Wconversion -Wshadow \
+ *     P3/hpc/mpi/native/p3_mpi_spmv.c \
+ *     -o p3_mpi_spmv -lm
+ *
+ * Run:
+ *   mpirun -np 2 ./p3_mpi_spmv request.p3mpi response.p3mpi
+ *
+ * Input protocol, little-endian:
+ *   8 bytes  magic = "P3SPMV01"
+ *   8 bytes  rows
+ *   8 bytes  columns
+ *   8 bytes  nnz
+ *   8 bytes  vector_length
+ *   8 bytes  flags
+ *   8 bytes  reserved
+ *   rows + 1 uint64 row pointers
+ *   nnz uint64 column indices
+ *   nnz IEEE-754 binary64 values
+ *   columns IEEE-754 binary64 vector elements
+ *
+ * Output protocol, little-endian:
+ *   8 bytes  magic = "P3OUT001"
+ *   8 bytes  rows
+ *   8 bytes  status (0 = success)
+ *   8 bytes  reserved (0)
+ *   rows IEEE-754 binary64 result elements
+ *
+ * Distribution:
+ *   - contiguous whole-row partitions;
+ *   - CSR row pointers are rebased locally;
+ *   - input vector is replicated with MPI_Bcast;
+ *   - local SpMV is computed independently by each rank;
+ *   - output rows are gathered in global row order.
+ *
+ * Important:
+ *   MPI_Scatterv / MPI_Gatherv use int counts and displacements.
+ *   This implementation fails closed if any individual MPI count
+ *   or displacement exceeds INT_MAX. Large-scale MPI-4 large-count
+ *   support is a separate extension and is not silently emulated.
+ */
+
+#define _POSIX_C_SOURCE 200809L
+
 #include <mpi.h>
 
 #include <errno.h>
@@ -9,903 +59,715 @@
 #include <string.h>
 #include <limits.h>
 
-#define REQUEST_MAGIC "P3SPMV01"
-#define RESPONSE_MAGIC "P3OUT001"
-#define PROTOCOL_VERSION 1U
-#define REQUEST_HEADER_BYTES 56U
-#define RESPONSE_HEADER_BYTES 32U
+#define INPUT_MAGIC  "P3SPMV01"
+#define OUTPUT_MAGIC "P3OUT001"
 
-#define EXIT_INPUT_ERROR 10
-#define EXIT_PROTOCOL_ERROR 11
-#define EXIT_MPI_ERROR 12
-#define EXIT_OUTPUT_ERROR 13
-#define EXIT_RESOURCE_ERROR 14
+#define INPUT_HEADER_BYTES  56U
+#define OUTPUT_HEADER_BYTES 32U
+
+#define INPUT_FLAGS_SUPPORTED UINT64_C(0)
 
 typedef struct {
     uint64_t rows;
     uint64_t columns;
     uint64_t nnz;
     uint64_t vector_length;
-    uint32_t flags;
-} RequestHeader;
+    uint64_t flags;
+    uint64_t reserved;
 
-static int checked_mul_u64(uint64_t a, uint64_t b, uint64_t *out) {
-    if (a != 0 && b > UINT64_MAX / a) {
+    uint64_t *row_ptr;
+    uint64_t *column_indices;
+    double *values;
+    double *x;
+} CsrInput;
+
+static void fail_message(const char *message) {
+    fprintf(stderr, "P3_MPI_ERROR: %s\n", message);
+}
+
+static int checked_size(uint64_t count, size_t element_size,
+                        size_t *result) {
+    if (element_size != 0U &&
+        count > (uint64_t)(SIZE_MAX / element_size)) {
         return 0;
     }
-    *out = a * b;
+
+    *result = (size_t)count * element_size;
     return 1;
-}
-
-static int checked_add_u64(uint64_t a, uint64_t b, uint64_t *out) {
-    if (b > UINT64_MAX - a) {
-        return 0;
-    }
-    *out = a + b;
-    return 1;
-}
-
-static uint32_t read_u32_le(const unsigned char *p) {
-    return ((uint32_t)p[0])
-        | ((uint32_t)p[1] << 8)
-        | ((uint32_t)p[2] << 16)
-        | ((uint32_t)p[3] << 24);
-}
-
-static uint64_t read_u64_le(const unsigned char *p) {
-    return ((uint64_t)p[0])
-        | ((uint64_t)p[1] << 8)
-        | ((uint64_t)p[2] << 16)
-        | ((uint64_t)p[3] << 24)
-        | ((uint64_t)p[4] << 32)
-        | ((uint64_t)p[5] << 40)
-        | ((uint64_t)p[6] << 48)
-        | ((uint64_t)p[7] << 56);
-}
-
-static void write_u32_le(unsigned char *p, uint32_t value) {
-    for (unsigned int i = 0; i < 4; ++i) {
-        p[i] = (unsigned char)((value >> (8U * i)) & 0xffU);
-    }
-}
-
-static void write_u64_le(unsigned char *p, uint64_t value) {
-    for (unsigned int i = 0; i < 8; ++i) {
-        p[i] = (unsigned char)((value >> (8U * i)) & 0xffU);
-    }
 }
 
 static int read_exact(FILE *file, void *buffer, size_t bytes) {
-    return fread(buffer, 1, bytes, file) == bytes;
+    return fread(buffer, 1U, bytes, file) == bytes;
 }
 
 static int write_exact(FILE *file, const void *buffer, size_t bytes) {
-    return fwrite(buffer, 1, bytes, file) == bytes;
+    return fwrite(buffer, 1U, bytes, file) == bytes;
 }
 
-static int read_request(
-    const char *path,
-    RequestHeader *header,
-    uint64_t **row_ptr,
-    uint64_t **column_indices,
-    double **values,
-    double **x
-) {
-    FILE *file = NULL;
-    unsigned char raw[REQUEST_HEADER_BYTES];
-    uint64_t expected_size = REQUEST_HEADER_BYTES;
-    uint64_t part = 0;
-    int result = EXIT_INPUT_ERROR;
+/*
+ * Decode unsigned 64-bit little-endian integers explicitly.
+ * This avoids relying on host endianness for protocol headers.
+ */
+static uint64_t decode_u64_le(const unsigned char bytes[8]) {
+    uint64_t value = 0U;
 
-    *row_ptr = NULL;
-    *column_indices = NULL;
-    *values = NULL;
-    *x = NULL;
+    for (unsigned int i = 0U; i < 8U; ++i) {
+        value |= ((uint64_t)bytes[i]) << (8U * i);
+    }
 
-    file = fopen(path, "rb");
+    return value;
+}
+
+static void encode_u64_le(unsigned char bytes[8], uint64_t value) {
+    for (unsigned int i = 0U; i < 8U; ++i) {
+        bytes[i] = (unsigned char)((value >> (8U * i)) & UINT64_C(0xff));
+    }
+}
+
+static int host_is_little_endian(void) {
+    const uint16_t value = UINT16_C(1);
+    return *((const unsigned char *)&value) == 1U;
+}
+
+static void free_input(CsrInput *input) {
+    if (input == NULL) {
+        return;
+    }
+
+    free(input->row_ptr);
+    free(input->column_indices);
+    free(input->values);
+    free(input->x);
+
+    memset(input, 0, sizeof(*input));
+}
+
+static int read_binary64_array(FILE *file, double *array,
+                               uint64_t count) {
+    size_t bytes = 0U;
+
+    if (!checked_size(count, sizeof(double), &bytes)) {
+        return 0;
+    }
+
+    if (!read_exact(file, array, bytes)) {
+        return 0;
+    }
+
+    for (uint64_t i = 0U; i < count; ++i) {
+        if (!isfinite(array[i])) {
+            return 0;
+        }
+    }
+
+    return 1;
+}
+
+static int read_u64_array(FILE *file, uint64_t *array,
+                          uint64_t count) {
+    for (uint64_t i = 0U; i < count; ++i) {
+        unsigned char bytes[8];
+
+        if (!read_exact(file, bytes, sizeof(bytes))) {
+            return 0;
+        }
+
+        array[i] = decode_u64_le(bytes);
+    }
+
+    return 1;
+}
+
+static int validate_csr(const CsrInput *input) {
+    if (input->rows == UINT64_MAX) {
+        return 0;
+    }
+
+    if (input->vector_length != input->columns) {
+        return 0;
+    }
+
+    if (input->flags != INPUT_FLAGS_SUPPORTED ||
+        input->reserved != 0U) {
+        return 0;
+    }
+
+    if (input->row_ptr == NULL) {
+        return 0;
+    }
+
+    if (input->row_ptr[0] != 0U ||
+        input->row_ptr[input->rows] != input->nnz) {
+        return 0;
+    }
+
+    for (uint64_t row = 0U; row < input->rows; ++row) {
+        if (input->row_ptr[row] > input->row_ptr[row + 1U]) {
+            return 0;
+        }
+
+        if (input->row_ptr[row + 1U] > input->nnz) {
+            return 0;
+        }
+    }
+
+    for (uint64_t k = 0U; k < input->nnz; ++k) {
+        if (input->column_indices[k] >= input->columns) {
+            return 0;
+        }
+
+        if (!isfinite(input->values[k])) {
+            return 0;
+        }
+    }
+
+    for (uint64_t k = 0U; k < input->columns; ++k) {
+        if (!isfinite(input->x[k])) {
+            return 0;
+        }
+    }
+
+    return 1;
+}
+
+static int load_input(const char *path, CsrInput *input) {
+    FILE *file = fopen(path, "rb");
+
     if (file == NULL) {
-        fprintf(stderr, "Cannot open request file: %s\n", path);
-        goto cleanup;
+        fail_message("Cannot open MPI request file.");
+        return 0;
     }
 
-    if (!read_exact(file, raw, sizeof(raw))) {
-        fprintf(stderr, "Truncated request header.\n");
-        goto cleanup;
+    unsigned char magic[8];
+    unsigned char field[8];
+
+    if (!read_exact(file, magic, sizeof(magic)) ||
+        memcmp(magic, INPUT_MAGIC, sizeof(magic)) != 0) {
+        fail_message("Invalid input magic or truncated header.");
+        fclose(file);
+        return 0;
     }
 
-    if (memcmp(raw, REQUEST_MAGIC, 8) != 0) {
-        fprintf(stderr, "Invalid request magic.\n");
-        result = EXIT_PROTOCOL_ERROR;
-        goto cleanup;
+    uint64_t *header_fields[] = {
+        &input->rows,
+        &input->columns,
+        &input->nnz,
+        &input->vector_length,
+        &input->flags,
+        &input->reserved
+    };
+
+    for (size_t i = 0U; i < 6U; ++i) {
+        if (!read_exact(file, field, sizeof(field))) {
+            fail_message("Truncated input header.");
+            fclose(file);
+            return 0;
+        }
+
+        *header_fields[i] = decode_u64_le(field);
     }
 
-    if (read_u32_le(raw + 8) != PROTOCOL_VERSION
-            || read_u32_le(raw + 12) != REQUEST_HEADER_BYTES) {
-        fprintf(stderr, "Unsupported request protocol/header size.\n");
-        result = EXIT_PROTOCOL_ERROR;
-        goto cleanup;
+    if (input->rows == UINT64_MAX) {
+        fail_message("Row count exceeds supported CSR dimensions.");
+        fclose(file);
+        return 0;
     }
 
-    header->rows = read_u64_le(raw + 16);
-    header->columns = read_u64_le(raw + 24);
-    header->nnz = read_u64_le(raw + 32);
-    header->vector_length = read_u64_le(raw + 40);
-    header->flags = read_u32_le(raw + 48);
+    size_t row_bytes = 0U;
+    size_t nnz_bytes = 0U;
+    size_t vector_bytes = 0U;
 
-    if (read_u32_le(raw + 52) != 0 || header->flags != 0) {
-        fprintf(stderr, "Unsupported flags or nonzero reserved field.\n");
-        result = EXIT_PROTOCOL_ERROR;
-        goto cleanup;
+    if (!checked_size(input->rows + 1U,
+                      sizeof(uint64_t), &row_bytes) ||
+        !checked_size(input->nnz,
+                      sizeof(uint64_t), &nnz_bytes) ||
+        !checked_size(input->nnz,
+                      sizeof(double), &nnz_bytes) ||
+        !checked_size(input->columns,
+                      sizeof(double), &vector_bytes)) {
+        fail_message("Input dimensions exceed addressable memory.");
+        fclose(file);
+        return 0;
     }
 
-    if (header->vector_length != header->columns) {
-        fprintf(stderr, "Vector length must equal matrix columns.\n");
-        result = EXIT_PROTOCOL_ERROR;
-        goto cleanup;
+    input->row_ptr = malloc(row_bytes);
+    input->column_indices = malloc(
+        (size_t)input->nnz * sizeof(uint64_t));
+    input->values = malloc(
+        (size_t)input->nnz * sizeof(double));
+    input->x = malloc(vector_bytes);
+
+    if (input->row_ptr == NULL ||
+        (input->nnz > 0U &&
+         (input->column_indices == NULL || input->values == NULL)) ||
+        (input->columns > 0U && input->x == NULL)) {
+        fail_message("Memory allocation failed while loading CSR input.");
+        fclose(file);
+        free_input(input);
+        return 0;
+    }
+
+    if (!read_u64_array(file, input->row_ptr, input->rows + 1U) ||
+        !read_u64_array(file, input->column_indices, input->nnz) ||
+        !read_binary64_array(file, input->values, input->nnz) ||
+        !read_binary64_array(file, input->x, input->columns)) {
+        fail_message("Truncated or invalid CSR payload.");
+        fclose(file);
+        free_input(input);
+        return 0;
     }
 
     /*
-     * MPI Scatterv/Gatherv use int counts and displacements in this
-     * implementation. Reject larger inputs rather than truncating them.
+     * Reject trailing bytes. A request must match the declared
+     * protocol length exactly.
      */
-    if (header->rows > INT_MAX
-            || header->columns > INT_MAX
-            || header->nnz > INT_MAX) {
-        fprintf(stderr, "Input exceeds MPI int count/displacement limits.\n");
-        result = EXIT_RESOURCE_ERROR;
-        goto cleanup;
-    }
+    int trailing = fgetc(file);
 
-    if (!checked_add_u64(header->rows, 1, &part)
-            || !checked_mul_u64(part, 8, &part)
-            || !checked_add_u64(expected_size, part, &expected_size)
-            || !checked_mul_u64(header->nnz, 8, &part)
-            || !checked_add_u64(expected_size, part, &expected_size)
-            || !checked_mul_u64(header->nnz, 8, &part)
-            || !checked_add_u64(expected_size, part, &expected_size)
-            || !checked_mul_u64(header->columns, 8, &part)
-            || !checked_add_u64(expected_size, part, &expected_size)) {
-        fprintf(stderr, "Request size arithmetic overflow.\n");
-        result = EXIT_RESOURCE_ERROR;
-        goto cleanup;
-    }
-
-    if (expected_size > (uint64_t)LLONG_MAX) {
-        fprintf(stderr, "Request file exceeds supported file size.\n");
-        result = EXIT_RESOURCE_ERROR;
-        goto cleanup;
-    }
-
-    if (fseeko(file, 0, SEEK_END) != 0) {
-        fprintf(stderr, "Cannot determine request file size.\n");
-        goto cleanup;
-    }
-
-    off_t actual_size = ftello(file);
-    if (actual_size < 0 || (uint64_t)actual_size != expected_size) {
-        fprintf(stderr, "Request file size mismatch.\n");
-        result = EXIT_PROTOCOL_ERROR;
-        goto cleanup;
-    }
-
-    if (fseeko(file, REQUEST_HEADER_BYTES, SEEK_SET) != 0) {
-        fprintf(stderr, "Cannot seek to request payload.\n");
-        goto cleanup;
-    }
-
-    if (header->rows + 1 > SIZE_MAX / sizeof(uint64_t)
-            || header->nnz > SIZE_MAX / sizeof(uint64_t)
-            || header->nnz > SIZE_MAX / sizeof(double)
-            || header->columns > SIZE_MAX / sizeof(double)) {
-        fprintf(stderr, "Allocation size overflow.\n");
-        result = EXIT_RESOURCE_ERROR;
-        goto cleanup;
-    }
-
-    *row_ptr = malloc((size_t)(header->rows + 1) * sizeof(uint64_t));
-    *column_indices = malloc((size_t)header->nnz * sizeof(uint64_t));
-    *values = malloc((size_t)header->nnz * sizeof(double));
-    *x = malloc((size_t)header->columns * sizeof(double));
-
-    if (*row_ptr == NULL || (header->nnz > 0
-            && (*column_indices == NULL || *values == NULL))
-            || (header->columns > 0 && *x == NULL)) {
-        fprintf(stderr, "Request allocation failed.\n");
-        result = EXIT_RESOURCE_ERROR;
-        goto cleanup;
-    }
-
-    for (uint64_t i = 0; i <= header->rows; ++i) {
-        unsigned char b[8];
-        if (!read_exact(file, b, 8)) {
-            fprintf(stderr, "Truncated CSR row pointer array.\n");
-            result = EXIT_PROTOCOL_ERROR;
-            goto cleanup;
-        }
-        (*row_ptr)[i] = read_u64_le(b);
-    }
-
-    for (uint64_t i = 0; i < header->nnz; ++i) {
-        unsigned char b[8];
-        if (!read_exact(file, b, 8)) {
-            fprintf(stderr, "Truncated CSR column index array.\n");
-            result = EXIT_PROTOCOL_ERROR;
-            goto cleanup;
-        }
-        (*column_indices)[i] = read_u64_le(b);
-    }
-
-    for (uint64_t i = 0; i < header->nnz; ++i) {
-        unsigned char b[8];
-        uint64_t bits;
-        if (!read_exact(file, b, 8)) {
-            fprintf(stderr, "Truncated CSR value array.\n");
-            result = EXIT_PROTOCOL_ERROR;
-            goto cleanup;
-        }
-        bits = read_u64_le(b);
-        memcpy(&(*values)[i], &bits, sizeof(bits));
-        if (!isfinite((*values)[i])) {
-            fprintf(stderr, "Non-finite matrix value.\n");
-            result = EXIT_PROTOCOL_ERROR;
-            goto cleanup;
-        }
-    }
-
-    for (uint64_t i = 0; i < header->columns; ++i) {
-        unsigned char b[8];
-        uint64_t bits;
-        if (!read_exact(file, b, 8)) {
-            fprintf(stderr, "Truncated input vector.\n");
-            result = EXIT_PROTOCOL_ERROR;
-            goto cleanup;
-        }
-        bits = read_u64_le(b);
-        memcpy(&(*x)[i], &bits, sizeof(bits));
-        if (!isfinite((*x)[i])) {
-            fprintf(stderr, "Non-finite input vector value.\n");
-            result = EXIT_PROTOCOL_ERROR;
-            goto cleanup;
-        }
-    }
-
-    if ((*row_ptr)[0] != 0 || (*row_ptr)[header->rows] != header->nnz) {
-        fprintf(stderr, "Invalid CSR row pointer endpoints.\n");
-        result = EXIT_PROTOCOL_ERROR;
-        goto cleanup;
-    }
-
-    for (uint64_t i = 0; i < header->rows; ++i) {
-        if ((*row_ptr)[i] > (*row_ptr)[i + 1]) {
-            fprintf(stderr, "CSR row pointers are not monotonic.\n");
-            result = EXIT_PROTOCOL_ERROR;
-            goto cleanup;
-        }
-    }
-
-    for (uint64_t i = 0; i < header->nnz; ++i) {
-        if ((*column_indices)[i] >= header->columns) {
-            fprintf(stderr, "CSR column index out of range.\n");
-            result = EXIT_PROTOCOL_ERROR;
-            goto cleanup;
-        }
-    }
-
-    result = 0;
-
-cleanup:
-    if (file != NULL) {
+    if (trailing != EOF || ferror(file)) {
+        fail_message("Unexpected trailing bytes in request file.");
         fclose(file);
-    }
-
-    if (result != 0) {
-        free(*row_ptr);
-        free(*column_indices);
-        free(*values);
-        free(*x);
-        *row_ptr = NULL;
-        *column_indices = NULL;
-        *values = NULL;
-        *x = NULL;
-    }
-
-    return result;
-}
-
-static int write_response(
-    const char *path,
-    uint64_t rows,
-    const double *y
-) {
-    FILE *file = fopen(path, "wb");
-    unsigned char header[RESPONSE_HEADER_BYTES];
-
-    if (file == NULL) {
-        fprintf(stderr, "Cannot create response file: %s\n", path);
-        return EXIT_OUTPUT_ERROR;
-    }
-
-    memset(header, 0, sizeof(header));
-    memcpy(header, RESPONSE_MAGIC, 8);
-    write_u32_le(header + 8, PROTOCOL_VERSION);
-    write_u32_le(header + 12, RESPONSE_HEADER_BYTES);
-    write_u64_le(header + 16, rows);
-    write_u32_le(header + 24, 0);
-    write_u32_le(header + 28, 0);
-
-    if (!write_exact(file, header, sizeof(header))) {
-        fclose(file);
-        return EXIT_OUTPUT_ERROR;
-    }
-
-    for (uint64_t i = 0; i < rows; ++i) {
-        uint64_t bits;
-        unsigned char b[8];
-
-        if (!isfinite(y[i])) {
-            fprintf(stderr, "Non-finite output value at row %" PRIu64 ".\n", i);
-            fclose(file);
-            return EXIT_OUTPUT_ERROR;
-        }
-
-        memcpy(&bits, &y[i], sizeof(bits));
-        write_u64_le(b, bits);
-
-        if (!write_exact(file, b, sizeof(b))) {
-            fclose(file);
-            return EXIT_OUTPUT_ERROR;
-        }
-    }
-
-    if (fflush(file) != 0) {
-        fclose(file);
-        return EXIT_OUTPUT_ERROR;
+        free_input(input);
+        return 0;
     }
 
     if (fclose(file) != 0) {
-        return EXIT_OUTPUT_ERROR;
+        fail_message("Could not close request file cleanly.");
+        free_input(input);
+        return 0;
     }
 
-    return 0;
+    if (!validate_csr(input)) {
+        fail_message("CSR structure or numeric data is invalid.");
+        free_input(input);
+        return 0;
+    }
+
+    return 1;
 }
 
-static void free_all(
-    uint64_t *row_ptr,
-    uint64_t *columns,
-    double *values,
-    double *x,
-    double *local_y,
-    double *global_y,
-    int *row_counts,
-    int *row_displs,
-    int *nnz_counts,
-    int *nnz_displs,
-    uint64_t *local_row_ptr,
-    uint64_t *local_columns,
-    double *local_values
-) {
-    free(row_ptr);
-    free(columns);
-    free(values);
-    free(x);
-    free(local_y);
-    free(global_y);
-    free(row_counts);
-    free(row_displs);
-    free(nnz_counts);
-    free(nnz_displs);
-    free(local_row_ptr);
-    free(local_columns);
-    free(local_values);
+static int u64_to_int(uint64_t value, int *result) {
+    if (value > (uint64_t)INT_MAX) {
+        return 0;
+    }
+
+    *result = (int)value;
+    return 1;
+}
+
+static int write_output(const char *path,
+                        uint64_t rows,
+                        const double *y) {
+    FILE *file = fopen(path, "wb");
+
+    if (file == NULL) {
+        fail_message("Cannot create MPI response file.");
+        return 0;
+    }
+
+    unsigned char header[OUTPUT_HEADER_BYTES];
+
+    memcpy(header, OUTPUT_MAGIC, 8U);
+    encode_u64_le(header + 8U, rows);
+    encode_u64_le(header + 16U, 0U);
+    encode_u64_le(header + 24U, 0U);
+
+    if (!write_exact(file, header, sizeof(header))) {
+        fail_message("Could not write response header.");
+        fclose(file);
+        return 0;
+    }
+
+    size_t output_bytes = 0U;
+
+    if (!checked_size(rows, sizeof(double), &output_bytes)) {
+        fail_message("Output dimensions exceed addressable memory.");
+        fclose(file);
+        return 0;
+    }
+
+    if (!write_exact(file, y, output_bytes)) {
+        fail_message("Could not write response vector.");
+        fclose(file);
+        return 0;
+    }
+
+    if (fflush(file) != 0 || fclose(file) != 0) {
+        fail_message("Could not finalize response file.");
+        return 0;
+    }
+
+    return 1;
+}
+
+static void abort_mpi(int rank, const char *message, int error_code) {
+    fprintf(stderr, "P3_MPI_ERROR rank=%d: %s\n", rank, message);
+    MPI_Abort(MPI_COMM_WORLD, error_code);
 }
 
 int main(int argc, char **argv) {
+    int provided_thread_level = 0;
+
+    if (MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED,
+                        &provided_thread_level) != MPI_SUCCESS) {
+        return EXIT_FAILURE;
+    }
+
     int rank = 0;
     int process_count = 0;
-    int mpi_initialized = 0;
-    int exit_code = 0;
-
-    RequestHeader request = {0, 0, 0, 0, 0};
-
-    uint64_t *global_row_ptr = NULL;
-    uint64_t *global_columns = NULL;
-    double *global_values = NULL;
-    double *x = NULL;
-    double *global_y = NULL;
-    double *local_y = NULL;
-
-    int *row_counts = NULL;
-    int *row_displs = NULL;
-    int *nnz_counts = NULL;
-    int *nnz_displs = NULL;
-
-    uint64_t *local_row_ptr = NULL;
-    uint64_t *local_columns = NULL;
-    double *local_values = NULL;
-
-    uint64_t local_rows = 0;
-    uint64_t local_nnz = 0;
-    uint64_t row_start = 0;
-    uint64_t nnz_start = 0;
-
-    double t_start = 0.0;
-    double t_local_start = 0.0;
-    double local_spmv_seconds = 0.0;
-    double max_spmv_seconds = 0.0;
-
-    const char *request_path =
-            argc > 1 ? argv[1] : "request.p3mpi";
-    const char *response_path =
-            argc > 2 ? argv[2] : "response.p3mpi";
-
-    if (MPI_Init(&argc, &argv) != MPI_SUCCESS) {
-        fprintf(stderr, "MPI_Init failed.\n");
-        return EXIT_MPI_ERROR;
-    }
-    mpi_initialized = 1;
 
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &process_count);
 
-    t_start = MPI_Wtime();
+    if (provided_thread_level < MPI_THREAD_FUNNELED) {
+        abort_mpi(rank, "MPI thread support is insufficient.", 2);
+    }
 
-    int root_status = 0;
+    if (!host_is_little_endian()) {
+        abort_mpi(rank,
+                  "This protocol implementation requires little-endian hosts.",
+                  3);
+    }
+
+    if (argc != 3) {
+        if (rank == 0) {
+            fprintf(stderr,
+                    "Usage: %s request.p3mpi response.p3mpi\n",
+                    argv[0]);
+        }
+
+        MPI_Finalize();
+        return EXIT_FAILURE;
+    }
+
+    CsrInput input;
+    memset(&input, 0, sizeof(input));
+
+    int root_status = 1;
 
     if (rank == 0) {
-        root_status = read_request(
-                request_path,
-                &request,
-                &global_row_ptr,
-                &global_columns,
-                &global_values,
-                &x);
+        root_status = load_input(argv[1], &input);
     }
 
     MPI_Bcast(&root_status, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
-    if (root_status != 0) {
-        exit_code = root_status;
-        goto finalize;
+    if (root_status != 1) {
+        free_input(&input);
+        MPI_Finalize();
+        return EXIT_FAILURE;
     }
 
-    uint64_t dimensions[3] = {
-        request.rows,
-        request.columns,
-        request.nnz
-    };
+    uint64_t metadata[4] = {0U, 0U, 0U, 0U};
 
-    MPI_Bcast(dimensions, 3, MPI_UINT64_T, 0, MPI_COMM_WORLD);
-
-    request.rows = dimensions[0];
-    request.columns = dimensions[1];
-    request.nnz = dimensions[2];
-
-    if (request.rows > INT_MAX
-            || request.columns > INT_MAX
-            || request.nnz > INT_MAX) {
-        exit_code = EXIT_RESOURCE_ERROR;
-        goto finalize;
+    if (rank == 0) {
+        metadata[0] = input.rows;
+        metadata[1] = input.columns;
+        metadata[2] = input.nnz;
+        metadata[3] = input.vector_length;
     }
 
-    row_counts = calloc((size_t)process_count, sizeof(int));
-    row_displs = calloc((size_t)process_count, sizeof(int));
-    nnz_counts = calloc((size_t)process_count, sizeof(int));
-    nnz_displs = calloc((size_t)process_count, sizeof(int));
+    MPI_Bcast(metadata, 4, MPI_UINT64_T, 0, MPI_COMM_WORLD);
 
-    if (row_counts == NULL || row_displs == NULL
-            || nnz_counts == NULL || nnz_displs == NULL) {
-        exit_code = EXIT_RESOURCE_ERROR;
-        goto finalize;
+    const uint64_t rows = metadata[0];
+    const uint64_t columns = metadata[1];
+    const uint64_t nnz = metadata[2];
+
+    /*
+     * This backend intentionally uses MPI_Scatterv/Gatherv with
+     * int counts. Reject unsupported dimensions before allocating
+     * partition metadata or starting data movement.
+     */
+    int global_rows_int = 0;
+    int global_nnz_int = 0;
+    int global_columns_int = 0;
+
+    int dimensions_supported =
+        u64_to_int(rows, &global_rows_int) &&
+        u64_to_int(nnz, &global_nnz_int) &&
+        u64_to_int(columns, &global_columns_int);
+
+    MPI_Bcast(&dimensions_supported, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+    if (!dimensions_supported) {
+        if (rank == 0) {
+            fail_message(
+                "MPI int-count limit exceeded; large-count MPI is not implemented.");
+        }
+
+        free_input(&input);
+        MPI_Finalize();
+        return EXIT_FAILURE;
+    }
+
+    int *row_counts = calloc((size_t)process_count, sizeof(int));
+    int *row_displacements = calloc((size_t)process_count, sizeof(int));
+    int *nnz_counts = calloc((size_t)process_count, sizeof(int));
+    int *nnz_displacements = calloc((size_t)process_count, sizeof(int));
+
+    if (row_counts == NULL || row_displacements == NULL ||
+        nnz_counts == NULL || nnz_displacements == NULL) {
+        abort_mpi(rank, "Partition metadata allocation failed.", 4);
     }
 
     /*
-     * Deterministic contiguous row partition.
-     * The initial backend balances row counts. A later version may
-     * introduce NNZ-balanced boundaries without changing the protocol.
+     * Root creates a packed array of rebased local row pointers.
+     * Each rank receives local_rows + 1 pointers.
      */
-    uint64_t base_rows = request.rows / (uint64_t)process_count;
-    uint64_t extra_rows = request.rows % (uint64_t)process_count;
-    uint64_t current_row = 0;
+    uint64_t *packed_row_ptr = NULL;
+    uint64_t *packed_columns = NULL;
+    double *packed_values = NULL;
+
+    int *local_row_counts = calloc((size_t)process_count, sizeof(int));
+    int *local_nnz_counts = calloc((size_t)process_count, sizeof(int));
+
+    if (local_row_counts == NULL || local_nnz_counts == NULL) {
+        abort_mpi(rank, "Local count allocation failed.", 5);
+    }
+
+    uint64_t packed_row_pointer_count = 0U;
 
     if (rank == 0) {
         for (int r = 0; r < process_count; ++r) {
-            uint64_t count = base_rows + ((uint64_t)r < extra_rows ? 1 : 0);
-            uint64_t start = current_row;
-            uint64_t end = start + count;
+            const uint64_t row_start =
+                (rows * (uint64_t)r) / (uint64_t)process_count;
+            const uint64_t row_end =
+                (rows * (uint64_t)(r + 1)) / (uint64_t)process_count;
 
-            uint64_t start_nnz = global_row_ptr[start];
-            uint64_t end_nnz = global_row_ptr[end];
+            const uint64_t nnz_start = input.row_ptr[row_start];
+            const uint64_t nnz_end = input.row_ptr[row_end];
 
-            uint64_t local_nnz_for_rank = end_nnz - start_nnz;
+            const uint64_t local_rows = row_end - row_start;
+            const uint64_t local_nnz = nnz_end - nnz_start;
 
-            if (count > INT_MAX || local_nnz_for_rank > INT_MAX
-                    || start > INT_MAX || start_nnz > INT_MAX) {
-                exit_code = EXIT_RESOURCE_ERROR;
+            int local_rows_int = 0;
+            int local_nnz_int = 0;
+            int row_disp_int = 0;
+            int nnz_disp_int = 0;
+            int row_ptr_count_int = 0;
+
+            if (!u64_to_int(local_rows, &local_rows_int) ||
+                !u64_to_int(local_nnz, &local_nnz_int) ||
+                !u64_to_int(packed_row_pointer_count, &row_disp_int) ||
+                !u64_to_int(nnz_start, &nnz_disp_int) ||
+                !u64_to_int(local_rows + 1U, &row_ptr_count_int)) {
+                abort_mpi(rank,
+                          "A partition exceeds MPI int count/displacement limits.",
+                          6);
+            }
+
+            row_counts[r] = row_ptr_count_int;
+            row_displacements[r] = row_disp_int;
+            nnz_counts[r] = local_nnz_int;
+            nnz_displacements[r] = nnz_disp_int;
+
+            local_row_counts[r] = local_rows_int;
+            local_nnz_counts[r] = local_nnz_int;
+
+            packed_row_pointer_count += local_rows + 1U;
+        }
+
+        size_t packed_row_bytes = 0U;
+
+        if (!checked_size(packed_row_pointer_count,
+                          sizeof(uint64_t), &packed_row_bytes)) {
+            abort_mpi(rank, "Packed row pointer size overflow.", 7);
+        }
+
+        packed_row_ptr = malloc(packed_row_bytes);
+        packed_columns = malloc((size_t)nnz * sizeof(uint64_t));
+        packed_values = malloc((size_t)nnz * sizeof(double));
+
+        if (packed_row_ptr == NULL ||
+            (nnz > 0U &&
+             (packed_columns == NULL || packed_values == NULL))) {
+            abort_mpi(rank, "Packed CSR allocation failed.", 8);
+        }
+
+        uint64_t write_offset = 0U;
+
+        for (int r = 0; r < process_count; ++r) {
+            const uint64_t row_start =
+                (rows * (uint64_t)r) / (uint64_t)process_count;
+            const uint64_t row_end =
+                (rows * (uint64_t)(r + 1)) / (uint64_t)process_count;
+
+            const uint64_t nnz_start = input.row_ptr[row_start];
+            const uint64_t nnz_end = input.row_ptr[row_end];
+
+            for (uint64_t i = 0U; i <= row_end - row_start; ++i) {
+                packed_row_ptr[write_offset + i] =
+                    input.row_ptr[row_start + i] - nnz_start;
+            }
+
+            write_offset += (row_end - row_start) + 1U;
+        }
+
+        if (nnz > 0U) {
+            memcpy(packed_columns, input.column_indices,
+                   (size_t)nnz * sizeof(uint64_t));
+            memcpy(packed_values, input.values,
+                   (size_t)nnz * sizeof(double));
+        }
+    }
+
+    int local_rows = 0;
+    int local_nnz = 0;
+
+    MPI_Scatter(local_row_counts, 1, MPI_INT,
+                &local_rows, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+    MPI_Scatter(local_nnz_counts, 1, MPI_INT,
+                &local_nnz, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+    uint64_t *local_row_ptr =
+        malloc(((size_t)local_rows + 1U) * sizeof(uint64_t));
+    uint64_t *local_columns =
+        malloc((size_t)local_nnz * sizeof(uint64_t));
+    double *local_values =
+        malloc((size_t)local_nnz * sizeof(double));
+    double *local_x =
+        malloc((size_t)columns * sizeof(double));
+    double *local_y =
+        calloc((size_t)local_rows, sizeof(double));
+
+    if (local_row_ptr == NULL ||
+        (local_nnz > 0 && (local_columns == NULL || local_values == NULL)) ||
+        (columns > 0U && local_x == NULL) ||
+        (local_rows > 0 && local_y == NULL)) {
+        abort_mpi(rank, "Local CSR/vector allocation failed.", 9);
+    }
+
+    MPI_Scatterv(packed_row_ptr, row_counts, row_displacements,
+                 MPI_UINT64_T,
+                 local_row_ptr, local_rows + 1, MPI_UINT64_T,
+                 0, MPI_COMM_WORLD);
+
+    MPI_Scatterv(packed_columns, nnz_counts, nnz_displacements,
+                 MPI_UINT64_T,
+                 local_columns, local_nnz, MPI_UINT64_T,
+                 0, MPI_COMM_WORLD);
+
+    MPI_Scatterv(packed_values, nnz_counts, nnz_displacements,
+                 MPI_DOUBLE,
+                 local_values, local_nnz, MPI_DOUBLE,
+                 0, MPI_COMM_WORLD);
+
+    if (rank == 0 && columns > 0U) {
+        memcpy(local_x, input.x, (size_t)columns * sizeof(double));
+    }
+
+    MPI_Bcast(local_x, global_columns_int, MPI_DOUBLE,
+              0, MPI_COMM_WORLD);
+
+    /*
+     * Local CSR SpMV.
+     * Each rank owns complete rows, so no row-level reduction
+     * or cross-rank accumulation is required.
+     */
+    int local_status = 0;
+
+    for (int row = 0; row < local_rows; ++row) {
+        double sum = 0.0;
+
+        const uint64_t begin = local_row_ptr[row];
+        const uint64_t end = local_row_ptr[row + 1];
+
+        if (begin > end || end > (uint64_t)local_nnz) {
+            local_status = 1;
+            break;
+        }
+
+        for (uint64_t k = begin; k < end; ++k) {
+            const uint64_t column = local_columns[k];
+
+            if (column >= columns) {
+                local_status = 1;
                 break;
             }
 
-            row_counts[r] = (int)count;
-            row_displs[r] = (int)start;
-            nnz_counts[r] = (int)local_nnz_for_rank;
-            nnz_displs[r] = (int)start_nnz;
-
-            current_row = end;
-        }
-    }
-
-    MPI_Bcast(&exit_code, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    if (exit_code != 0) {
-        goto finalize;
-    }
-
-    MPI_Scatter(
-            row_counts, 1, MPI_INT,
-            &local_rows, 0, MPI_BYTE,
-            0, MPI_COMM_WORLD);
-
-    /*
-     * Scatter metadata as explicit fixed-width values. This avoids
-     * assuming that uint64_t has the same layout as an MPI integer type.
-     */
-    uint64_t *metadata = NULL;
-    if (rank == 0) {
-        metadata = calloc((size_t)process_count * 2, sizeof(uint64_t));
-        if (metadata == NULL) {
-            exit_code = EXIT_RESOURCE_ERROR;
-        } else {
-            for (int r = 0; r < process_count; ++r) {
-                metadata[2 * r] = (uint64_t)row_counts[r];
-                metadata[2 * r + 1] = (uint64_t)nnz_counts[r];
-            }
-        }
-    }
-
-    MPI_Bcast(&exit_code, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    if (exit_code != 0) {
-        free(metadata);
-        goto finalize;
-    }
-
-    uint64_t my_metadata[2] = {0, 0};
-    MPI_Scatter(
-            metadata, 2, MPI_UINT64_T,
-            my_metadata, 2, MPI_UINT64_T,
-            0, MPI_COMM_WORLD);
-
-    free(metadata);
-
-    local_rows = my_metadata[0];
-    local_nnz = my_metadata[1];
-
-    row_start = 0;
-    nnz_start = 0;
-
-    if (rank == 0) {
-        row_start = (uint64_t)row_displs[0];
-        nnz_start = (uint64_t)nnz_displs[0];
-    }
-
-    uint64_t *starts = NULL;
-    if (rank == 0) {
-        starts = calloc((size_t)process_count * 2, sizeof(uint64_t));
-        if (starts == NULL) {
-            exit_code = EXIT_RESOURCE_ERROR;
-        } else {
-            for (int r = 0; r < process_count; ++r) {
-                starts[2 * r] = (uint64_t)row_displs[r];
-                starts[2 * r + 1] = (uint64_t)nnz_displs[r];
-            }
-        }
-    }
-
-    MPI_Bcast(&exit_code, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    if (exit_code != 0) {
-        free(starts);
-        goto finalize;
-    }
-
-    uint64_t my_starts[2] = {0, 0};
-    MPI_Scatter(
-            starts, 2, MPI_UINT64_T,
-            my_starts, 2, MPI_UINT64_T,
-            0, MPI_COMM_WORLD);
-
-    free(starts);
-
-    row_start = my_starts[0];
-    nnz_start = my_starts[1];
-
-    if (local_rows > SIZE_MAX / sizeof(uint64_t) - 1
-            || local_nnz > SIZE_MAX / sizeof(uint64_t)
-            || local_nnz > SIZE_MAX / sizeof(double)
-            || local_rows > SIZE_MAX / sizeof(double)) {
-        exit_code = EXIT_RESOURCE_ERROR;
-        goto finalize;
-    }
-
-    local_row_ptr = malloc((size_t)(local_rows + 1) * sizeof(uint64_t));
-    local_columns = malloc((size_t)local_nnz * sizeof(uint64_t));
-    local_values = malloc((size_t)local_nnz * sizeof(double));
-    local_y = calloc((size_t)local_rows, sizeof(double));
-
-    if (local_row_ptr == NULL
-            || (local_nnz > 0
-                && (local_columns == NULL || local_values == NULL))
-            || (local_rows > 0 && local_y == NULL)) {
-        exit_code = EXIT_RESOURCE_ERROR;
-        goto finalize;
-    }
-
-    if (rank == 0) {
-        global_y = calloc((size_t)request.rows, sizeof(double));
-        if (request.rows > 0 && global_y == NULL) {
-            exit_code = EXIT_RESOURCE_ERROR;
-        }
-    }
-
-    MPI_Bcast(&exit_code, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    if (exit_code != 0) {
-        goto finalize;
-    }
-
-    int local_row_pointer_count = (int)(local_rows + 1);
-    int *row_pointer_counts = NULL;
-    int *row_pointer_displs = NULL;
-
-    if (rank == 0) {
-        row_pointer_counts = calloc((size_t)process_count, sizeof(int));
-        row_pointer_displs = calloc((size_t)process_count, sizeof(int));
-
-        if (row_pointer_counts == NULL || row_pointer_displs == NULL) {
-            exit_code = EXIT_RESOURCE_ERROR;
-        } else {
-            for (int r = 0; r < process_count; ++r) {
-                row_pointer_counts[r] = row_counts[r] + 1;
-                row_pointer_displs[r] = row_displs[r];
-            }
-        }
-    }
-
-    MPI_Bcast(&exit_code, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    if (exit_code != 0) {
-        free(row_pointer_counts);
-        free(row_pointer_displs);
-        goto finalize;
-    }
-
-    uint64_t *adjusted_global_row_ptr = NULL;
-    if (rank == 0) {
-        adjusted_global_row_ptr =
-                malloc((size_t)(request.rows + process_count)
-                        * sizeof(uint64_t));
-
-        if (adjusted_global_row_ptr == NULL) {
-            exit_code = EXIT_RESOURCE_ERROR;
-        } else {
-            /*
-             * Each rank receives its own row-pointer segment,
-             * with the first element equal to zero.
-             */
-            uint64_t offset = 0;
-            for (int r = 0; r < process_count; ++r) {
-                uint64_t start = (uint64_t)row_displs[r];
-                uint64_t rows_for_rank = (uint64_t)row_counts[r];
-                uint64_t nnz_offset = global_row_ptr[start];
-
-                for (uint64_t j = 0; j <= rows_for_rank; ++j) {
-                    adjusted_global_row_ptr[offset++] =
-                            global_row_ptr[start + j] - nnz_offset;
-                }
-            }
-        }
-    }
-
-    MPI_Bcast(&exit_code, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    if (exit_code != 0) {
-        free(row_pointer_counts);
-        free(row_pointer_displs);
-        free(adjusted_global_row_ptr);
-        goto finalize;
-    }
-
-    /*
-     * MPI_Scatterv requires non-overlapping receive segments.
-     * Build a packed row-pointer array with one independent segment
-     * per rank, each of length local_rows + 1.
-     */
-    uint64_t *packed_row_ptr = NULL;
-    int *packed_row_counts = NULL;
-    int *packed_row_displs = NULL;
-
-    if (rank == 0) {
-        packed_row_counts = calloc((size_t)process_count, sizeof(int));
-        packed_row_displs = calloc((size_t)process_count, sizeof(int));
-
-        if (packed_row_counts == NULL || packed_row_displs == NULL) {
-            exit_code = EXIT_RESOURCE_ERROR;
-        } else {
-            uint64_t total = 0;
-            for (int r = 0; r < process_count; ++r) {
-                uint64_t count = (uint64_t)row_counts[r] + 1;
-                if (count > INT_MAX || total > INT_MAX) {
-                    exit_code = EXIT_RESOURCE_ERROR;
-                    break;
-                }
-                packed_row_counts[r] = (int)count;
-                packed_row_displs[r] = (int)total;
-                total += count;
-            }
-
-            if (exit_code == 0) {
-                packed_row_ptr = malloc((size_t)total * sizeof(uint64_t));
-                if (packed_row_ptr == NULL) {
-                    exit_code = EXIT_RESOURCE_ERROR;
-                } else {
-                    uint64_t out = 0;
-                    for (int r = 0; r < process_count; ++r) {
-                        uint64_t start = (uint64_t)row_displs[r];
-                        uint64_t count = (uint64_t)row_counts[r];
-                        uint64_t base = global_row_ptr[start];
-
-                        for (uint64_t j = 0; j <= count; ++j) {
-                            packed_row_ptr[out++] =
-                                    global_row_ptr[start + j] - base;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    MPI_Bcast(&exit_code, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    if (exit_code != 0) {
-        free(row_pointer_counts);
-        free(row_pointer_displs);
-        free(adjusted_global_row_ptr);
-        free(packed_row_ptr);
-        free(packed_row_counts);
-        free(packed_row_displs);
-        goto finalize;
-    }
-
-    MPI_Scatterv(
-            packed_row_ptr,
-            packed_row_counts,
-            packed_row_displs,
-            MPI_UINT64_T,
-            local_row_ptr,
-            local_row_pointer_count,
-            MPI_UINT64_T,
-            0,
-            MPI_COMM_WORLD);
-
-    MPI_Scatterv(
-            global_columns,
-            nnz_counts,
-            nnz_displs,
-            MPI_UINT64_T,
-            local_columns,
-            (int)local_nnz,
-            MPI_UINT64_T,
-            0,
-            MPI_COMM_WORLD);
-
-    MPI_Scatterv(
-            global_values,
-            nnz_counts,
-            nnz_displs,
-            MPI_DOUBLE,
-            local_values,
-            (int)local_nnz,
-            MPI_DOUBLE,
-            0,
-            MPI_COMM_WORLD);
-
-    if (request.columns > INT_MAX) {
-        exit_code = EXIT_RESOURCE_ERROR;
-        goto finalize;
-    }
-
-    MPI_Bcast(
-            x,
-            (int)request.columns,
-            MPI_DOUBLE,
-            0,
-            MPI_COMM_WORLD);
-
-    t_local_start = MPI_Wtime();
-
-    for (uint64_t row = 0; row < local_rows; ++row) {
-        double sum = 0.0;
-
-        for (uint64_t k = local_row_ptr[row];
-             k < local_row_ptr[row + 1];
-             ++k) {
-            uint64_t column = local_columns[k];
-            sum += local_values[k] * x[column];
+            sum += local_values[k] * local_x[column];
         }
 
-        if (!isfinite(sum)) {
-            exit_code = EXIT_PROTOCOL_ERROR;
+        if (local_status != 0 || !isfinite(sum)) {
+            local_status = 1;
             break;
         }
 
         local_y[row] = sum;
     }
 
-    local_spmv_seconds = MPI_Wtime() - t_local_start;
+    int global_status = 0;
 
-    MPI_Allreduce(
-            &local_spmv_seconds,
-            &max_spmv_seconds,
-            1,
-            MPI_DOUBLE,
-            MPI_MAX,
-            MPI_COMM_WORLD);
+    MPI_Allreduce(&local_status, &global_status, 1,
+                  MPI_INT, MPI_MAX, MPI_COMM_WORLD);
 
-    MPI_Bcast(&exit_code, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    if (exit_code != 0) {
-        goto finalize;
+    if (global_status != 0) {
+        abort_mpi(rank, "Local SpMV validation failed.", 10);
     }
 
-    MPI_Gatherv(
-            local_y,
-            (int)local_rows,
-            MPI_DOUBLE,
-            global_y,
-            row_counts,
-            row_displs,
-            MPI_DOUBLE,
-            0,
-            MPI_COMM_WORLD);
+    int *gather_counts = NULL;
+    int *gather_displacements = NULL;
+    double *global_y = NULL;
 
     if (rank == 0) {
-        exit_code = write_response(
-                response_path,
-                request.rows,
-                global_y);
+        gather_counts = calloc((size_t)process_count, sizeof(int));
+        gather_displacements = calloc((size_t)process_count, sizeof(int));
+        global_y = malloc((size_t)rows * sizeof(double));
 
-        fprintf(
-                stderr,
-                "P3_MPI ranks=%d rows=%" PRIu64
-                " nnz=%" PRIu64
-                " local_spmv_max_seconds=%.9f"
-                " end_to_end_seconds=%.9f\n",
-                process_count,
-                request.rows,
-                request.nnz,
-                max_spmv_seconds,
-                MPI_Wtime() - t_start);
+        if (gather_counts == NULL ||
+            gather_displacements == NULL ||
+            (rows > 0U && global_y == NULL)) {
+            abort_mpi(rank, "Gather metadata allocation failed.", 11);
+        }
+
+        for (int r = 0; r < process_count; ++r) {
+            const uint64_t row_start =
+                (rows * (uint64_t)r) / (uint64_t)process_count;
+            const uint64_t row_end =
+                (rows * (uint64_t)(r + 1)) / (uint64_t)process_count;
+
+            if (!u64_to_int(row_end - row_start, &gather_counts[r]) ||
+                !u64_to_int(row_start, &gather_displacements[r])) {
+                abort_mpi(rank, "Gather count exceeds MPI int limits.", 12);
+            }
+        }
     }
 
-    MPI_Bcast(&exit_code, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    MPI_Gatherv(local_y, local_rows, MPI_DOUBLE,
+                global_y, gather_counts, gather_displacements,
+                MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
-    free(row_pointer_counts);
-    free(row_pointer_displs);
-    free(adjusted_global_row_ptr);
+    int output_status = 1;
+
+    if (rank == 0) {
+        output_status = write_output(argv[2], rows, global_y);
+    }
+
+    MPI_Bcast(&output_status, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+    free(row_counts);
+    free(row_displacements);
+    free(nnz_counts);
+    free(nnz_displacements);
+    free(local_row_counts);
+    free(local_nnz_counts);
+
     free(packed_row_ptr);
-    free(packed_row_counts);
-    free(packed_row_displs);
+    free(packed_columns);
+    free(packed_values);
 
-finalize:
-    free_all(
-            global_row_ptr,
-            global_columns,
-            global_values,
-            x,
-            local_y,
-            global_y,
-            row_counts,
-            row_displs,
-            nnz_counts,
-            nnz_displs,
-            local_row_ptr,
-            local_columns,
-            local_values);
+    free(local_row_ptr);
+    free(local_columns);
+    free(local_values);
+    free(local_x);
+    free(local_y);
 
-    if (mpi_initialized) {
-        MPI_Finalize();
-    }
+    free(gather_counts);
+    free(gather_displacements);
+    free(global_y);
 
-    return exit_code;
+    free_input(&input);
+
+    MPI_Finalize();
+
+    return output_status == 1 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
