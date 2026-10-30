@@ -2,20 +2,15 @@
 """Independent, fail-closed acceptance verifier for the complete P3 package.
 
 Acceptance requires:
-- all mandatory pre-integrity p3_validation stages to be successful;
-- canonical V2 benchmark validation for the selected RUN_ID;
-- canonical V3 validation with a complete LEGACY_96 or AB_192 matrix;
-- consistent RUN_ID, workflow_run_id and source_commit provenance;
-- a PASS evidence-consistency report;
+- all mandatory p3_validation stages to succeed;
+- canonical V2 and V3 benchmark validation;
+- consistent RUN_ID, source_commit and workflow_run_id provenance;
+- PASS evidence-consistency report;
+- independently verified MPI build, execution and numerical evidence;
 - independently reconstructed MANIFEST.txt and SHA256SUMS.txt.
 
-The global MANIFEST.txt and SHA256SUMS.txt files are excluded from their
-own inventory to avoid self-referential checksums.
-
-Integrity generation and final verification are performed directly by this
-verifier and the p3_validation workflow. They are deliberately not required
-as entries in ci-outcomes.json, because that file is created before those
-integrity stages execute.
+MPI evidence is mandatory. A missing, skipped, failed, incomplete or
+incorrectly attributed MPI execution rejects the package.
 """
 
 from __future__ import annotations
@@ -52,6 +47,9 @@ EXCLUDED_DIRS = {
 
 EXCLUDED_SUFFIXES = {".pyc", ".pyo"}
 
+MPI_REPORT = "P3/reports/mpi-validation.json"
+MPI_SOURCE = "P3/hpc/mpi/native/p3_mpi_spmv.c"
+
 REQUIRED_PACKAGE_FILES = (
     "P3/pom.xml",
     "P3/results/run_benchmark.sh",
@@ -69,25 +67,13 @@ REQUIRED_PACKAGE_FILES = (
     "P3/reports/environment.json",
     "P3/reports/benchmark-v3-validation.json",
     "P3/reports/evidence-consistency.json",
+    MPI_SOURCE,
+    MPI_REPORT,
 )
 
-# Canonical stage identifiers recorded in ci-outcomes.json.
-#
-# These are stages that must have completed successfully before the
-# integrity files are generated and before this final verifier runs.
-#
-# The following stages are intentionally NOT listed here:
-# - p3_integrity_generate
-# - p3_integrity_verify
-# - p3_final_verification
-#
-# They cannot be mandatory entries in ci-outcomes.json because that file
-# is produced before the integrity generation and final verification steps.
-#
-# Their actual operations remain mandatory:
-# - verify_global_integrity() independently checks MANIFEST.txt and
-#   SHA256SUMS.txt;
-# - verify_package() invokes verify_global_integrity() before acceptance.
+# These identifiers must be present in ci-outcomes.json and have status
+# exactly "success". The workflow integration must create this stage only
+# after native MPI build, multi-process execution and numerical validation.
 REQUIRED_CI_STAGES = (
     "p3_environment",
     "p3_required_files",
@@ -104,6 +90,7 @@ REQUIRED_CI_STAGES = (
     "p3_benchmark_v3_validation",
     "p3_benchmark_summary",
     "p3_evidence_consistency",
+    "p3_mpi_validation",
     "p3_artifact_upload",
 )
 
@@ -149,12 +136,35 @@ def safe_relative_path(value: str) -> bool:
     )
 
 
-def independent_inventory(root: Path) -> list[str]:
-    """Return sorted repository-relative P3 file paths.
+def safe_p3_file(root: Path, relative: str, label: str) -> Path:
+    """Resolve a safe P3-relative regular file without following symlinks."""
+    require(
+        safe_relative_path(relative),
+        f"{label} has an unsafe P3-relative path: {relative!r}",
+    )
 
-    Each inventory item is a path string, not a dictionary.
-    Global integrity files are excluded to prevent self-reference.
-    """
+    target = Path(root).resolve() / PurePosixPath(relative)
+    p3_root = (Path(root).resolve() / "P3").resolve()
+
+    require(
+        target.resolve(strict=False).is_relative_to(p3_root),
+        f"{label} resolves outside P3: {relative}",
+    )
+
+    current = Path(root).resolve()
+    for part in PurePosixPath(relative).parts:
+        current = current / part
+        require(
+            not current.is_symlink(),
+            f"{label} contains a symlink: {relative}",
+        )
+
+    regular_file(target, label)
+    return target
+
+
+def independent_inventory(root: Path) -> list[str]:
+    """Reconstruct the sorted P3 inventory, excluding global checksums."""
     root = Path(root).resolve()
     p3_root = root / "P3"
 
@@ -184,29 +194,23 @@ def independent_inventory(root: Path) -> list[str]:
 
             if name in GLOBAL_INTEGRITY_NAMES:
                 continue
-
             if path.suffix.lower() in EXCLUDED_SUFFIXES:
                 continue
-
             if path.is_symlink() or not path.is_file():
                 continue
 
             relative = path.relative_to(root).as_posix()
-
             require(
                 safe_relative_path(relative),
                 f"Unsafe filesystem path: {relative}",
             )
-
             found.append(relative)
 
     found.sort()
-
     require(
         len(found) == len(set(found)),
         "Duplicate paths in independently reconstructed inventory",
     )
-
     return found
 
 
@@ -216,33 +220,21 @@ def parse_manifest(path: Path) -> list[str]:
     try:
         content = path.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as exc:
-        raise VerificationError(
-            f"Cannot read MANIFEST.txt: {exc}"
-        ) from exc
+        raise VerificationError(f"Cannot read MANIFEST.txt: {exc}") from exc
 
-    require(
-        content.endswith("\n"),
-        "MANIFEST.txt must end with a newline",
-    )
+    require(content.endswith("\n"), "MANIFEST.txt must end with a newline")
 
     entries = content.splitlines()
-
     require(bool(entries), "MANIFEST.txt is empty")
     require(all(entries), "MANIFEST.txt contains empty entries")
-    require(
-        entries == sorted(entries),
-        "MANIFEST.txt entries are not sorted",
-    )
+    require(entries == sorted(entries), "MANIFEST.txt entries are not sorted")
     require(
         len(entries) == len(set(entries)),
         "MANIFEST.txt contains duplicate paths",
     )
 
     for entry in entries:
-        require(
-            safe_relative_path(entry),
-            f"Unsafe manifest path: {entry}",
-        )
+        require(safe_relative_path(entry), f"Unsafe manifest path: {entry}")
         require(
             PurePosixPath(entry).name not in GLOBAL_INTEGRITY_NAMES,
             f"MANIFEST self-reference detected: {entry}",
@@ -269,19 +261,11 @@ def parse_checksums(path: Path) -> dict[str, str]:
     result: dict[str, str] = {}
 
     for number, line in enumerate(content.splitlines(), start=1):
-        match = re.fullmatch(
-            r"([0-9a-f]{64})  ([^\r\n]+)",
-            line,
-        )
-
-        require(
-            match is not None,
-            f"Malformed SHA256SUMS.txt line {number}",
-        )
-
+        match = re.fullmatch(r"([0-9a-f]{64})  ([^\r\n]+)", line)
+        require(match is not None, f"Malformed SHA256SUMS.txt line {number}")
         assert match is not None
-        digest, relative = match.groups()
 
+        digest, relative = match.groups()
         require(
             HEX64_RE.fullmatch(digest) is not None,
             f"Invalid SHA-256 digest on line {number}",
@@ -294,14 +278,12 @@ def parse_checksums(path: Path) -> dict[str, str]:
             relative not in result,
             f"Duplicate checksum path: {relative}",
         )
-
         result[relative] = digest
 
     require(
         list(result) == sorted(result),
         "SHA256SUMS.txt entries are not sorted",
     )
-
     return result
 
 
@@ -318,20 +300,15 @@ def verify_global_integrity(root: Path) -> dict[str, int]:
         manifest == actual,
         "MANIFEST.txt differs from independently reconstructed inventory",
     )
-
     require(
         set(checksums) == set(manifest),
         "MANIFEST.txt and SHA256SUMS.txt path sets differ",
     )
 
     for relative in manifest:
-        target = root / PurePosixPath(relative)
-        regular_file(target, f"Manifest target {relative}")
-
-        actual_digest = sha256_file(target)
-
+        target = safe_p3_file(root, relative, f"Manifest target {relative}")
         require(
-            actual_digest == checksums[relative],
+            sha256_file(target) == checksums[relative],
             f"SHA-256 mismatch: {relative}",
         )
 
@@ -351,11 +328,7 @@ def load_json(path: Path, label: str) -> dict[str, Any]:
             f"{label} contains invalid JSON: {exc}"
         ) from exc
 
-    require(
-        isinstance(value, dict),
-        f"{label} must contain a JSON object",
-    )
-
+    require(isinstance(value, dict), f"{label} must contain a JSON object")
     return value
 
 
@@ -368,17 +341,23 @@ def finite_number(value: Any, label: str) -> float:
     try:
         result = float(value)
     except (TypeError, ValueError, OverflowError) as exc:
-        raise VerificationError(
-            f"{label} must be numeric"
-        ) from exc
+        raise VerificationError(f"{label} must be numeric") from exc
 
     require(math.isfinite(result), f"{label} must be finite")
     return result
 
 
+def positive_integer(value: Any, label: str, minimum: int = 1) -> int:
+    require(
+        isinstance(value, int) and not isinstance(value, bool),
+        f"{label} must be an integer",
+    )
+    require(value >= minimum, f"{label} must be >= {minimum}")
+    return value
+
+
 def load_module(path: Path, module_name: str):
     regular_file(path, f"Authoritative validator {path}")
-
     spec = importlib.util.spec_from_file_location(module_name, path)
 
     require(
@@ -389,7 +368,6 @@ def load_module(path: Path, module_name: str):
     module = importlib.util.module_from_spec(spec)
     sys.modules[module_name] = module
     spec.loader.exec_module(module)
-
     return module
 
 
@@ -423,22 +401,12 @@ def verify_ci_outcomes(
         )
 
     stages = outcomes.get("stages")
+    require(isinstance(stages, dict), "CI outcomes must contain a stages object")
 
-    require(
-        isinstance(stages, dict),
-        "CI outcomes must contain a stages JSON object",
-    )
-
-    missing = [
-        stage
-        for stage in REQUIRED_CI_STAGES
-        if stage not in stages
-    ]
-
+    missing = [stage for stage in REQUIRED_CI_STAGES if stage not in stages]
     require(
         not missing,
-        "Missing mandatory p3_validation stages: "
-        + ", ".join(missing),
+        "Missing mandatory p3_validation stages: " + ", ".join(missing),
     )
 
     failed = {
@@ -446,34 +414,250 @@ def verify_ci_outcomes(
         for stage in REQUIRED_CI_STAGES
         if stages.get(stage) != "success"
     }
-
     require(
         not failed,
         "Mandatory p3_validation stages did not succeed: "
         + json.dumps(failed, sort_keys=True),
     )
 
-    return {
-        stage: "success"
-        for stage in REQUIRED_CI_STAGES
-    }
+    return {stage: "success" for stage in REQUIRED_CI_STAGES}
 
 
 def verify_required_files(root: Path) -> None:
     root = Path(root).resolve()
+    missing = []
 
-    missing = [
-        relative
-        for relative in REQUIRED_PACKAGE_FILES
-        if not (root / relative).is_file()
-        or (root / relative).is_symlink()
-    ]
+    for relative in REQUIRED_PACKAGE_FILES:
+        target = root / relative
+        if target.is_symlink() or not target.is_file():
+            missing.append(relative)
 
     require(
         not missing,
-        "Required P3 package files missing or unsafe: "
-        + ", ".join(missing),
+        "Required P3 package files missing or unsafe: " + ", ".join(missing),
     )
+
+
+def verify_mpi(
+    root: Path,
+    run_id: str,
+    source_commit: str,
+    workflow_run_id: str | None,
+) -> dict[str, Any]:
+    """Verify native MPI build, real multi-process execution and provenance.
+
+    Required report schema: qflpn-p3-mpi-validation-v1
+
+    Numerical acceptance uses:
+        max_absolute_error <= absolute_tolerance
+                                 + relative_tolerance
+                                   * max_reference_magnitude
+
+    The verifier independently checks the executable SHA-256 and the
+    existence of all referenced source, executable and log files.
+    """
+    root = Path(root).resolve()
+    report_path = safe_p3_file(root, MPI_REPORT, "MPI validation report")
+    report = load_json(report_path, "MPI validation report")
+
+    require(
+        report.get("schema") == "qflpn-p3-mpi-validation-v1",
+        "MPI validation schema mismatch",
+    )
+    require(
+        report.get("validation") == "PASS",
+        "MPI validation report is not PASS",
+    )
+    require(report.get("run_id") == run_id, "MPI RUN_ID mismatch")
+    require(
+        report.get("source_commit") == source_commit,
+        "MPI source_commit mismatch",
+    )
+
+    if workflow_run_id is not None:
+        require(
+            str(report.get("workflow_run_id")) == str(workflow_run_id),
+            "MPI workflow_run_id mismatch",
+        )
+
+    require(
+        report.get("repository") == "adrianroman1/QFLPN-Quantum-Petri-Nets",
+        "MPI repository identity mismatch",
+    )
+
+    build = report.get("native_build")
+    require(isinstance(build, dict), "MPI native_build object is missing")
+    require(build.get("status") == "PASS", "MPI native build did not PASS")
+    require(
+        build.get("compiler") == "mpicc",
+        "MPI native compiler must be mpicc",
+    )
+    require(
+        isinstance(build.get("compiler_version"), str)
+        and bool(build["compiler_version"].strip()),
+        "MPI compiler_version is missing",
+    )
+    require(
+        build.get("source_file") == MPI_SOURCE,
+        "MPI native source_file mismatch",
+    )
+    require(
+        build.get("exit_code") == 0
+        and not isinstance(build.get("exit_code"), bool),
+        "MPI native build exit_code must be zero",
+    )
+
+    source_path = safe_p3_file(root, MPI_SOURCE, "MPI native source")
+    executable_relative = build.get("executable")
+    executable_path = safe_p3_file(
+        root,
+        executable_relative,
+        "MPI native executable",
+    )
+
+    executable_digest = build.get("executable_sha256")
+    require(
+        isinstance(executable_digest, str)
+        and HEX64_RE.fullmatch(executable_digest) is not None,
+        "MPI executable_sha256 is invalid",
+    )
+    require(
+        sha256_file(executable_path) == executable_digest,
+        "MPI executable SHA-256 mismatch",
+    )
+
+    execution = report.get("execution")
+    require(isinstance(execution, dict), "MPI execution object is missing")
+    require(
+        execution.get("status") == "PASS",
+        "MPI execution status is not PASS",
+    )
+    require(
+        isinstance(execution.get("launcher"), str)
+        and bool(execution["launcher"].strip()),
+        "MPI launcher is missing",
+    )
+    process_count = positive_integer(
+        execution.get("process_count"),
+        "MPI process_count",
+        minimum=2,
+    )
+    require(
+        execution.get("exit_code") == 0
+        and not isinstance(execution.get("exit_code"), bool),
+        "MPI execution exit_code must be zero",
+    )
+    require(
+        execution.get("skipped") is False,
+        "MPI execution was skipped",
+    )
+    require(
+        execution.get("timeout") is False,
+        "MPI execution timed out",
+    )
+
+    stdout_relative = execution.get("stdout_file")
+    stderr_relative = execution.get("stderr_file")
+    stdout_path = safe_p3_file(root, stdout_relative, "MPI stdout log")
+    stderr_path = safe_p3_file(root, stderr_relative, "MPI stderr log")
+
+    numerical = report.get("numerical_validation")
+    require(
+        isinstance(numerical, dict),
+        "MPI numerical_validation object is missing",
+    )
+    require(
+        numerical.get("status") == "PASS",
+        "MPI numerical validation did not PASS",
+    )
+    require(
+        numerical.get("reference") == "sequential_csr",
+        "MPI numerical reference must be sequential_csr",
+    )
+    require(
+        numerical.get("comparison") == "PASS",
+        "MPI numerical comparison did not PASS",
+    )
+
+    rows = positive_integer(numerical.get("rows"), "MPI rows")
+    columns = positive_integer(numerical.get("columns"), "MPI columns")
+    nnz = positive_integer(numerical.get("nnz"), "MPI nnz", minimum=0)
+
+    max_abs = finite_number(
+        numerical.get("max_absolute_error"),
+        "MPI max_absolute_error",
+    )
+    max_rel = finite_number(
+        numerical.get("max_relative_error"),
+        "MPI max_relative_error",
+    )
+    abs_tol = finite_number(
+        numerical.get("absolute_tolerance"),
+        "MPI absolute_tolerance",
+    )
+    rel_tol = finite_number(
+        numerical.get("relative_tolerance"),
+        "MPI relative_tolerance",
+    )
+    reference_magnitude = finite_number(
+        numerical.get("max_reference_magnitude"),
+        "MPI max_reference_magnitude",
+    )
+
+    require(max_abs >= 0.0, "MPI max_absolute_error cannot be negative")
+    require(max_rel >= 0.0, "MPI max_relative_error cannot be negative")
+    require(abs_tol >= 0.0, "MPI absolute_tolerance cannot be negative")
+    require(rel_tol >= 0.0, "MPI relative_tolerance cannot be negative")
+    require(
+        reference_magnitude >= 0.0,
+        "MPI max_reference_magnitude cannot be negative",
+    )
+
+    allowed_error = abs_tol + rel_tol * reference_magnitude
+    require(
+        max_abs <= allowed_error,
+        "MPI numerical error exceeds combined absolute/relative tolerance",
+    )
+
+    provenance = report.get("provenance")
+    require(isinstance(provenance, dict), "MPI provenance object is missing")
+    require(
+        provenance.get("commit_verified") is True,
+        "MPI provenance commit_verified is not true",
+    )
+    require(
+        provenance.get("run_id_verified") is True,
+        "MPI provenance run_id_verified is not true",
+    )
+    require(
+        provenance.get("workflow_run_id_verified") is True,
+        "MPI provenance workflow_run_id_verified is not true",
+    )
+
+    # The report's claims above are not accepted as independent proof:
+    # the identity fields have already been compared with the invocation
+    # arguments and the executable digest has been recalculated here.
+    return {
+        "schema": report["schema"],
+        "validation": "PASS",
+        "run_id": run_id,
+        "source_commit": source_commit,
+        "workflow_run_id": workflow_run_id,
+        "native_source": MPI_SOURCE,
+        "native_executable": executable_relative,
+        "native_executable_sha256": executable_digest,
+        "process_count": process_count,
+        "rows": rows,
+        "columns": columns,
+        "nnz": nnz,
+        "max_absolute_error": max_abs,
+        "allowed_absolute_error": allowed_error,
+        "stdout_file": stdout_relative,
+        "stderr_file": stderr_relative,
+        "source_file_verified": source_path.is_file(),
+        "stdout_file_verified": stdout_path.is_file(),
+        "stderr_file_verified": stderr_path.is_file(),
+    }
 
 
 def verify_v2(
@@ -489,7 +673,6 @@ def verify_v2(
         p3 / "results" / "validate_benchmark.py",
         "p3_final_v2_validator",
     )
-
     regular_file(csv_path, "V2 canonical CSV")
 
     try:
@@ -499,10 +682,7 @@ def verify_v2(
             f"Authoritative V2 validator failed: {exc}"
         ) from exc
 
-    require(
-        isinstance(result, dict),
-        "V2 validator result is not an object",
-    )
+    require(isinstance(result, dict), "V2 validator result is not an object")
     require(
         result.get("schema") == "qflpn-benchmark-v2",
         "V2 validator schema mismatch",
@@ -514,36 +694,18 @@ def verify_v2(
     )
 
     latest = result.get("latest_record")
+    require(isinstance(latest, dict), "V2 latest_record is missing")
+    require(latest.get("run_id") == run_id, "V2 latest_record RUN_ID mismatch")
 
-    require(
-        isinstance(latest, dict),
-        "V2 validator latest_record is missing",
-    )
-    require(
-        latest.get("run_id") == run_id,
-        "V2 validator latest_record RUN_ID mismatch",
-    )
-
-    with csv_path.open(
-        "r",
-        encoding="utf-8-sig",
-        newline="",
-    ) as stream:
+    with csv_path.open("r", encoding="utf-8-sig", newline="") as stream:
         reader = csv.DictReader(stream, strict=True)
         rows = list(reader)
 
-    matches = [
-        row
-        for row in rows
-        if row.get("run_id") == run_id
-    ]
-
+    matches = [row for row in rows if row.get("run_id") == run_id]
     require(
         len(matches) == 1,
-        f"V2 expected exactly one row for RUN_ID={run_id}; "
-        f"got {len(matches)}",
+        f"V2 expected exactly one row for RUN_ID={run_id}; got {len(matches)}",
     )
-
     row = matches[0]
 
     for csv_key, result_key in (
@@ -557,7 +719,6 @@ def verify_v2(
             raise VerificationError(
                 f"V2 invalid integer field: {csv_key}"
             ) from exc
-
         require(
             csv_value == result_value,
             f"V2 CSV/validator mismatch: {csv_key}",
@@ -571,7 +732,6 @@ def verify_v2(
     ):
         csv_value = finite_number(row.get(csv_key), csv_key)
         result_value = finite_number(latest.get(result_key), result_key)
-
         require(
             math.isclose(
                 csv_value,
@@ -607,7 +767,6 @@ def verify_v3(
         p3 / "results" / "validate_benchmark_v3.py",
         "p3_final_v3_validator",
     )
-
     regular_file(csv_path, "V3 canonical CSV")
 
     try:
@@ -622,10 +781,7 @@ def verify_v3(
             f"Authoritative V3 validator failed: {exc}"
         ) from exc
 
-    require(
-        isinstance(result, dict),
-        "V3 validator result is not an object",
-    )
+    require(isinstance(result, dict), "V3 validator result is not an object")
     require(
         result.get("schema") == "qflpn-benchmark-v3-validation-v2",
         "V3 validator schema mismatch",
@@ -639,10 +795,7 @@ def verify_v3(
         result.get("configuration_matrix_complete") is True,
         "V3 configuration matrix is incomplete",
     )
-    require(
-        result.get("run_id") == run_id,
-        "V3 RUN_ID mismatch",
-    )
+    require(result.get("run_id") == run_id, "V3 RUN_ID mismatch")
     require(
         result.get("commit_sha") == source_commit,
         "V3 source commit mismatch",
@@ -650,23 +803,16 @@ def verify_v3(
 
     if workflow_run_id is not None:
         require(
-            str(result.get("workflow_run_id"))
-            == str(workflow_run_id),
+            str(result.get("workflow_run_id")) == str(workflow_run_id),
             "V3 workflow_run_id mismatch",
         )
 
     contract = result.get("run_contract")
-
     require(
         contract in {"LEGACY_96", "AB_192"},
         f"Unsupported V3 run contract: {contract!r}",
     )
-
-    expected_records = (
-        96
-        if contract == "LEGACY_96"
-        else 192
-    )
+    expected_records = 96 if contract == "LEGACY_96" else 192
 
     require(
         result.get("expected_records") == expected_records,
@@ -678,7 +824,6 @@ def verify_v3(
     )
 
     policies = result.get("split_policies")
-
     require(
         isinstance(policies, list) and bool(policies),
         "V3 split_policies is missing or invalid",
@@ -691,18 +836,12 @@ def verify_v3(
         )
     else:
         require(
-            set(policies)
-            == {"ROW_BOUNDARY_SCAN", "BINARY_NNZ_SPLIT"},
+            set(policies) == {"ROW_BOUNDARY_SCAN", "BINARY_NNZ_SPLIT"},
             "AB_192 must contain both A/B split policies",
         )
 
-    report_path = (
-        p3 / "reports" / "benchmark-v3-validation.json"
-    )
-    report = load_json(
-        report_path,
-        "Persistent V3 validation report",
-    )
+    report_path = p3 / "reports" / "benchmark-v3-validation.json"
+    report = load_json(report_path, "Persistent V3 validation report")
 
     for key, expected_value in (
         ("schema", result["schema"]),
@@ -720,13 +859,8 @@ def verify_v3(
             f"Persistent V3 report mismatch: {key}",
         )
 
-    checksum_path = (
-        p3 / "reports" / "benchmark-v3-SHA256SUMS.txt"
-    )
-    regular_file(
-        checksum_path,
-        "V3 run-specific SHA256SUMS",
-    )
+    checksum_path = p3 / "reports" / "benchmark-v3-SHA256SUMS.txt"
+    regular_file(checksum_path, "V3 run-specific SHA256SUMS")
 
     try:
         checksum_lines = checksum_path.read_text(
@@ -746,11 +880,7 @@ def verify_v3(
         r"([0-9a-f]{64})  benchmarks/benchmark_results_v3\.csv",
         checksum_lines[0],
     )
-
-    require(
-        match is not None,
-        "V3 checksum entry is malformed",
-    )
+    require(match is not None, "V3 checksum entry is malformed")
     assert match is not None
 
     require(
@@ -768,9 +898,7 @@ def verify_v3(
         "expected_records": expected_records,
         "validated_records": expected_records,
         "split_policies": policies,
-        "maximum_absolute_error": result.get(
-            "maximum_absolute_error"
-        ),
+        "maximum_absolute_error": result.get("maximum_absolute_error"),
     }
 
 
@@ -783,11 +911,7 @@ def verify_evidence_consistency(
     """Independently rerun the cross-evidence verifier and check its report."""
     p3 = root / "P3"
     report_path = p3 / "reports" / "evidence-consistency.json"
-
-    report = load_json(
-        report_path,
-        "P3 evidence consistency report",
-    )
+    report = load_json(report_path, "P3 evidence consistency report")
 
     require(
         report.get("schema") == "qflpn-p3-evidence-consistency-v2",
@@ -797,10 +921,7 @@ def verify_evidence_consistency(
         report.get("validation") == "PASS",
         "Evidence consistency report is not PASS",
     )
-    require(
-        report.get("run_id") == run_id,
-        "Evidence consistency RUN_ID mismatch",
-    )
+    require(report.get("run_id") == run_id, "Evidence consistency RUN_ID mismatch")
     require(
         report.get("source_commit") == source_commit,
         "Evidence consistency source_commit mismatch",
@@ -808,8 +929,7 @@ def verify_evidence_consistency(
 
     if workflow_run_id is not None:
         require(
-            str(report.get("workflow_run_id"))
-            == str(workflow_run_id),
+            str(report.get("workflow_run_id")) == str(workflow_run_id),
             "Evidence consistency workflow_run_id mismatch",
         )
 
@@ -817,12 +937,7 @@ def verify_evidence_consistency(
         p3 / "tools" / "verify_evidence_consistency.py",
         "p3_final_evidence_consistency",
     )
-
-    verify_function = getattr(
-        module,
-        "verify_evidence",
-        None,
-    )
+    verify_function = getattr(module, "verify_evidence", None)
 
     require(
         callable(verify_function),
@@ -851,7 +966,6 @@ def verify_evidence_consistency(
     )
 
     details = report.get("evidence")
-
     require(
         isinstance(details, dict),
         "Evidence consistency report has no evidence object",
@@ -888,13 +1002,10 @@ def verify_package(
     source_commit: str,
     workflow_run_id: str | None = None,
 ) -> dict[str, Any]:
-    """Verify all acceptance gates for one P3 execution."""
+    """Verify every mandatory acceptance gate for one P3 execution."""
     root = Path(root).resolve()
 
-    require(
-        root.is_dir(),
-        f"Repository root does not exist: {root}",
-    )
+    require(root.is_dir(), f"Repository root does not exist: {root}")
     require(
         RUN_ID_RE.fullmatch(run_id or "") is not None,
         "Invalid RUN_ID",
@@ -917,7 +1028,6 @@ def verify_package(
         "threshold",
         "parallelism",
     }
-
     require(
         set(expected) == required_expected,
         "V2 expected-configuration keys mismatch: "
@@ -927,7 +1037,6 @@ def verify_package(
 
     for key, value in expected.items():
         minimum = 0 if key == "warmup_iterations" else 1
-
         require(
             isinstance(value, int)
             and not isinstance(value, bool)
@@ -944,29 +1053,18 @@ def verify_package(
 
     verify_required_files(root)
 
-    v2 = verify_v2(
-        root,
-        run_id,
-        expected,
-    )
-
-    v3 = verify_v3(
-        root,
-        run_id,
-        source_commit,
-        workflow_run_id,
-    )
-
+    v2 = verify_v2(root, run_id, expected)
+    v3 = verify_v3(root, run_id, source_commit, workflow_run_id)
     evidence = verify_evidence_consistency(
         root,
         run_id,
         source_commit,
         workflow_run_id,
     )
+    mpi = verify_mpi(root, run_id, source_commit, workflow_run_id)
 
-    # These checks are mandatory and independent of ci-outcomes.json.
-    # The verifier reconstructs the inventory and recalculates every
-    # SHA-256 digest before it can return P3_ACCEPTED.
+    # Global integrity is checked last so that every generated artifact,
+    # including mpi-validation.json, executable and logs, is covered.
     integrity = verify_global_integrity(root)
 
     return {
@@ -977,6 +1075,7 @@ def verify_package(
         "benchmark_v2": v2,
         "benchmark_v3": v3,
         "evidence_consistency": evidence,
+        "mpi_validation": mpi,
         "ci_stages": outcomes,
         "integrity": integrity,
     }
@@ -985,8 +1084,8 @@ def verify_package(
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Independently verify the complete P3 V2/V3 package, "
-            "provenance, p3_validation stages and global integrity."
+            "Independently verify the complete P3 package, V2/V3 benchmarks, "
+            "MPI evidence, provenance, p3_validation stages and integrity."
         )
     )
 
@@ -1021,14 +1120,12 @@ def main() -> int:
             source_commit=args.source_commit,
             workflow_run_id=args.workflow_run_id,
         )
-
     except Exception as exc:
         failure = {
             "verdict": "P3_REJECTED",
             "error_type": type(exc).__name__,
             "error": str(exc),
         }
-
         print(
             json.dumps(
                 failure,
@@ -1047,7 +1144,6 @@ def main() -> int:
             allow_nan=False,
         )
     )
-
     return 0
 
 
