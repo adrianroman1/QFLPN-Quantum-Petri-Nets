@@ -9,10 +9,21 @@
     <artifactId>qflpn-p3-validation</artifactId>
     <version>1.0-SNAPSHOT</version>
 
+    <name>QFLPN P3 Validation</name>
+    <description>
+        P3 CSR/SpMV validation, intra-node algorithms and native MPI adapter.
+    </description>
+
     <properties>
         <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <junit.version>5.10.2</junit.version>
+
+        <maven.compiler.plugin.version>3.13.0</maven.compiler.plugin.version>
+        <maven.surefire.plugin.version>3.2.5</maven.surefire.plugin.version>
+
+        <p3.java.source.root>${project.basedir}</p3.java.source.root>
+        <p3.java.test.root>${project.basedir}</p3.java.test.root>
     </properties>
 
     <dependencies>
@@ -25,25 +36,59 @@
     </dependencies>
 
     <build>
-        <sourceDirectory>${project.basedir}/code</sourceDirectory>
-        <testSourceDirectory>${project.basedir}/tests</testSourceDirectory>
+        <!--
+          P3 has two production source trees:
+            code/     existing CSR, SpMV and benchmark Java sources
+            hpc/mpi/  distributed MPI adapter and partitioning sources
+
+          The compiler include list below is deliberately restrictive.
+          It prevents unrelated directories under P3 from becoming
+          accidental production source roots.
+        -->
+        <sourceDirectory>${p3.java.source.root}</sourceDirectory>
+
+        <!-- Tests remain in the existing P3/tests directory. -->
+        <testSourceDirectory>${p3.java.test.root}</testSourceDirectory>
 
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.13.0</version>
+                <version>${maven.compiler.plugin.version}</version>
+
                 <configuration>
                     <release>${maven.compiler.release}</release>
+                    <encoding>${project.build.sourceEncoding}</encoding>
+
+                    <includes>
+                        <include>code/**/*.java</include>
+                        <include>hpc/mpi/**/*.java</include>
+                    </includes>
+
+                    <testIncludes>
+                        <testInclude>tests/**/*.java</testInclude>
+                    </testIncludes>
+
+                    <showWarnings>true</showWarnings>
+                    <failOnError>true</failOnError>
+                    <parameters>true</parameters>
                 </configuration>
             </plugin>
 
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
-                <version>3.2.5</version>
+                <version>${maven.surefire.plugin.version}</version>
+
+                <configuration>
+                    <useModulePath>false</useModulePath>
+                    <failIfNoTests>true</failIfNoTests>
+                    <trimStackTrace>false</trimStackTrace>
+                    <systemPropertyVariables>
+                        <p3.project.basedir>${project.basedir}</p3.project.basedir>
+                    </systemPropertyVariables>
+                </configuration>
             </plugin>
         </plugins>
     </build>
-
 </project>
