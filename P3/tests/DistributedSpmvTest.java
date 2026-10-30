@@ -50,13 +50,10 @@ class DistributedSpmvTest {
     @Test
     void expectedSequentialReferenceIsCorrect() {
         SparseMatrixCSR matrix = sampleMatrix();
-        double[] x = sampleVector();
-
-        double[] actual = matrix.multiply(x);
 
         assertArrayEquals(
                 new double[]{43.0, 0.0, 28.0},
-                actual,
+                matrix.multiply(sampleVector()),
                 1.0e-12);
     }
 
@@ -105,11 +102,53 @@ class DistributedSpmvTest {
     }
 
     @Test
+    void resultRecordRejectsNegativeDimensions() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new DistributedSpmv.Result(
+                        new double[0],
+                        -1,
+                        0,
+                        0,
+                        1,
+                        Duration.ofMillis(1),
+                        0));
+    }
+
+    @Test
     void resultRecordRejectsNonFiniteValues() {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new DistributedSpmv.Result(
                         new double[]{Double.NaN},
+                        1,
+                        1,
+                        1,
+                        2,
+                        Duration.ofMillis(1),
+                        0));
+    }
+
+    @Test
+    void resultRecordRejectsPositiveInfinity() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new DistributedSpmv.Result(
+                        new double[]{Double.POSITIVE_INFINITY},
+                        1,
+                        1,
+                        1,
+                        2,
+                        Duration.ofMillis(1),
+                        0));
+    }
+
+    @Test
+    void resultRecordRejectsNegativeInfinity() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new DistributedSpmv.Result(
+                        new double[]{Double.NEGATIVE_INFINITY},
                         1,
                         1,
                         1,
@@ -147,13 +186,51 @@ class DistributedSpmvTest {
     }
 
     @Test
-    void mpiInvocationRejectsZeroProcessesBeforeStartingLauncher() {
-        SparseMatrixCSR matrix = sampleMatrix();
+    void resultRecordRejectsNegativeElapsedTime() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new DistributedSpmv.Result(
+                        new double[]{1.0},
+                        1,
+                        1,
+                        1,
+                        1,
+                        Duration.ofNanos(-1),
+                        0));
+    }
 
+    @Test
+    void mpiInvocationRejectsNullMatrix() {
+        assertThrows(
+                NullPointerException.class,
+                () -> DistributedSpmv.multiply(
+                        null,
+                        sampleVector(),
+                        2,
+                        Path.of("mpirun"),
+                        Path.of("p3_mpi_spmv"),
+                        Duration.ofSeconds(5)));
+    }
+
+    @Test
+    void mpiInvocationRejectsNullInputVector() {
+        assertThrows(
+                NullPointerException.class,
+                () -> DistributedSpmv.multiply(
+                        sampleMatrix(),
+                        null,
+                        2,
+                        Path.of("mpirun"),
+                        Path.of("p3_mpi_spmv"),
+                        Duration.ofSeconds(5)));
+    }
+
+    @Test
+    void mpiInvocationRejectsZeroProcessesBeforeStartingLauncher() {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> DistributedSpmv.multiply(
-                        matrix,
+                        sampleMatrix(),
                         sampleVector(),
                         0,
                         Path.of("mpirun"),
@@ -162,17 +239,24 @@ class DistributedSpmvTest {
     }
 
     @Test
-    void mpiInvocationRejectsInputVectorWithWrongLength() {
-        SparseMatrixCSR matrix = sampleMatrix();
-
-        /*
-         * The argument validation is performed before the executable
-         * is inspected or started.
-         */
+    void mpiInvocationRejectsNegativeProcessCount() {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> DistributedSpmv.multiply(
-                        matrix,
+                        sampleMatrix(),
+                        sampleVector(),
+                        -2,
+                        Path.of("mpirun"),
+                        Path.of("p3_mpi_spmv"),
+                        Duration.ofSeconds(5)));
+    }
+
+    @Test
+    void mpiInvocationRejectsInputVectorWithWrongLength() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> DistributedSpmv.multiply(
+                        sampleMatrix(),
                         new double[]{1.0, 2.0},
                         2,
                         Path.of("mpirun"),
@@ -182,12 +266,10 @@ class DistributedSpmvTest {
 
     @Test
     void mpiInvocationRejectsNonFiniteInputVector() {
-        SparseMatrixCSR matrix = sampleMatrix();
-
         assertThrows(
                 IllegalArgumentException.class,
                 () -> DistributedSpmv.multiply(
-                        matrix,
+                        sampleMatrix(),
                         new double[]{
                                 1.0,
                                 Double.POSITIVE_INFINITY,
@@ -200,13 +282,28 @@ class DistributedSpmvTest {
     }
 
     @Test
-    void mpiInvocationRejectsZeroTimeout() {
-        SparseMatrixCSR matrix = sampleMatrix();
-
+    void mpiInvocationRejectsNanInputVector() {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> DistributedSpmv.multiply(
-                        matrix,
+                        sampleMatrix(),
+                        new double[]{
+                                1.0,
+                                Double.NaN,
+                                3.0
+                        },
+                        2,
+                        Path.of("mpirun"),
+                        Path.of("p3_mpi_spmv"),
+                        Duration.ofSeconds(5)));
+    }
+
+    @Test
+    void mpiInvocationRejectsZeroTimeout() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> DistributedSpmv.multiply(
+                        sampleMatrix(),
                         sampleVector(),
                         2,
                         Path.of("mpirun"),
@@ -214,6 +311,69 @@ class DistributedSpmvTest {
                         Duration.ZERO));
     }
 
+    @Test
+    void mpiInvocationRejectsNegativeTimeout() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> DistributedSpmv.multiply(
+                        sampleMatrix(),
+                        sampleVector(),
+                        2,
+                        Path.of("mpirun"),
+                        Path.of("p3_mpi_spmv"),
+                        Duration.ofSeconds(-1)));
+    }
+
+    @Test
+    void mpiInvocationRejectsSubMillisecondTimeout() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> DistributedSpmv.multiply(
+                        sampleMatrix(),
+                        sampleVector(),
+                        2,
+                        Path.of("mpirun"),
+                        Path.of("p3_mpi_spmv"),
+                        Duration.ofNanos(1)));
+    }
+
+    @Test
+    void mpiInvocationRejectsBlankLauncher() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> DistributedSpmv.multiply(
+                        sampleMatrix(),
+                        sampleVector(),
+                        2,
+                        Path.of(""),
+                        Path.of("p3_mpi_spmv"),
+                        Duration.ofSeconds(5)));
+    }
+
+    @Test
+    void mpiInvocationRejectsBlankNativeExecutable() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> DistributedSpmv.multiply(
+                        sampleMatrix(),
+                        sampleVector(),
+                        2,
+                        Path.of("mpirun"),
+                        Path.of(""),
+                        Duration.ofSeconds(5)));
+    }
+
+    /**
+     * This is the real native MPI integration test.
+     *
+     * It is enabled only when p3_validation has compiled the C backend
+     * and supplied P3_MPI_EXECUTABLE. The test launches two MPI ranks
+     * and compares the distributed result against the sequential CSR
+     * implementation.
+     *
+     * A local two-rank test validates the MPI protocol and result
+     * aggregation. It does not establish inter-node scaling.
+     */
     @Test
     @EnabledIfEnvironmentVariable(
             named = "P3_MPI_EXECUTABLE",
@@ -229,6 +389,9 @@ class DistributedSpmvTest {
 
         String launcherSetting =
                 System.getenv("P3_MPI_LAUNCHER");
+
+        assertNotNull(executableSetting);
+        assertFalse(executableSetting.isBlank());
 
         Path executable = Path.of(executableSetting);
 
