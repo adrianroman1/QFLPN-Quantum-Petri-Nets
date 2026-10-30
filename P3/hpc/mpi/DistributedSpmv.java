@@ -8,8 +8,6 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -20,7 +18,7 @@ import java.util.concurrent.TimeUnit;
 /**
  * P3 distributed CSR SpMV adapter.
  *
- * This class invokes the native MPI executable. It does not emulate MPI
+ * This class invokes a native MPI executable. It does not emulate MPI
  * with ForkJoinPool and does not claim that a local multi-process run
  * demonstrates inter-node scaling.
  *
@@ -42,9 +40,9 @@ import java.util.concurrent.TimeUnit;
  *   uint64 reserved
  *   rows IEEE-754 binary64 little-endian result elements
  *
- * The native backend currently uses MPI_Scatterv/MPI_Gatherv with
- * int counts and displacements. It must reject unsupported dimensions;
- * this Java adapter does not silently split or truncate such inputs.
+ * The native backend currently uses MPI int counts and displacements.
+ * It must reject unsupported dimensions; this adapter does not silently
+ * split or truncate such inputs.
  *
  * Configuration:
  *   P3_MPI_EXECUTABLE  path to p3_mpi_spmv
@@ -61,13 +59,13 @@ public final class DistributedSpmv {
     private static final byte[] OUTPUT_MAGIC =
             "P3OUT001".getBytes(StandardCharsets.US_ASCII);
 
-    private static final int INPUT_HEADER_BYTES = 56;
     private static final int OUTPUT_HEADER_BYTES = 32;
 
     private static final int PROTOCOL_FLAGS = 0;
     private static final int PROTOCOL_RESERVED = 0;
 
     private static final int DEFAULT_TIMEOUT_SECONDS = 600;
+    private static final int MAX_LOG_CHARACTERS = 12_000;
 
     private DistributedSpmv() {
         throw new AssertionError("No instances.");
@@ -76,7 +74,7 @@ public final class DistributedSpmv {
     /**
      * Result of one completed distributed SpMV invocation.
      *
-     * elapsedTime measures the complete launcher process wall time.
+     * elapsedTime measures complete launcher process wall time.
      * It is not a communication-only or kernel-only timing.
      */
     public record Result(
@@ -90,7 +88,9 @@ public final class DistributedSpmv {
 
         public Result {
             Objects.requireNonNull(values, "values cannot be null");
-            Objects.requireNonNull(elapsedTime, "elapsedTime cannot be null");
+            Objects.requireNonNull(
+                    elapsedTime,
+                    "elapsedTime cannot be null");
 
             if (rows < 0 || columns < 0 || nnz < 0) {
                 throw new IllegalArgumentException(
@@ -151,7 +151,8 @@ public final class DistributedSpmv {
     public static Result multiply(
             SparseMatrixCSR matrix,
             double[] x,
-            int processCount) throws IOException, InterruptedException {
+            int processCount)
+            throws IOException, InterruptedException {
 
         String executable = System.getenv("P3_MPI_EXECUTABLE");
 
@@ -176,18 +177,20 @@ public final class DistributedSpmv {
     }
 
     /**
-     * Executes the native MPI backend with explicit executable paths.
+     * Executes the native MPI backend with explicit launcher and
+     * executable paths.
      *
-     * The method creates a private temporary directory, writes the
-     * request protocol, starts the MPI launcher, validates the process
-     * exit code and reads the response protocol.
+     * A bare launcher name such as "mpirun" is deliberately preserved
+     * so ProcessBuilder can resolve it through the operating-system PATH.
+     * A launcher supplied with a directory component, such as
+     * "./bin/mpirun", is resolved to an absolute path.
      *
-     * The caller retains ownership of the matrix and input vector.
+     * The native executable is always resolved to an absolute path.
      *
      * @param matrix canonical CSR matrix
      * @param x input vector
      * @param processCount MPI process count
-     * @param launcher MPI launcher executable, e.g. mpirun or srun
+     * @param launcher MPI launcher, e.g. mpirun or srun
      * @param nativeExecutable compiled p3_mpi_spmv executable
      * @param timeout maximum wall-clock duration
      * @return validated global output vector and execution metadata
@@ -219,25 +222,15 @@ public final class DistributedSpmv {
                     "Input vector length must equal matrix column count.");
         }
 
-        for (int i = 0; i < x.length; i++) {
-            if (!Double.isFinite(x[i])) {
-                throw new IllegalArgumentException(
-                        "Input vector contains a non-finite value at index "
-                                + i + ".");
-            }
-        }
+        validateFiniteVector(x, "Input vector");
 
-        /*
-         * The native implementation uses MPI int counts/displacements.
-         * Reject dimensions that cannot be represented by its current
-         * transport contract before creating potentially large files.
-         */
         ensureNativeIntRange(
                 matrix.getRows(),
                 matrix.getColumns(),
                 matrix.getNnz());
 
-        Path absoluteLauncher = launcher.toAbsolutePath().normalize();
+        String launcherCommand = resolveLauncherCommand(launcher);
+
         Path absoluteExecutable =
                 nativeExecutable.toAbsolutePath().normalize();
 
@@ -251,15 +244,20 @@ public final class DistributedSpmv {
         Path temporaryDirectory =
                 Files.createTempDirectory("p3-mpi-spmv-");
 
-        Path requestFile = temporaryDirectory.resolve("request.p3mpi");
-        Path responseFile = temporaryDirectory.resolve("response.p3mpi");
-        Path processLog = temporaryDirectory.resolve("mpi-process.log");
+        Path requestFile =
+                temporaryDirectory.resolve("request.p3mpi");
+
+        Path responseFile =
+                temporaryDirectory.resolve("response.p3mpi");
+
+        Path processLog =
+                temporaryDirectory.resolve("mpi-process.log");
 
         try {
             writeRequest(matrix, x, requestFile);
 
             ProcessBuilder processBuilder = new ProcessBuilder(
-                    absoluteLauncher.toString(),
+                    launcherCommand,
                     "-np",
                     Integer.toString(processCount),
                     absoluteExecutable.toString(),
@@ -267,27 +265,29 @@ public final class DistributedSpmv {
                     responseFile.toString());
 
             /*
-             * Redirecting output to a file avoids blocking the MPI process
-             * because of an unconsumed stdout/stderr pipe.
+             * Redirecting output to a file avoids blocking the MPI
+             * process because of an unconsumed stdout/stderr pipe.
              */
             processBuilder.redirectErrorStream(true);
             processBuilder.redirectOutput(processLog.toFile());
 
             long startNanos = System.nanoTime();
-
             Process process = processBuilder.start();
 
-            boolean completed = process.waitFor(
-                    timeout.toMillis(),
-                    TimeUnit.MILLISECONDS);
+            boolean completed;
+
+            try {
+                completed = process.waitFor(
+                        timeout.toMillis(),
+                        TimeUnit.MILLISECONDS);
+            } catch (InterruptedException exception) {
+                terminateProcess(process);
+                Thread.currentThread().interrupt();
+                throw exception;
+            }
 
             if (!completed) {
-                process.destroy();
-
-                if (!process.waitFor(5, TimeUnit.SECONDS)) {
-                    process.destroyForcibly();
-                    process.waitFor();
-                }
+                terminateProcess(process);
 
                 throw new IOException(
                         "MPI process exceeded timeout of "
@@ -335,6 +335,23 @@ public final class DistributedSpmv {
         }
     }
 
+    /**
+     * Preserves bare executable names for PATH lookup.
+     *
+     * Examples:
+     *   mpirun       -> mpirun
+     *   srun         -> srun
+     *   ./mpirun     -> absolute path
+     *   bin/mpirun   -> absolute path
+     */
+    private static String resolveLauncherCommand(Path launcher) {
+        if (launcher.getParent() == null) {
+            return launcher.toString();
+        }
+
+        return launcher.toAbsolutePath().normalize().toString();
+    }
+
     private static void validateArguments(
             SparseMatrixCSR matrix,
             double[] x,
@@ -377,6 +394,20 @@ public final class DistributedSpmv {
         }
     }
 
+    private static void validateFiniteVector(
+            double[] vector,
+            String description) {
+
+        for (int i = 0; i < vector.length; i++) {
+            if (!Double.isFinite(vector[i])) {
+                throw new IllegalArgumentException(
+                        description
+                                + " contains a non-finite value at index "
+                                + i + ".");
+            }
+        }
+    }
+
     private static void ensureNativeIntRange(
             int rows,
             int columns,
@@ -388,15 +419,13 @@ public final class DistributedSpmv {
         }
 
         /*
-         * The Java matrix uses signed int32 dimensions and the C backend
-         * currently uses MPI int counts/displacements. This is a deliberate
-         * guard, not a claim of MPI large-count support.
+         * The Java matrix uses signed int32 dimensions and the current
+         * C backend uses MPI int counts/displacements. This is a
+         * deliberate range guard, not a claim of MPI large-count support.
          */
-        if (rows == Integer.MAX_VALUE
-                || columns < 0
-                || nnz < 0) {
+        if (rows == Integer.MAX_VALUE) {
             throw new IllegalArgumentException(
-                    "Matrix dimensions exceed the supported native range.");
+                    "Row count exceeds the supported native range.");
         }
     }
 
@@ -417,8 +446,10 @@ public final class DistributedSpmv {
                 || columnIndices.length != nnz
                 || values.length != nnz) {
             throw new IOException(
-                    "CSR arrays changed or have inconsistent dimensions.");
+                    "CSR arrays have inconsistent dimensions.");
         }
+
+        validateFiniteVector(values, "CSR values");
 
         try (DataOutputStream output = new DataOutputStream(
                 new BufferedOutputStream(
@@ -433,39 +464,44 @@ public final class DistributedSpmv {
             writeLittleEndianLong(output, PROTOCOL_FLAGS);
             writeLittleEndianLong(output, PROTOCOL_RESERVED);
 
-            for (int pointer : rowPointers) {
-                if (pointer < 0) {
+            int previousPointer = 0;
+
+            for (int row = 0; row < rowPointers.length; row++) {
+                int pointer = rowPointers[row];
+
+                if (pointer < previousPointer || pointer < 0
+                        || pointer > nnz) {
                     throw new IOException(
-                            "Negative CSR row pointer encountered.");
+                            "Invalid CSR row pointer at index " + row);
                 }
 
                 writeLittleEndianLong(output, pointer);
+                previousPointer = pointer;
             }
 
-            for (int column : columnIndices) {
+            if (rowPointers[0] != 0
+                    || rowPointers[rows] != nnz) {
+                throw new IOException(
+                        "CSR row pointers must start at zero and end at NNZ.");
+            }
+
+            for (int i = 0; i < columnIndices.length; i++) {
+                int column = columnIndices[i];
+
                 if (column < 0 || column >= columns) {
                     throw new IOException(
-                            "CSR column index is outside matrix bounds.");
+                            "CSR column index is outside matrix bounds "
+                                    + "at position " + i + ".");
                 }
 
                 writeLittleEndianLong(output, column);
             }
 
             for (double value : values) {
-                if (!Double.isFinite(value)) {
-                    throw new IOException(
-                            "CSR matrix contains a non-finite value.");
-                }
-
                 writeLittleEndianDouble(output, value);
             }
 
             for (double value : x) {
-                if (!Double.isFinite(value)) {
-                    throw new IOException(
-                            "Input vector contains a non-finite value.");
-                }
-
                 writeLittleEndianDouble(output, value);
             }
 
@@ -510,14 +546,14 @@ public final class DistributedSpmv {
             if (rows != expectedRows) {
                 throw new IOException(
                         "MPI response row count mismatch. Expected "
-                                + expectedRows + " but received " + rows
-                                + ".");
+                                + expectedRows + " but received "
+                                + rows + ".");
             }
 
             if (status != 0L) {
                 throw new IOException(
-                        "MPI backend reported failure status " + status
-                                + ".");
+                        "MPI backend reported failure status "
+                                + status + ".");
             }
 
             if (reserved != 0L) {
@@ -530,8 +566,8 @@ public final class DistributedSpmv {
 
                 if (!Double.isFinite(value)) {
                     throw new IOException(
-                            "MPI response contains a non-finite value at "
-                                    + "row " + i + ".");
+                            "MPI response contains a non-finite value "
+                                    + "at row " + i + ".");
                 }
 
                 output[i] = value;
@@ -549,6 +585,17 @@ public final class DistributedSpmv {
         }
 
         return output;
+    }
+
+    private static void terminateProcess(Process process)
+            throws InterruptedException {
+
+        process.destroy();
+
+        if (!process.waitFor(5, TimeUnit.SECONDS)) {
+            process.destroyForcibly();
+            process.waitFor();
+        }
     }
 
     private static void writeLittleEndianLong(
@@ -605,8 +652,8 @@ public final class DistributedSpmv {
 
             String content = Files.readString(logFile);
 
-            if (content.length() > 12_000) {
-                return content.substring(0, 12_000)
+            if (content.length() > MAX_LOG_CHARACTERS) {
+                return content.substring(0, MAX_LOG_CHARACTERS)
                         + "\n[log truncated]";
             }
 
@@ -624,8 +671,8 @@ public final class DistributedSpmv {
         } catch (IOException ignored) {
             /*
              * Cleanup must not replace the primary execution exception.
-             * The temporary directory is uniquely named and can be
-             * inspected or removed by an external cleanup policy.
+             * The uniquely named temporary directory can be inspected
+             * or removed by an external cleanup policy.
              */
         }
     }
