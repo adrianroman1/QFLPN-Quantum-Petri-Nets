@@ -10,7 +10,7 @@ This runner:
 5. checks the P3OUT001 response against an independent sequential CSR
    reference;
 6. records compiler, executable digest, launcher, logs, dimensions,
-   numerical tolerances and provenance in mpi-validation.json.
+   numerical tolerances and complete workflow provenance.
 
 This is an MPI multi-process smoke test. A successful local CI run does
 not demonstrate multi-node cluster scaling or HPC performance.
@@ -28,7 +28,6 @@ import shutil
 import struct
 import subprocess
 import sys
-import time
 from pathlib import Path
 from typing import Any
 
@@ -103,19 +102,28 @@ def validate_provenance(
     run_id: str,
     source_commit: str,
     workflow_run_id: str,
+    workflow_run_attempt: str,
 ) -> None:
     require(
         bool(run_id.strip()),
         "P3_RUN_ID is missing.",
     )
+
     require(
         len(source_commit) == 40
         and all(character in "0123456789abcdef" for character in source_commit),
         "GITHUB_SHA must be a 40-character lowercase hexadecimal commit.",
     )
+
     require(
         workflow_run_id.isdigit(),
         "GITHUB_RUN_ID must contain decimal digits only.",
+    )
+
+    require(
+        workflow_run_attempt.isdigit()
+        and int(workflow_run_attempt) >= 1,
+        "GITHUB_RUN_ATTEMPT must be a positive decimal integer.",
     )
 
 
@@ -130,14 +138,13 @@ def build_test_matrix(
     row_ptr = [0]
     column_indices: list[int] = []
     values: list[float] = []
+
     vector = [
         ((index % 17) - 8) / 8.0
         for index in range(columns)
     ]
 
     for row in range(rows):
-        # Distinct, deterministic columns. The modulo construction also
-        # remains valid when rows and columns are not equal.
         candidates = (
             row % columns,
             (row + 1) % columns,
@@ -147,8 +154,6 @@ def build_test_matrix(
 
         for position, column in enumerate(selected):
             column_indices.append(column)
-            # Exactly representable binary fractions simplify independent
-            # comparison while still exercising signed values.
             numerator = ((row * 5 + position * 3) % 19) - 9
             values.append(numerator / 16.0)
 
@@ -158,14 +163,17 @@ def build_test_matrix(
         row_ptr[0] == 0 and row_ptr[-1] == len(column_indices),
         "Generated CSR row pointer endpoints are invalid.",
     )
+
     require(
         all(left <= right for left, right in zip(row_ptr, row_ptr[1:])),
         "Generated CSR row pointers are not monotonic.",
     )
+
     require(
         all(0 <= column < columns for column in column_indices),
         "Generated CSR column index is out of range.",
     )
+
     require(
         all(math.isfinite(value) for value in values + vector),
         "Generated matrix contains non-finite values.",
@@ -195,21 +203,24 @@ def encode_request(
         columns,
         nnz,
         len(vector),
-        0,  # flags: currently no optional protocol flags
-        0,  # reserved
+        0,
+        0,
     )
 
     row_payload = struct.pack(f"<{len(row_ptr)}Q", *row_ptr)
+
     column_payload = (
         struct.pack(f"<{nnz}Q", *column_indices)
         if nnz
         else b""
     )
+
     value_payload = (
         struct.pack(f"<{nnz}d", *values)
         if nnz
         else b""
     )
+
     vector_payload = (
         struct.pack(f"<{columns}d", *vector)
         if columns
@@ -244,6 +255,7 @@ def decode_response(
     require(reserved == 0, "MPI response reserved field is non-zero.")
 
     expected_length = 32 + expected_rows * 8
+
     require(
         len(payload) == expected_length,
         "MPI response length does not match its declared row count.",
@@ -336,10 +348,12 @@ def compare_results(
             maximum_absolute_error,
             absolute_error,
         )
+
         maximum_relative_error = max(
             maximum_relative_error,
             relative_error,
         )
+
         maximum_reference_magnitude = max(
             maximum_reference_magnitude,
             reference_magnitude,
@@ -385,12 +399,14 @@ def command_version(
             timeout_seconds=20,
             environment=environment,
         )
+
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise ValidationError(
             f"Could not obtain tool version for {command!r}: {exc}"
         ) from exc
 
     output = (result.stdout + "\n" + result.stderr).strip()
+
     require(
         result.returncode == 0 and bool(output),
         f"Version command failed: {command!r}",
@@ -415,6 +431,7 @@ def make_report(
     run_id: str,
     source_commit: str,
     workflow_run_id: str,
+    workflow_run_attempt: str,
     compiler: str,
     compiler_version: str,
     executable: str,
@@ -437,6 +454,9 @@ def make_report(
         "run_id": run_id,
         "source_commit": source_commit,
         "workflow_run_id": workflow_run_id,
+        "workflow_run_attempt": int(workflow_run_attempt)
+        if workflow_run_attempt.isdigit()
+        else 0,
         "repository": REPOSITORY,
         "native_build": {
             "status": "PASS" if build_exit_code == 0 else "FAIL",
@@ -478,9 +498,16 @@ def make_report(
             "comparison": validation,
         },
         "provenance": {
-            "commit_verified": True,
-            "run_id_verified": True,
-            "workflow_run_id_verified": True,
+            "commit_verified": bool(
+                len(source_commit) == 40
+                and all(c in "0123456789abcdef" for c in source_commit)
+            ),
+            "run_id_verified": bool(run_id.strip()),
+            "workflow_run_id_verified": workflow_run_id.isdigit(),
+            "workflow_run_attempt_verified": (
+                workflow_run_attempt.isdigit()
+                and int(workflow_run_attempt) >= 1
+            ),
         },
     }
 
@@ -489,35 +516,41 @@ def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Build and execute the P3 native MPI validation."
     )
+
     parser.add_argument(
         "--root",
         default=".",
         help="Repository root (default: current directory).",
     )
+
     parser.add_argument(
         "--processes",
         type=int,
         default=2,
         help="MPI process count; must be at least 2 (default: 2).",
     )
+
     parser.add_argument(
         "--rows",
         type=int,
         default=DEFAULT_ROWS,
         help=f"Smoke matrix rows (default: {DEFAULT_ROWS}).",
     )
+
     parser.add_argument(
         "--columns",
         type=int,
         default=DEFAULT_COLUMNS,
         help=f"Smoke matrix columns (default: {DEFAULT_COLUMNS}).",
     )
+
     parser.add_argument(
         "--timeout",
         type=int,
         default=DEFAULT_TIMEOUT_SECONDS,
         help=f"Build/launch timeout in seconds (default: {DEFAULT_TIMEOUT_SECONDS}).",
     )
+
     return parser.parse_args()
 
 
@@ -532,7 +565,7 @@ def main() -> int:
     workflow_run_id = os.environ.get("P3_WORKFLOW_RUN_ID") or os.environ.get(
         "GITHUB_RUN_ID", ""
     )
-    workflow_run_attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1")
+    workflow_run_attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "")
 
     report_path = root / REPORT_RELATIVE
     stdout_path = root / STDOUT_RELATIVE
@@ -548,13 +581,17 @@ def main() -> int:
     compiler_version = ""
     launcher_display = ""
     executable_digest = ""
+
     build_exit_code = 1
     execution_exit_code = 1
+
     skipped = False
     timed_out = False
+
     rows = args.rows
     columns = args.columns
     nnz = 0
+
     comparison = {
         "max_absolute_error": 0.0,
         "max_relative_error": 0.0,
@@ -573,7 +610,12 @@ def main() -> int:
         require(rows >= 2, "--rows must be at least 2.")
         require(columns >= 3, "--columns must be at least 3.")
 
-        validate_provenance(run_id, source_commit, workflow_run_id)
+        validate_provenance(
+            run_id,
+            source_commit,
+            workflow_run_id,
+            workflow_run_attempt,
+        )
 
         require(
             source_path.is_file() and not source_path.is_symlink(),
@@ -582,6 +624,7 @@ def main() -> int:
 
         compiler_name = os.environ.get("MPICC", "mpicc")
         compiler_path = resolve_tool(compiler_name, "MPI C compiler")
+
         compiler_version = command_version(
             [compiler_path, "--version"],
             os.environ.copy(),
@@ -590,6 +633,7 @@ def main() -> int:
         launcher_tokens = shlex.split(
             os.environ.get("P3_MPI_LAUNCHER", "mpirun")
         )
+
         require(bool(launcher_tokens), "P3_MPI_LAUNCHER is empty.")
 
         launcher_path = resolve_tool(launcher_tokens[0], "MPI launcher")
@@ -598,8 +642,6 @@ def main() -> int:
 
         environment = os.environ.copy()
 
-        # Permit execution in a root-owned GitHub Actions container/runner
-        # when using Open MPI. Other MPI implementations ignore these vars.
         environment.setdefault("OMPI_ALLOW_RUN_AS_ROOT", "1")
         environment.setdefault("OMPI_ALLOW_RUN_AS_ROOT_CONFIRM", "1")
 
@@ -629,23 +671,32 @@ def main() -> int:
                 timeout_seconds=args.timeout,
                 environment=environment,
             )
+
             build_exit_code = build_result.returncode
+
             build_output = (
                 "$ " + shlex.join(compile_command) + "\n"
                 + "STDOUT:\n" + build_result.stdout
                 + "\nSTDERR:\n" + build_result.stderr
                 + f"\nEXIT_CODE={build_exit_code}\n"
             )
+
         except subprocess.TimeoutExpired as exc:
             timed_out = True
+
             build_output = (
                 "$ " + shlex.join(compile_command)
                 + "\nBUILD_TIMEOUT\n"
                 + str(exc)
             )
-            raise ValidationError("Native MPI compilation timed out.") from exc
+
+            raise ValidationError(
+                "Native MPI compilation timed out."
+            ) from exc
+
         except OSError as exc:
             build_output = f"BUILD_LAUNCH_ERROR: {exc}\n"
+
             raise ValidationError(
                 f"Could not launch mpicc: {exc}"
             ) from exc
@@ -656,9 +707,15 @@ def main() -> int:
             build_exit_code == 0,
             f"Native MPI compilation failed with exit code {build_exit_code}.",
         )
+
         require(
             executable_path.is_file() and not executable_path.is_symlink(),
             "MPI compiler returned success but executable is missing.",
+        )
+
+        require(
+            os.access(executable_path, os.X_OK),
+            "MPI executable is not executable.",
         )
 
         executable_digest = sha256_file(executable_path)
@@ -667,6 +724,7 @@ def main() -> int:
             rows,
             columns,
         )
+
         nnz = len(column_indices)
 
         request_payload = encode_request(
@@ -677,6 +735,7 @@ def main() -> int:
             values,
             vector,
         )
+
         write_bytes_atomic(request_path, request_payload)
 
         if response_path.exists():
@@ -684,6 +743,7 @@ def main() -> int:
                 not response_path.is_symlink(),
                 "Refusing to replace a symlinked MPI response path.",
             )
+
             response_path.unlink()
 
         command = [
@@ -701,16 +761,27 @@ def main() -> int:
                 timeout_seconds=args.timeout,
                 environment=environment,
             )
+
             execution_exit_code = execution_result.returncode
             execution_stdout = execution_result.stdout
             execution_stderr = execution_result.stderr
+
         except subprocess.TimeoutExpired as exc:
             timed_out = True
+
             execution_stdout = str(exc.stdout or "")
-            execution_stderr = str(exc.stderr or "") + "\nMPI_EXECUTION_TIMEOUT\n"
-            raise ValidationError("MPI execution timed out.") from exc
+            execution_stderr = (
+                str(exc.stderr or "")
+                + "\nMPI_EXECUTION_TIMEOUT\n"
+            )
+
+            raise ValidationError(
+                "MPI execution timed out."
+            ) from exc
+
         except OSError as exc:
             execution_stderr = f"MPI_LAUNCH_ERROR: {exc}\n"
+
             raise ValidationError(
                 f"Could not launch MPI process: {exc}"
             ) from exc
@@ -719,12 +790,14 @@ def main() -> int:
             execution_exit_code == 0,
             f"MPI launcher failed with exit code {execution_exit_code}.",
         )
+
         require(
             response_path.is_file() and not response_path.is_symlink(),
             "MPI process returned success but response file is missing.",
         )
 
         actual = decode_response(response_path, rows)
+
         reference = sequential_csr_reference(
             rows,
             row_ptr,
@@ -732,29 +805,38 @@ def main() -> int:
             values,
             vector,
         )
-        comparison = compare_results(actual, reference)
 
+        comparison = compare_results(actual, reference)
         validation = "PASS"
 
-    except (ValidationError, OSError, ValueError, struct.error) as exc:
+    except (
+        ValidationError,
+        OSError,
+        ValueError,
+        struct.error,
+    ) as exc:
         validation = "FAIL"
+
         execution_stderr += (
             ("\n" if execution_stderr else "")
             + f"P3_MPI_VALIDATION_ERROR: {exc}\n"
         )
-        print(f"P3_MPI_VALIDATION_FAILED: {exc}", file=sys.stderr)
+
+        print(
+            f"P3_MPI_VALIDATION_FAILED: {exc}",
+            file=sys.stderr,
+        )
 
     finally:
         write_text(build_log_path, build_output)
         write_text(stdout_path, execution_stdout)
         write_text(stderr_path, execution_stderr)
 
-        # Report only a real executable digest. On failed builds the empty
-        # digest deliberately causes the independent final verifier to fail.
         report = make_report(
             run_id=run_id,
             source_commit=source_commit,
             workflow_run_id=workflow_run_id,
+            workflow_run_attempt=workflow_run_attempt,
             compiler=compiler_path,
             compiler_version=compiler_version,
             executable=EXECUTABLE_RELATIVE.as_posix(),
@@ -781,12 +863,15 @@ def main() -> int:
     print(f"RUN_ID: {run_id}")
     print(f"SOURCE_COMMIT: {source_commit}")
     print(f"WORKFLOW_RUN_ID: {workflow_run_id}")
+    print(f"WORKFLOW_RUN_ATTEMPT: {workflow_run_attempt}")
     print(f"MPI_PROCESSES: {args.processes}")
     print(f"MATRIX: rows={rows}, columns={columns}, nnz={nnz}")
+
     print(
         "MAX_ABSOLUTE_ERROR: "
         f"{comparison['max_absolute_error']:.17g}"
     )
+
     print(f"EXECUTABLE_SHA256: {executable_digest}")
     print(f"REPORT: {REPORT_RELATIVE.as_posix()}")
 
