@@ -1,427 +1,321 @@
-package hpc.mpi;
+package hpc.csr;
 
-import hpc.csr.SparseMatrixCSR;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 
-import java.nio.file.Path;
-import java.time.Duration;
-
-import static org.junit.jupiter.api.Assertions.*;
-
+/**
+ * Tests for the distribution plan and the in-process simulation.
+ * No MPI is involved: these tests prove the plan and the numerical
+ * equivalence, nothing about network performance.
+ */
 class DistributedSpmvTest {
 
-    private static SparseMatrixCSR sampleMatrix() {
-        /*
-         * Matrix:
-         *
-         * [ 2  0  3 ]
-         * [ 0  0  0 ]
-         * [ 0  4  0 ]
-         *
-         * CSR:
-         * values       = [2, 3, 4]
-         * columns      = [0, 2, 1]
-         * rowPointers  = [0, 2, 2, 3]
-         */
-        return new SparseMatrixCSR(
-                new double[]{2.0, 3.0, 4.0},
-                new int[]{0, 2, 1},
-                new int[]{0, 2, 2, 3},
-                3,
-                3);
+    private static final int[] RANKS = {1, 2, 3, 5, 8, 64};
+
+    private static void assertBitwiseEqual(double[] expected, double[] actual) {
+        assertEquals(expected.length, actual.length);
+
+        for (int i = 0; i < expected.length; i++) {
+            assertEquals(
+                    Double.doubleToLongBits(expected[i]),
+                    Double.doubleToLongBits(actual[i]),
+                    "bitwise mismatch at row " + i);
+        }
     }
 
-    private static double[] sampleVector() {
-        return new double[]{5.0, 7.0, 11.0};
+    private static List<SparseMatrixCSR> matrices() {
+        return List.of(
+                SpmvStrategyTest.uniform(20_000, 2, 1L),
+                SpmvStrategyTest.skewed(8_000, 2L),
+                SpmvStrategyTest.singleHugeRow(1_500, 3L),
+                SpmvStrategyTest.uniform(1, 1, 4L),
+                SpmvStrategyTest.uniform(7, 2, 5L));
     }
 
     @Test
-    void matrixFixtureIsValidAndHasExpectedDimensions() {
-        SparseMatrixCSR matrix = sampleMatrix();
+    void distributedProductIsBitwiseIdenticalForEveryRankCount() {
+        for (SparseMatrixCSR matrix : matrices()) {
+            double[] x = SpmvStrategyTest.vector(matrix.getRows(), 11L);
+            double[] expected = matrix.multiply(x);
 
-        assertTrue(matrix.isValid());
-        assertEquals(3, matrix.getRows());
-        assertEquals(3, matrix.getColumns());
-        assertEquals(3, matrix.getNnz());
+            for (int ranks : RANKS) {
+                DistributedCsrPartition partition =
+                        DistributedCsrPartition.create(matrix, ranks);
+
+                try (DistributedSpmvSimulation simulation =
+                             new DistributedSpmvSimulation(partition)) {
+                    assertBitwiseEqual(expected, simulation.multiply(x));
+                }
+            }
+        }
     }
 
     @Test
-    void expectedSequentialReferenceIsCorrect() {
-        SparseMatrixCSR matrix = sampleMatrix();
+    void rowRangesAreContiguousDisjointAndCoverEveryRow() {
+        for (SparseMatrixCSR matrix : matrices()) {
+            for (int ranks : RANKS) {
+                DistributedCsrPartition p =
+                        DistributedCsrPartition.create(matrix, ranks);
 
-        assertArrayEquals(
-                new double[]{43.0, 0.0, 28.0},
-                matrix.multiply(sampleVector()),
-                1.0e-12);
+                assertEquals(0, p.rowStart(0));
+                assertEquals(matrix.getRows(), p.rowEnd(ranks - 1));
+
+                long nnz = 0;
+
+                for (int r = 0; r < ranks; r++) {
+                    assertTrue(p.rowStart(r) <= p.rowEnd(r));
+
+                    if (r > 0) {
+                        assertEquals(p.rowEnd(r - 1), p.rowStart(r));
+                    }
+
+                    nnz += p.localNnz(r);
+                }
+
+                assertEquals(matrix.getNnz(), nnz);
+            }
+        }
     }
 
     @Test
-    void resultRecordDefensivelyCopiesItsVector() {
-        double[] source = new double[]{1.0, 2.0};
+    void uniformMatrixIsNnzBalancedAcrossRanks() {
+        SparseMatrixCSR matrix = SpmvStrategyTest.uniform(100_000, 2, 6L);
 
-        DistributedSpmv.Result result =
-                new DistributedSpmv.Result(
-                        source,
-                        2,
-                        2,
-                        2,
-                        2,
-                        Duration.ofMillis(10),
-                        0);
-
-        source[0] = 999.0;
-
-        assertArrayEquals(
-                new double[]{1.0, 2.0},
-                result.values(),
-                0.0);
-
-        double[] returned = result.values();
-        returned[1] = 999.0;
-
-        assertArrayEquals(
-                new double[]{1.0, 2.0},
-                result.values(),
-                0.0);
+        for (int ranks : new int[] {2, 4, 16, 64}) {
+            DistributedCsrPartition p =
+                    DistributedCsrPartition.create(matrix, ranks);
+            assertTrue(p.nnzImbalance() < 1.01,
+                    "imbalance " + p.nnzImbalance() + " at " + ranks);
+        }
     }
 
     @Test
-    void resultRecordRejectsWrongVectorLength() {
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new DistributedSpmv.Result(
-                        new double[]{1.0},
-                        2,
-                        2,
-                        1,
-                        2,
-                        Duration.ofMillis(1),
-                        0));
+    void aSingleVeryLongRowShowsUpAsImbalanceInsteadOfBeingSplit() {
+        SparseMatrixCSR matrix = SpmvStrategyTest.singleHugeRow(2_000, 7L);
+        DistributedCsrPartition p =
+                DistributedCsrPartition.create(matrix, 8);
+
+        assertTrue(p.nnzImbalance() > 1.5);
     }
 
     @Test
-    void resultRecordRejectsNegativeDimensions() {
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new DistributedSpmv.Result(
-                        new double[0],
-                        -1,
-                        0,
-                        0,
-                        1,
-                        Duration.ofMillis(1),
-                        0));
+    void haloCountsMatchAnIndependentBruteForceCount() {
+        SparseMatrixCSR matrix = SpmvStrategyTest.skewed(5_000, 8L);
+        int[] pointers = matrix.getRowPointers();
+        int[] columns = matrix.getColumnIndices();
+
+        for (int ranks : new int[] {1, 3, 8}) {
+            DistributedCsrPartition p =
+                    DistributedCsrPartition.create(matrix, ranks);
+
+            for (int r = 0; r < ranks; r++) {
+                Set<Integer> needed = new HashSet<>();
+                Set<Integer> remote = new HashSet<>();
+
+                for (int row = p.rowStart(r); row < p.rowEnd(r); row++) {
+                    for (int k = pointers[row]; k < pointers[row + 1]; k++) {
+                        needed.add(columns[k]);
+
+                        if (columns[k] < p.rowStart(r)
+                                || columns[k] >= p.rowEnd(r)) {
+                            remote.add(columns[k]);
+                        }
+                    }
+                }
+
+                assertEquals(needed.size(), p.neededColumns(r).length);
+                assertEquals(remote.size(), p.remoteColumnCount(r));
+                assertEquals(8L * remote.size(), p.haloBytes(r));
+            }
+        }
     }
 
     @Test
-    void resultRecordRejectsNonFiniteValues() {
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new DistributedSpmv.Result(
-                        new double[]{Double.NaN},
-                        1,
-                        1,
-                        1,
-                        2,
-                        Duration.ofMillis(1),
-                        0));
+    void neededColumnsAreSortedAndDistinct() {
+        SparseMatrixCSR matrix = SpmvStrategyTest.skewed(3_000, 9L);
+        DistributedCsrPartition p = DistributedCsrPartition.create(matrix, 4);
+
+        for (int r = 0; r < 4; r++) {
+            int[] needed = p.neededColumns(r);
+
+            for (int i = 1; i < needed.length; i++) {
+                assertTrue(needed[i] > needed[i - 1]);
+            }
+        }
     }
 
     @Test
-    void resultRecordRejectsPositiveInfinity() {
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new DistributedSpmv.Result(
-                        new double[]{Double.POSITIVE_INFINITY},
-                        1,
-                        1,
-                        1,
-                        2,
-                        Duration.ofMillis(1),
-                        0));
+    void haloVolumeNeverExceedsTheAllgatherVolume() {
+        SparseMatrixCSR matrix = SpmvStrategyTest.skewed(6_000, 10L);
+
+        for (int ranks : RANKS) {
+            DistributedCsrPartition p =
+                    DistributedCsrPartition.create(matrix, ranks);
+
+            for (int r = 0; r < ranks; r++) {
+                assertTrue(p.haloBytes(r) <= p.allgatherBytes(r));
+            }
+
+            assertTrue(p.totalHaloBytes() <= p.totalAllgatherBytes());
+        }
     }
 
     @Test
-    void resultRecordRejectsNegativeInfinity() {
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new DistributedSpmv.Result(
-                        new double[]{Double.NEGATIVE_INFINITY},
-                        1,
-                        1,
-                        1,
-                        2,
-                        Duration.ofMillis(1),
-                        0));
+    void aSingleRankNeedsNoCommunication() {
+        SparseMatrixCSR matrix = SpmvStrategyTest.skewed(2_000, 12L);
+        DistributedCsrPartition p = DistributedCsrPartition.create(matrix, 1);
+
+        assertEquals(0, p.remoteColumnCount(0));
+        assertEquals(0L, p.totalHaloBytes());
+        assertEquals(0L, p.totalAllgatherBytes());
     }
 
     @Test
-    void resultRecordRejectsNonZeroExitCode() {
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new DistributedSpmv.Result(
-                        new double[]{1.0},
-                        1,
-                        1,
-                        1,
-                        2,
-                        Duration.ofMillis(1),
-                        1));
+    void aBandedMatrixHasASmallHaloComparedWithAllgather() {
+        int n = 50_000;
+        double[] values = new double[3 * n];
+        int[] columns = new int[3 * n];
+        int[] pointers = new int[n + 1];
+        int position = 0;
+
+        for (int row = 0; row < n; row++) {
+            for (int d = -1; d <= 1; d++) {
+                int column = Math.min(n - 1, Math.max(0, row + d));
+                columns[position] = column;
+                values[position++] = 1.0 + d;
+            }
+            pointers[row + 1] = position;
+        }
+
+        // columns are non-decreasing but may repeat at the borders: use the
+        // normalizing public constructor
+        SparseMatrixCSR matrix = new SparseMatrixCSR(
+                values, columns, pointers, n, n);
+        DistributedCsrPartition p = DistributedCsrPartition.create(matrix, 16);
+
+        assertTrue(p.totalHaloBytes() * 100 < p.totalAllgatherBytes(),
+                "banded halo " + p.totalHaloBytes()
+                        + " vs allgather " + p.totalAllgatherBytes());
     }
 
     @Test
-    void resultRecordRejectsZeroProcessCount() {
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new DistributedSpmv.Result(
-                        new double[]{1.0},
-                        1,
-                        1,
-                        1,
-                        0,
-                        Duration.ofMillis(1),
-                        0));
+    void moreRanksThanRowsLeavesEmptyRangesAndStillWorks() {
+        SparseMatrixCSR matrix = SpmvStrategyTest.uniform(5, 2, 13L);
+        double[] x = SpmvStrategyTest.vector(5, 14L);
+        DistributedCsrPartition p = DistributedCsrPartition.create(matrix, 64);
+
+        int empty = 0;
+
+        for (int r = 0; r < 64; r++) {
+            if (p.localRows(r) == 0) {
+                empty++;
+            }
+        }
+
+        assertTrue(empty > 0);
+
+        try (DistributedSpmvSimulation simulation =
+                     new DistributedSpmvSimulation(p)) {
+            assertBitwiseEqual(matrix.multiply(x), simulation.multiply(x));
+        }
     }
 
     @Test
-    void resultRecordRejectsNegativeElapsedTime() {
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> new DistributedSpmv.Result(
-                        new double[]{1.0},
-                        1,
-                        1,
-                        1,
-                        1,
-                        Duration.ofNanos(-1),
-                        0));
+    void emptyMatrixWorks() {
+        SparseMatrixCSR matrix = new SparseMatrixCSR(
+                new double[0], new int[0], new int[] {0}, 0, 0);
+        DistributedCsrPartition p = DistributedCsrPartition.create(matrix, 4);
+
+        try (DistributedSpmvSimulation simulation =
+                     new DistributedSpmvSimulation(p)) {
+            assertEquals(0, simulation.multiply(new double[0]).length);
+        }
     }
 
     @Test
-    void mpiInvocationRejectsNullMatrix() {
-        assertThrows(
-                NullPointerException.class,
-                () -> DistributedSpmv.multiply(
-                        null,
-                        sampleVector(),
-                        2,
-                        Path.of("mpirun"),
-                        Path.of("p3_mpi_spmv"),
-                        Duration.ofSeconds(5)));
+    void inPlaceAndRepeatedMultiplicationsAreCorrect() {
+        SparseMatrixCSR matrix = SpmvStrategyTest.skewed(4_000, 15L);
+        double[] x = SpmvStrategyTest.vector(4_000, 16L);
+        double[] expected = matrix.multiply(x);
+
+        DistributedCsrPartition p = DistributedCsrPartition.create(matrix, 5);
+
+        try (DistributedSpmvSimulation simulation =
+                     new DistributedSpmvSimulation(p)) {
+            double[] aliased = x.clone();
+            simulation.multiplyInto(aliased, aliased);
+            assertBitwiseEqual(expected, aliased);
+
+            for (int i = 0; i < 20; i++) {
+                assertBitwiseEqual(expected, simulation.multiply(x));
+            }
+
+            assertEquals(p.totalHaloBytes(), simulation.lastHaloBytes());
+            assertEquals(p.totalAllgatherBytes(),
+                    simulation.lastAllgatherBytes());
+        }
     }
 
     @Test
-    void mpiInvocationRejectsNullInputVector() {
-        assertThrows(
-                NullPointerException.class,
-                () -> DistributedSpmv.multiply(
-                        sampleMatrix(),
-                        null,
-                        2,
-                        Path.of("mpirun"),
-                        Path.of("p3_mpi_spmv"),
-                        Duration.ofSeconds(5)));
+    void nonSquareMatricesAndInvalidArgumentsAreRejected() {
+        SparseMatrixCSR rectangular = new SparseMatrixCSR(
+                new double[] {1.0}, new int[] {0}, new int[] {0, 1, 1}, 2, 3);
+        SparseMatrixCSR square = SpmvStrategyTest.uniform(10, 2, 17L);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> DistributedCsrPartition.create(rectangular, 2));
+        assertThrows(IllegalArgumentException.class,
+                () -> DistributedCsrPartition.create(square, 0));
+        assertThrows(NullPointerException.class,
+                () -> DistributedCsrPartition.create(null, 2));
+        assertThrows(NullPointerException.class,
+                () -> new DistributedSpmvSimulation(null));
+
+        DistributedCsrPartition p = DistributedCsrPartition.create(square, 2);
+
+        assertThrows(IllegalArgumentException.class, () -> p.rowStart(-1));
+        assertThrows(IllegalArgumentException.class, () -> p.rowEnd(2));
+
+        try (DistributedSpmvSimulation simulation =
+                     new DistributedSpmvSimulation(p)) {
+            assertThrows(IllegalArgumentException.class,
+                    () -> simulation.multiply(new double[9]));
+            assertThrows(NullPointerException.class,
+                    () -> simulation.multiplyInto(null, new double[10]));
+        }
     }
 
     @Test
-    void mpiInvocationRejectsZeroProcessesBeforeStartingLauncher() {
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> DistributedSpmv.multiply(
-                        sampleMatrix(),
-                        sampleVector(),
-                        0,
-                        Path.of("mpirun"),
-                        Path.of("p3_mpi_spmv"),
-                        Duration.ofSeconds(5)));
+    void closedSimulationRejectsMultiplication() {
+        SparseMatrixCSR matrix = SpmvStrategyTest.uniform(100, 2, 18L);
+        DistributedSpmvSimulation simulation = new DistributedSpmvSimulation(
+                DistributedCsrPartition.create(matrix, 3));
+
+        simulation.close();
+
+        assertTrue(simulation.isClosed());
+        assertThrows(IllegalStateException.class,
+                () -> simulation.multiply(new double[100]));
     }
 
     @Test
-    void mpiInvocationRejectsNegativeProcessCount() {
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> DistributedSpmv.multiply(
-                        sampleMatrix(),
-                        sampleVector(),
-                        -2,
-                        Path.of("mpirun"),
-                        Path.of("p3_mpi_spmv"),
-                        Duration.ofSeconds(5)));
-    }
+    void neededColumnsAreDefensivelyCopied() {
+        SparseMatrixCSR matrix = SpmvStrategyTest.uniform(100, 2, 19L);
+        DistributedCsrPartition p = DistributedCsrPartition.create(matrix, 2);
 
-    @Test
-    void mpiInvocationRejectsInputVectorWithWrongLength() {
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> DistributedSpmv.multiply(
-                        sampleMatrix(),
-                        new double[]{1.0, 2.0},
-                        2,
-                        Path.of("mpirun"),
-                        Path.of("p3_mpi_spmv"),
-                        Duration.ofSeconds(5)));
-    }
+        int[] first = p.neededColumns(0);
+        int original = first[0];
+        Arrays.fill(first, -1);
 
-    @Test
-    void mpiInvocationRejectsNonFiniteInputVector() {
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> DistributedSpmv.multiply(
-                        sampleMatrix(),
-                        new double[]{
-                                1.0,
-                                Double.POSITIVE_INFINITY,
-                                3.0
-                        },
-                        2,
-                        Path.of("mpirun"),
-                        Path.of("p3_mpi_spmv"),
-                        Duration.ofSeconds(5)));
-    }
-
-    @Test
-    void mpiInvocationRejectsNanInputVector() {
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> DistributedSpmv.multiply(
-                        sampleMatrix(),
-                        new double[]{
-                                1.0,
-                                Double.NaN,
-                                3.0
-                        },
-                        2,
-                        Path.of("mpirun"),
-                        Path.of("p3_mpi_spmv"),
-                        Duration.ofSeconds(5)));
-    }
-
-    @Test
-    void mpiInvocationRejectsZeroTimeout() {
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> DistributedSpmv.multiply(
-                        sampleMatrix(),
-                        sampleVector(),
-                        2,
-                        Path.of("mpirun"),
-                        Path.of("p3_mpi_spmv"),
-                        Duration.ZERO));
-    }
-
-    @Test
-    void mpiInvocationRejectsNegativeTimeout() {
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> DistributedSpmv.multiply(
-                        sampleMatrix(),
-                        sampleVector(),
-                        2,
-                        Path.of("mpirun"),
-                        Path.of("p3_mpi_spmv"),
-                        Duration.ofSeconds(-1)));
-    }
-
-    @Test
-    void mpiInvocationRejectsSubMillisecondTimeout() {
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> DistributedSpmv.multiply(
-                        sampleMatrix(),
-                        sampleVector(),
-                        2,
-                        Path.of("mpirun"),
-                        Path.of("p3_mpi_spmv"),
-                        Duration.ofNanos(1)));
-    }
-
-    @Test
-    void mpiInvocationRejectsBlankLauncher() {
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> DistributedSpmv.multiply(
-                        sampleMatrix(),
-                        sampleVector(),
-                        2,
-                        Path.of(""),
-                        Path.of("p3_mpi_spmv"),
-                        Duration.ofSeconds(5)));
-    }
-
-    @Test
-    void mpiInvocationRejectsBlankNativeExecutable() {
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> DistributedSpmv.multiply(
-                        sampleMatrix(),
-                        sampleVector(),
-                        2,
-                        Path.of("mpirun"),
-                        Path.of(""),
-                        Duration.ofSeconds(5)));
-    }
-
-    /**
-     * This is the real native MPI integration test.
-     *
-     * It is enabled only when p3_validation has compiled the C backend
-     * and supplied P3_MPI_EXECUTABLE. The test launches two MPI ranks
-     * and compares the distributed result against the sequential CSR
-     * implementation.
-     *
-     * A local two-rank test validates the MPI protocol and result
-     * aggregation. It does not establish inter-node scaling.
-     */
-    @Test
-    @EnabledIfEnvironmentVariable(
-            named = "P3_MPI_EXECUTABLE",
-            matches = ".+")
-    void nativeMpiTwoProcessResultMatchesSequentialReference()
-            throws Exception {
-
-        SparseMatrixCSR matrix = sampleMatrix();
-        double[] x = sampleVector();
-
-        String executableSetting =
-                System.getenv("P3_MPI_EXECUTABLE");
-
-        String launcherSetting =
-                System.getenv("P3_MPI_LAUNCHER");
-
-        assertNotNull(executableSetting);
-        assertFalse(executableSetting.isBlank());
-
-        Path executable = Path.of(executableSetting);
-
-        Path launcher = launcherSetting == null
-                || launcherSetting.isBlank()
-                ? Path.of("mpirun")
-                : Path.of(launcherSetting);
-
-        DistributedSpmv.Result result =
-                DistributedSpmv.multiply(
-                        matrix,
-                        x,
-                        2,
-                        launcher,
-                        executable,
-                        Duration.ofSeconds(60));
-
-        assertEquals(3, result.rows());
-        assertEquals(3, result.columns());
-        assertEquals(3, result.nnz());
-        assertEquals(2, result.processCount());
-        assertEquals(0, result.processExitCode());
-
-        assertArrayEquals(
-                matrix.multiply(x),
-                result.values(),
-                1.0e-12);
-
-        assertTrue(
-                result.elapsedTime().toNanos() > 0,
-                "Elapsed wall-clock time must be positive.");
+        assertEquals(original, p.neededColumns(0)[0]);
     }
 }

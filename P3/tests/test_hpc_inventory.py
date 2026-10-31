@@ -1,665 +1,177 @@
-"""Tests for the QFLPN P3 HPC inventory collector.
-
-Run from the repository root:
-    python -m pytest -q P3/tests/test_hpc_inventory.py
-
-The tests use only the Python standard library plus pytest.
-"""
+#!/usr/bin/env python3
+"""Tests for P3/hpc/tools/collect_hpc_inventory.py and the 664-core target."""
 
 from __future__ import annotations
 
 import importlib.util
 import json
 from pathlib import Path
-from typing import Any
-
-import pytest
-
-
-REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-
-COLLECTOR_PATH = (
-    REPOSITORY_ROOT
-    / "P3"
-    / "hpc"
-    / "tools"
-    / "collect_hpc_inventory.py"
-)
-
-CONFIG_PATH = (
-    REPOSITORY_ROOT
-    / "P3"
-    / "hpc"
-    / "config"
-    / "hpc-664.json"
-)
-
-SPEC = importlib.util.spec_from_file_location(
-    "p3_collect_hpc_inventory",
-    COLLECTOR_PATH,
-)
-
-assert SPEC is not None
-assert SPEC.loader is not None
-
-inventory_module = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(inventory_module)
-
-
-def make_config() -> dict[str, Any]:
-    """Return a minimal valid configuration using the current v1 schema."""
-    return {
-        "schema": "qflpn-p3-hpc-configuration-v1",
-        "configuration_id": "P3-HPC-664-REFERENCE",
-        "status": "PROPOSED_NOT_HARDWARE_VERIFIED",
-        "cluster": {
-            "node_count": 16,
-            "physical_cores_target": 664,
-            "memory_gib_total": 4096,
-        },
-        "node_allocation": {
-            "groups": [
-                {
-                    "node_count": 8,
-                    "physical_cores_per_node": 42,
-                    "memory_gib_per_node": 256,
-                },
-                {
-                    "node_count": 8,
-                    "physical_cores_per_node": 41,
-                    "memory_gib_per_node": 256,
-                },
-            ],
-        },
-    }
-
-
-def make_inventory(
-    *,
-    operating_system: str = "Linux",
-    physical_core_count: int | None = 42,
-    affinity_count: int | None = 42,
-    memory_total_bytes: int | None = 256 * 1024**3,
-    memory_limit_bytes: int | None = None,
-    slurm_active: bool = True,
-    slurm_nodes: str | None = "16",
-) -> dict[str, Any]:
-    """Return a synthetic single-node inventory."""
-    return {
-        "host": {
-            "operating_system": operating_system,
-        },
-        "hardware": {
-            "cpu": {
-                "logical_processors": 84,
-                "physical_core_count": physical_core_count,
-            },
-            "cpu_affinity": {
-                "available": affinity_count is not None,
-                "cpu_ids": (
-                    list(range(affinity_count))
-                    if affinity_count is not None
-                    else None
-                ),
-                "cpu_count": affinity_count,
-            },
-            "memory": {
-                "total_bytes": memory_total_bytes,
-                "total_gib": (
-                    round(memory_total_bytes / (1024**3), 3)
-                    if memory_total_bytes is not None
-                    else None
-                ),
-            },
-            "cgroup": {
-                "version": "V2",
-                "cpu_quota_cores": None,
-                "cpu_period_us": None,
-                "cpu_max": "max 100000",
-                "cpuset_cpus": "0-41",
-                "cpuset_cpu_ids": list(range(42)),
-                "memory_limit_bytes": memory_limit_bytes,
-                "memory_current_bytes": None,
-                "cgroup_mount_detected": True,
-            },
-        },
-        "scheduler": {
-            "slurm": {
-                "active": slurm_active,
-                "environment": {
-                    "SLURM_JOB_ID": (
-                        "12345" if slurm_active else None
-                    ),
-                    "SLURM_NNODES": (
-                        slurm_nodes if slurm_active else None
-                    ),
-                },
-                "scontrol_job_query": {
-                    "available": slurm_active,
-                    "return_code": 0 if slurm_active else None,
-                    "stdout": "JobId=12345" if slurm_active else "",
-                    "stderr": "",
-                },
-            },
-        },
-    }
-
-
-def error_codes(errors: list[dict[str, str]]) -> set[str]:
-    return {error["code"] for error in errors}
-
-
-def test_current_repository_configuration_exists() -> None:
-    assert CONFIG_PATH.is_file()
-
-
-def test_current_repository_configuration_has_valid_schema() -> None:
-    config = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-
-    assert config["schema"] == "qflpn-p3-hpc-configuration-v1"
-
-    nodes, cores, memory_per_node = (
-        inventory_module.read_reference_targets(config)
-    )
-
-    assert nodes == 16
-    assert cores == 664
-    assert memory_per_node == pytest.approx(256.0)
-
-
-def test_reference_configuration_calculates_heterogeneous_core_total() -> None:
-    config = make_config()
-
-    nodes, cores, memory_per_node = (
-        inventory_module.read_reference_targets(config)
-    )
-
-    assert nodes == 16
-    assert cores == 664
-    assert memory_per_node == pytest.approx(256.0)
-
-    groups = config["node_allocation"]["groups"]
-
-    calculated_nodes = sum(
-        group["node_count"] for group in groups
-    )
-    calculated_cores = sum(
-        group["node_count"] * group["physical_cores_per_node"]
-        for group in groups
-    )
-    calculated_memory = sum(
-        group["node_count"] * group["memory_gib_per_node"]
-        for group in groups
-    )
-
-    assert calculated_nodes == 16
-    assert calculated_cores == 664
-    assert calculated_memory == pytest.approx(4096.0)
-
-
-def test_parse_cpu_list_accepts_ranges_and_individual_cpus() -> None:
-    assert inventory_module.parse_cpu_list("0-3,8,10-11") == [
-        0, 1, 2, 3, 8, 10, 11
-    ]
-
-
-def test_parse_cpu_list_removes_duplicates_and_sorts() -> None:
-    assert inventory_module.parse_cpu_list("3,1-2,2,0") == [
-        0, 1, 2, 3
-    ]
-
-
-@pytest.mark.parametrize(
-    "value",
-    [
-        None,
-        "",
-        " ",
-        "0-",
-        "-3",
-        "4-2",
-        "0,a,2",
-        "0,,2",
-        ",0",
-        "0,",
-        "1-2-3",
-        "-1",
-    ],
-)
-def test_parse_cpu_list_rejects_invalid_input(
-    value: str | None,
-) -> None:
-    assert inventory_module.parse_cpu_list(value) is None
-
-
-def test_validate_reference_accepts_valid_heterogeneous_node() -> None:
-    config = make_config()
-    inventory = make_inventory(physical_core_count=42)
-
-    errors = inventory_module.validate_reference(
-        config,
-        inventory,
-        require_slurm=True,
-    )
-
-    assert errors == []
-
-    comparison = inventory["reference_comparison"]
-
-    assert comparison["expected_cluster_nodes"] == 16
-    assert comparison["expected_cluster_physical_cores"] == 664
-    assert comparison["expected_local_physical_cores_options"] == [
-        41, 42
-    ]
-    assert comparison["expected_local_memory_gib"] == pytest.approx(256.0)
-    assert (
-        comparison["cluster_wide_verification"]
-        == "NOT_POSSIBLE_FROM_SINGLE_NODE_INVENTORY"
-    )
-
-
-def test_validate_reference_accepts_41_core_node() -> None:
-    config = make_config()
-    inventory = make_inventory(physical_core_count=41)
-
-    errors = inventory_module.validate_reference(
-        config,
-        inventory,
-        require_slurm=True,
-    )
-
-    assert errors == []
-
-
-def test_validate_reference_rejects_wrong_configuration_schema() -> None:
-    config = make_config()
-    config["schema"] = "wrong-schema"
-
-    errors = inventory_module.validate_reference(
-        config,
-        make_inventory(),
-        require_slurm=True,
-    )
-
-    assert error_codes(errors) == {"CONFIGURATION_INVALID"}
-
-
-def test_validate_reference_rejects_inconsistent_node_count() -> None:
-    config = make_config()
-    config["node_allocation"]["groups"][0]["node_count"] = 7
-
-    errors = inventory_module.validate_reference(
-        config,
-        make_inventory(),
-        require_slurm=True,
-    )
-
-    assert "CONFIGURATION_INVALID" in error_codes(errors)
-    assert "CONFIG_NODE_COUNT_INCONSISTENT" in str(errors)
-
-
-def test_validate_reference_rejects_inconsistent_core_total() -> None:
-    config = make_config()
-    config["cluster"]["physical_cores_target"] = 665
-
-    errors = inventory_module.validate_reference(
-        config,
-        make_inventory(),
-        require_slurm=True,
-    )
-
-    assert "CONFIGURATION_INVALID" in error_codes(errors)
-    assert "CONFIG_CORE_COUNT_INCONSISTENT" in str(errors)
-
-
-def test_validate_reference_rejects_inconsistent_memory_total() -> None:
-    config = make_config()
-    config["cluster"]["memory_gib_total"] = 4000
-
-    errors = inventory_module.validate_reference(
-        config,
-        make_inventory(),
-        require_slurm=True,
-    )
-
-    assert "CONFIGURATION_INVALID" in error_codes(errors)
-    assert "CONFIG_MEMORY_TOTAL_INCONSISTENT" in str(errors)
-
-
-def test_validate_reference_rejects_non_linux_host() -> None:
-    errors = inventory_module.validate_reference(
-        make_config(),
-        make_inventory(operating_system="Windows"),
-        require_slurm=True,
-    )
-
-    assert "UNSUPPORTED_OPERATING_SYSTEM" in error_codes(errors)
-
-
-def test_validate_reference_rejects_unknown_cpu_affinity() -> None:
-    errors = inventory_module.validate_reference(
-        make_config(),
-        make_inventory(affinity_count=None),
-        require_slurm=True,
-    )
-
-    assert "CPU_AFFINITY_UNKNOWN" in error_codes(errors)
-
-
-def test_validate_reference_rejects_unknown_memory_capacity() -> None:
-    errors = inventory_module.validate_reference(
-        make_config(),
-        make_inventory(memory_total_bytes=None),
-        require_slurm=True,
-    )
-
-    assert "MEMORY_TOTAL_UNKNOWN" in error_codes(errors)
-
-
-def test_validate_reference_rejects_memory_below_node_target() -> None:
-    errors = inventory_module.validate_reference(
-        make_config(),
-        make_inventory(
-            memory_total_bytes=200 * 1024**3,
-        ),
-        require_slurm=True,
-    )
-
-    assert "LOCAL_MEMORY_TARGET_MISMATCH" in error_codes(errors)
-
-
-def test_validate_reference_rejects_missing_slurm_allocation() -> None:
-    errors = inventory_module.validate_reference(
-        make_config(),
-        make_inventory(slurm_active=False),
-        require_slurm=True,
-    )
-
-    assert "SLURM_ALLOCATION_ABSENT" in error_codes(errors)
-
-
-def test_validate_reference_allows_missing_slurm_when_not_required() -> None:
-    errors = inventory_module.validate_reference(
-        make_config(),
-        make_inventory(slurm_active=False),
-        require_slurm=False,
-    )
-
-    assert "SLURM_ALLOCATION_ABSENT" not in error_codes(errors)
-
-
-def test_validate_reference_rejects_slurm_node_count_above_reference() -> None:
-    errors = inventory_module.validate_reference(
-        make_config(),
-        make_inventory(slurm_nodes="17"),
-        require_slurm=True,
-    )
-
-    assert "SLURM_NODE_COUNT_EXCEEDS_REFERENCE" in error_codes(errors)
-
-
-def test_validate_reference_rejects_non_numeric_slurm_node_count() -> None:
-    errors = inventory_module.validate_reference(
-        make_config(),
-        make_inventory(slurm_nodes="sixteen"),
-        require_slurm=True,
-    )
-
-    assert "SLURM_NODE_COUNT_INVALID" in error_codes(errors)
-
-
-def test_validate_reference_warns_when_cgroup_memory_is_restricted() -> None:
-    inventory = make_inventory(
-        memory_total_bytes=256 * 1024**3,
-        memory_limit_bytes=64 * 1024**3,
-    )
-
-    errors = inventory_module.validate_reference(
-        make_config(),
-        inventory,
-        require_slurm=True,
-    )
-
-    assert errors == []
-    assert "resource_warnings" in inventory
-    assert inventory["resource_warnings"][0]["code"] == (
-        "CGROUP_MEMORY_LIMIT_BELOW_HOST_RAM"
-    )
-
-
-def test_collect_marks_cluster_acceptance_not_evaluated(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    config_path = tmp_path / "hpc-664.json"
-    config_path.write_text(
-        json.dumps(make_config()),
-        encoding="utf-8",
-    )
-
-    monkeypatch.setattr(
-        inventory_module,
-        "parse_cpuinfo",
-        lambda: {
-            "model_names": ["Synthetic test CPU"],
-            "logical_processors": 84,
-            "physical_core_ids": [
-                f"0:{core}" for core in range(42)
-            ],
-            "physical_core_count": 42,
-            "socket_ids": ["0"],
-            "socket_count": 1,
-        },
-    )
-
-    monkeypatch.setattr(
-        inventory_module,
-        "discover_frequency",
-        lambda: {
-            "available": True,
-            "scaling_governor": "performance",
-            "scaling_min_khz": 1000000,
-            "scaling_max_khz": 3000000,
-            "cpuinfo_max_khz": 3000000,
-        },
-    )
-
-    monkeypatch.setattr(
-        inventory_module,
-        "discover_cache",
-        lambda: [],
-    )
-
-    monkeypatch.setattr(
-        inventory_module,
-        "discover_affinity",
-        lambda: {
-            "available": True,
-            "cpu_ids": list(range(42)),
-            "cpu_count": 42,
-            "source": "synthetic-test",
-        },
-    )
-
-    monkeypatch.setattr(
-        inventory_module,
-        "discover_cgroup",
-        lambda: {
-            "version": "V2",
-            "cpu_quota_cores": None,
-            "cpu_period_us": None,
-            "cpu_max": "max 100000",
-            "cpuset_cpus": "0-41",
-            "cpuset_cpu_ids": list(range(42)),
-            "memory_limit_bytes": None,
-            "memory_current_bytes": None,
-            "cgroup_mount_detected": True,
-        },
-    )
-
-    monkeypatch.setattr(
-        inventory_module,
-        "discover_memory",
-        lambda: {
-            "total_bytes": 256 * 1024**3,
-            "available_bytes": 200 * 1024**3,
-            "free_bytes": 100 * 1024**3,
-            "total_gib": 256.0,
-            "available_gib": 200.0,
-        },
-    )
-
-    monkeypatch.setattr(
-        inventory_module,
-        "discover_numa",
-        lambda: {
-            "available": True,
-            "node_count": 2,
-            "nodes": [],
-        },
-    )
-
-    monkeypatch.setattr(
-        inventory_module,
-        "discover_slurm",
-        lambda: {
-            "active": True,
-            "environment": {
-                "SLURM_JOB_ID": "12345",
-                "SLURM_NNODES": "16",
-                "SLURM_NODEID": "0",
-            },
-            "scontrol_job_query": {
-                "available": True,
-                "return_code": 0,
-                "stdout": "JobId=12345",
-                "stderr": "",
-            },
-        },
-    )
-
-    monkeypatch.setattr(
-        inventory_module,
-        "discover_software",
-        lambda: {
-            "platform": "Linux-test",
-            "system": "Linux",
-            "release": "test-kernel",
-            "machine": "x86_64",
-            "python_version": "3.x",
-            "java": {"available": True, "return_code": 0},
-            "maven": {"available": True, "return_code": 0},
-            "mpi_and_scheduler_commands": {},
-        },
-    )
-
-    monkeypatch.setattr(
-        inventory_module.platform,
-        "system",
-        lambda: "Linux",
-    )
-
-    result = inventory_module.collect(
-        config_path,
-        require_slurm=True,
-    )
-
-    assert result["schema"] == "qflpn-p3-hpc-inventory"
-    assert result["schema_version"] == inventory_module.SCHEMA_VERSION
-    assert result["validation"]["status"] == "PASS_LOCAL_PREFLIGHT"
-    assert result["validation"]["errors"] == []
-    assert result["validation"]["cluster_acceptance"] == "NOT_EVALUATED"
-    assert result["validation"]["acceptance_gate"] == "p3_validation"
-    assert result["reference_comparison"]["expected_cluster_nodes"] == 16
-    assert (
-        result["reference_comparison"]["expected_cluster_physical_cores"]
-        == 664
-    )
-    assert (
-        result["reference_comparison"]["cluster_wide_verification"]
-        == "NOT_POSSIBLE_FROM_SINGLE_NODE_INVENTORY"
-    )
-
-
-def test_collect_rejects_invalid_json_configuration(
-    tmp_path: Path,
-) -> None:
-    config_path = tmp_path / "invalid.json"
-    config_path.write_text("{ invalid json", encoding="utf-8")
-
-    with pytest.raises(
-        ValueError,
-        match="Nu se poate citi configurația JSON",
-    ):
-        inventory_module.collect(
-            config_path,
-            require_slurm=False,
-        )
-
-
-def test_collect_rejects_non_object_json_configuration(
-    tmp_path: Path,
-) -> None:
-    config_path = tmp_path / "array.json"
-    config_path.write_text("[]", encoding="utf-8")
-
-    with pytest.raises(
-        ValueError,
-        match="Rădăcina configurației trebuie să fie un obiect JSON",
-    ):
-        inventory_module.collect(
-            config_path,
-            require_slurm=False,
-        )
-
-
-def test_read_reference_targets_rejects_unknown_schema() -> None:
-    with pytest.raises(ValueError, match="CONFIG_SCHEMA_INVALID"):
-        inventory_module.read_reference_targets({
-            "schema": "unknown",
-        })
-
-
-def test_read_reference_targets_rejects_missing_node_groups() -> None:
-    config = make_config()
-    config["node_allocation"]["groups"] = []
-
-    with pytest.raises(
-        ValueError,
-        match="CONFIG_NODE_ALLOCATION_GROUPS_INVALID",
-    ):
-        inventory_module.read_reference_targets(config)
-
-
-def test_read_reference_targets_rejects_invalid_group_values() -> None:
-    config = make_config()
-    config["node_allocation"]["groups"][0][
-        "physical_cores_per_node"
-    ] = 0
-
-    with pytest.raises(
-        ValueError,
-        match="CONFIG_NODE_ALLOCATION_VALUE_INVALID",
-    ):
-        inventory_module.read_reference_targets(config)
-
-
-def test_inventory_schema_constants_are_stable() -> None:
-    assert inventory_module.SCHEMA == "qflpn-p3-hpc-inventory"
-    assert inventory_module.SCHEMA_VERSION == "1.1.0"
-
-
-def test_inventory_never_claims_cluster_acceptance_from_one_node() -> None:
-    config = make_config()
-    inventory = make_inventory()
-
-    inventory_module.validate_reference(
-        config,
-        inventory,
-        require_slurm=True,
-    )
-
-    assert (
-        inventory["reference_comparison"]["cluster_wide_verification"]
-        == "NOT_POSSIBLE_FROM_SINGLE_NODE_INVENTORY"
-    )
+
+ROOT = Path(__file__).resolve().parents[2]
+TOOL = ROOT / "P3" / "hpc" / "tools" / "collect_hpc_inventory.py"
+TARGET = ROOT / "P3" / "hpc" / "config" / "hpc-664.json"
+
+SPEC = importlib.util.spec_from_file_location("qflpn_hpc_inventory", TOOL)
+assert SPEC is not None and SPEC.loader is not None
+MODULE = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(MODULE)
+
+CPUINFO = """processor\t: 0
+model name\t: Example CPU
+physical id\t: 0
+core id\t: 0
+
+processor\t: 1
+model name\t: Example CPU
+physical id\t: 0
+core id\t: 0
+
+processor\t: 2
+model name\t: Example CPU
+physical id\t: 0
+core id\t: 1
+
+processor\t: 3
+model name\t: Example CPU
+physical id\t: 1
+core id\t: 0
+
+processor\t: 4
+model name\t: Example CPU
+physical id\t: 1
+core id\t: 0
+"""
+
+
+def target() -> dict:
+    return json.loads(TARGET.read_text(encoding="utf-8"))
+
+
+def node(host: str, cores: int, ram: float = 256.0, mpi: str = "mpirun 5") -> dict:
+    return {"hostname": host, "physical_cores": cores,
+            "cpu_affinity_count": cores, "cgroup_cpu_quota_cores": None,
+            "memory_gib": ram, "mpi": mpi}
+
+
+def full_cluster() -> list[dict]:
+    return ([node(f"HPC-{i:02d}", 42) for i in range(1, 9)]
+            + [node(f"HPC-{i:02d}", 41) for i in range(9, 17)])
+
+
+def status(result: dict) -> dict[str, str]:
+    return {c["id"]: c["status"] for c in result["checks"]}
+
+
+def test_target_file_is_internally_consistent() -> None:
+    t = target()
+    assert t["physical_cores_total"] == 8 * 42 + 8 * 41 == 664
+    assert t["compute_nodes"] * t["ram_gib_per_node"] == t["ram_gib_total"] == 4096
+    assert 672 in t["oversubscribed_points"]
+    assert 672 > t["physical_cores_total"]
+    assert "NOT_EVIDENCE" in t["status"]
+
+
+def test_cpuinfo_parsing_counts_distinct_physical_cores_and_sockets() -> None:
+    info = MODULE.parse_cpuinfo(CPUINFO)
+    assert info["logical_processors"] == 5
+    assert info["physical_cores"] == 3           # (0,0) (0,1) (1,0)
+    assert info["sockets"] == 2
+    assert info["cpu_model"] == "Example CPU"
+
+
+def test_cpuinfo_without_topology_keeps_physical_cores_unknown() -> None:
+    info = MODULE.parse_cpuinfo("processor\t: 0\nprocessor\t: 1\n")
+    assert info["logical_processors"] == 2
+    assert info["physical_cores"] is None
+
+
+def test_meminfo_and_cgroup_parsing() -> None:
+    assert MODULE.parse_meminfo_gib("MemTotal:  268435456 kB\n") == 256.0
+    assert MODULE.parse_meminfo_gib("nothing") is None
+    assert MODULE.parse_cgroup_cpu_max("max 100000") is None
+    assert MODULE.parse_cgroup_cpu_max("200000 100000") == 2.0
+    assert MODULE.parse_cgroup_cpu_max("garbage") is None
+
+
+def test_usable_cores_is_the_minimum_of_every_limit() -> None:
+    n = {"physical_cores": 42, "cpu_affinity_count": 8,
+         "cgroup_cpu_quota_cores": 4.0}
+    assert MODULE.usable_cores(n) == 4
+    assert MODULE.usable_cores({}) is None
+
+
+def test_the_full_reference_cluster_passes() -> None:
+    result = MODULE.validate_target(target(), full_cluster())
+    assert result["overall"] == "PASS", result
+    assert sum(MODULE.usable_cores(n) for n in full_cluster()) == 664
+
+
+def test_no_inventory_is_deferred_never_pass() -> None:
+    result = MODULE.validate_target(target(), [])
+    assert result["overall"] == "DEFERRED"
+    assert status(result)["T1_INVENTORIES_PRESENT"] == "DEFERRED"
+
+
+def test_fifteen_nodes_are_deferred() -> None:
+    result = MODULE.validate_target(target(), full_cluster()[:15])
+    assert result["overall"] == "DEFERRED"
+    assert status(result)["T4_NODE_COUNT"] == "DEFERRED"
+    assert status(result)["T5_CORE_COUNT"] == "DEFERRED"
+
+
+def test_one_big_node_does_not_demonstrate_a_cluster() -> None:
+    result = MODULE.validate_target(target(), [node("big", 664, 4096.0)])
+    assert result["overall"] == "DEFERRED"
+    assert status(result)["T4_NODE_COUNT"] == "DEFERRED"
+
+
+def test_duplicate_hostnames_fail() -> None:
+    nodes = full_cluster()
+    nodes[1] = dict(nodes[0])
+    result = MODULE.validate_target(target(), nodes)
+    assert result["overall"] == "FAIL"
+    assert status(result)["T2_DISTINCT_NODES"] == "FAIL"
+
+
+def test_an_affinity_mask_smaller_than_the_target_is_detected() -> None:
+    nodes = full_cluster()
+    nodes[0]["cpu_affinity_count"] = 8          # job only sees 8 cores there
+    result = MODULE.validate_target(target(), nodes)
+    assert status(result)["T5_CORE_COUNT"] == "DEFERRED"
+
+
+def test_unknown_core_count_and_memory_are_deferred() -> None:
+    nodes = full_cluster()
+    nodes[0] = {"hostname": "HPC-01", "memory_gib": None, "mpi": "x"}
+    result = MODULE.validate_target(target(), nodes)
+    assert status(result)["T3_CORES_KNOWN_FOR_EVERY_NODE"] == "DEFERRED"
+    assert status(result)["T6_RAM"] == "DEFERRED"
+
+
+def test_missing_mpi_is_deferred() -> None:
+    nodes = full_cluster()
+    nodes[3]["mpi"] = None
+    assert status(MODULE.validate_target(target(), nodes))["T7_MPI_PRESENT"] \
+        == "DEFERRED"
+
+
+def test_inconsistent_target_fails() -> None:
+    t = target()
+    t["physical_cores_total"] = 700
+    result = MODULE.validate_target(t, full_cluster())
+    assert status(result)["T0_TARGET_IS_INTERNALLY_CONSISTENT"] == "FAIL"
+    assert result["overall"] == "FAIL"
+
+
+def test_run_classification_separates_intra_node_from_distributed() -> None:
+    t = target()
+    assert MODULE.classify_run(1, 664, t) == "INTRA_NODE_ONLY"
+    assert MODULE.classify_run(8, 336, t) == "PARTIAL_CLUSTER"
+    assert MODULE.classify_run(16, 664, t) == "FULL_CLUSTER"
+
+
+def test_collect_returns_the_documented_schema() -> None:
+    inventory = MODULE.collect()
+    assert inventory["schema"] == MODULE.SCHEMA
+    assert isinstance(inventory["hostname"], str)
+    assert inventory["logical_processors"] and inventory["logical_processors"] > 0
