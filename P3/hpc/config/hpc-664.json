@@ -7,13 +7,42 @@
   "ram_gib_total": 4096,
   "ram_gib_per_node": 256,
   "node_groups": [
-    {"names": "HPC-01..HPC-08", "nodes": 8, "physical_cores_per_node": 42},
-    {"names": "HPC-09..HPC-16", "nodes": 8, "physical_cores_per_node": 41}
+    {
+      "names": "HPC-01..HPC-08",
+      "nodes": 8,
+      "physical_cores_per_node": 42
+    },
+    {
+      "names": "HPC-09..HPC-16",
+      "nodes": 8,
+      "physical_cores_per_node": 41
+    }
   ],
   "management_node": "HPC-MGMT (not counted in the compute totals)",
-  "worker_counts": [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 640, 664, 672],
-  "thresholds": [256, 512, 1024, 2048, 4096, 8192, 16384],
+  "worker_counts": [
+    1,
+    2,
+    4,
+    8,
+    16,
+    32,
+    64,
+    128,
+    256,
+    512,
+    640,
+    664
+  ],
+  "thresholds": [
+    256,
+    512,
+    1024,
+    2048,
+    4096,
+    8192,
+    10000000
+  ],
   "minimum_warmup": 5,
   "minimum_valid_measurements": 30,
-  "oversubscribed_points": [672]
+  "oversubscribed_points": []
 }
