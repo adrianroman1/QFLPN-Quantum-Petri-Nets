@@ -19,11 +19,12 @@ Terms used throughout:
 
 | Path | Content |
 |---|---|
-| `code/` | Core classes: `SparseMatrixCSR`, `MultiplyTask`, `SpmvPlan`, `QFLPNCoreEngine`, benchmark runners (V2, V3), and the execution strategies `SpmvStrategy`, `SequentialSpmvStrategy`, `PlannedForkJoinSpmvStrategy`, `StaticChunkSpmvStrategy`, `SpmvStrategies` |
-| `tests/` | JUnit 5 and pytest suites (correctness, bitwise equality, lifecycle, no thread creation per call, validators, integrity tools) |
+| `code/` | Core classes: `SparseMatrixCSR`, `MultiplyTask`, `SpmvPlan`, `QFLPNCoreEngine`, benchmark runners (V2, V3); execution strategies `SpmvStrategy`, `SequentialSpmvStrategy`, `PlannedForkJoinSpmvStrategy`, `StaticChunkSpmvStrategy`, `SpmvStrategies`; distribution plan `DistributedCsrPartition` and in-process `DistributedSpmvSimulation` |
+| `tests/` | JUnit 5 and pytest suites (correctness, bitwise equality, lifecycle, no thread creation per call, distributed plan, validators, integrity tools, build-failure behavior) |
 | `benchmarks/` | V2 and V3 CSV artifacts written by CI; `harness/` holds the fork-based measurement harness |
 | `results/` | `run_parallel_harness.sh` (one command), V2/V3 validators, hand-written `Results.md`, generated `Results.generated.md`, `harness/<RUN_ID>/` run directories |
-| `tools/` | Integrity tools (`compute_checksums.py`, `verify_final_package.py`, …) and `summarize_harness.py`, `generate_results_md.py` |
+| `tools/` | Integrity tools (`compute_checksums.py`, `verify_final_package.py`, …), `summarize_harness.py`, `generate_results_md.py`, `check_harness_gate.py` |
+| `hpc/` | `config/hpc-664.json` (target, not evidence), `tools/collect_hpc_inventory.py` (inventory and target validation), `slurm/` (untested template) |
 | `reports/` | CI reports (validation, evidence consistency, V3 validation) |
 | `MANIFEST.txt`, `SHA256SUMS.txt` | Package manifest and checksums (regenerated and verified by the `p3_validation` workflow) |
 
@@ -71,9 +72,30 @@ Automatic outputs of one run:
 
 `SIZES` (default `1000000 2000000 7000000 10000000`, up to `30000000`),
 `WORKLOADS` (`UNIFORM_2 POWERLAW`), `STRATEGIES` (`SEQ FJ_PLAN STATIC`),
-`PARALLELISMS` (`1 2 4`), `FORKS`, `WARMUP`, `ITERATIONS`, `HEAP_MB`, `RUN_ID`.
+`PARALLELISMS` (`1 2 4`; wider lists such as `1 2 4 8 16 32 64` are accepted,
+values above the visible core count are skipped and recorded),
+`THRESHOLDS` (default `4096`; a sweep such as `256 512 1024 2048 4096 8192 16384`
+is reported per threshold as `FJ_PLAN_T<threshold>`), `THRESHOLD_MODE`
+(`ROW_THRESHOLD` default, or `NNZ_THRESHOLD`), `FORKS`, `WARMUP`, `ITERATIONS`,
+`HEAP_MB`, `RUN_ID`, `STRICT` (1 = exit non-zero unless the verdict is PASS),
+`HARNESS_OUT_DIR`.
 
-Example: `SIZES="10000000 30000000" HEAP_MB=8192 bash P3/results/run_parallel_harness.sh`
+Cost of a sweep: measurements = sizes × workloads × forks × iterations ×
+(1 + parallelisms × (thresholds + 1)). Run a threshold sweep on a dedicated
+machine, not on every commit.
+
+Example: `SIZES="10000000 30000000" THRESHOLDS="1024 4096 16384" HEAP_MB=8192 bash P3/results/run_parallel_harness.sh`
+
+### Failure behavior (fail-closed)
+
+- A Java compile error stops the run before anything is measured:
+  `BUILD_FAILED.txt`, the full `build.log`, and exit status 1.
+- `summarize_harness.py` exits with status 2 when the input is absent, has
+  missing columns, non-numeric or non-positive timings, or duplicates; an empty
+  data set is never a PASS.
+- Every configuration declared in `environment.json` (and not skipped with a
+  reason) must have observations, otherwise C8 fails; without `environment.json`
+  completeness cannot be proven and the verdict is at best PARTIAL.
 
 ## Evidence levels
 
@@ -97,13 +119,15 @@ infeasible, not as PASS.
 
 | ID | Criterion |
 |---|---|
-| C1 | ≥ 30 samples per configuration |
+| C0 | Input present and valid (no empty data, no invalid or duplicated rows) |
+| C1 | ≥ 30 samples per configuration (an empty data set fails) |
 | C2 | Every strategy bitwise identical to sequential, in every fork |
 | C3 | Overhead of each strategy at p = 1 is ≤ 5% of sequential (N ≥ 1M) |
 | C4 | Speedup > 1 at p = 2 for N ≥ 10M (lower bound of the 95% CI) |
 | C5 | No configuration with N ≥ 1M and p ≥ 2 significantly slower than sequential |
 | C6 | Bandwidth ceiling recorded |
 | C7 | Skips and preflight refusals documented |
+| C8 | Every declared configuration has observations |
 
 A criterion that the machine cannot evaluate (for example C4 on a single-core
 machine) is `NOT_EVALUATED` and the overall verdict is `PARTIAL`, never `PASS`.
@@ -112,12 +136,53 @@ Bandwidth efficiency above 1.0 means the working set fits (partly) in cache, so
 the DRAM ceiling does not apply to that row; read it only at sizes well above
 the last-level cache.
 
+## Integration in `p3_validation`
+
+The workflow runs a small harness smoke (1M rows, 2 forks, 15 iterations) into
+`P3/results/raw/<RUN_ID>/harness-smoke/`, so the existing upload, evidence index,
+global `MANIFEST.txt` / `SHA256SUMS.txt` and the evidence commit pick it up
+unchanged. `tools/check_harness_gate.py` blocks the job when the build failed,
+when C0, C1, C2, C7 or C8 is not PASS, or when the run's own `SHA256SUMS.txt`
+does not match. Performance criteria C3–C6 are reported as warnings only:
+shared runners are too noisy for performance gating. The step is intentionally
+not part of `ci-outcomes.json` (its stage schema is unchanged); a failure still
+stops the job before any later step and therefore prevents `P3_ACCEPTED`.
+
+## Distributed SpMV: plan and simulation (no MPI)
+
+`DistributedCsrPartition` distributes a square CSR matrix by NNZ-balanced row
+ranges, remaps each rank's columns to a compact local numbering, and computes
+the exact halo plan (which entries of `x` each rank must receive).
+`DistributedSpmvSimulation` runs the data flow in one JVM and proves that the
+distributed product is bitwise identical to the sequential one for any rank
+count.
+
+This is **not MPI**: there is no network and no communication timing, and its
+timings must never be reported as cluster results. An MPI program would reuse
+`neededColumns(rank)` for the `Alltoallv` counts and `localMultiply` for the
+local product. The MPI binding itself is not implemented here.
+
+## HPC target
+
+`hpc/config/hpc-664.json` describes the reference target (16 compute nodes,
+664 physical cores, 4 TiB). It is a proposal, not evidence.
+`hpc/tools/collect_hpc_inventory.py collect` records what each node and job
+really expose (physical cores, affinity mask, cgroup quota, memory, NUMA,
+Slurm variables, JDK, MPI); `... validate hpc-664.json node*.json` merges the
+inventories and returns PASS only when distinct nodes meet every target
+quantity, DEFERRED when inventories are insufficient or absent, FAIL when they
+contradict the target. A single JVM with parallelism 664 on one node is
+classified as intra-node, not distributed. 672 is an experimental point above
+the physical core count and must be reported as oversubscribed.
+
 ## Known limits
 
 - The V3 benchmark matrix in CI runs at dimension 4096. At that size the
   sequential kernel takes microseconds, so the V3 speedup column measures task
   dispatch overhead; it is a correctness and sensitivity check, not a scaling
   result. Use the harness for performance statements.
+- `StaticChunkSpmvStrategy` keeps a private copy of the CSR arrays (public
+  getters only), i.e. one extra CSR payload while it is open.
 - GitHub-hosted runners have 4 shared vCPUs and are noisy. Final performance
   numbers should come from a dedicated multi-core machine; CI remains the
   correctness and smoke gate.
