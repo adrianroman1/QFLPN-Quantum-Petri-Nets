@@ -1,0 +1,50 @@
+{
+  "overall": "FAIL",
+  "criteria": [
+    {
+      "id": "C0_INPUT_DATA_PRESENT_AND_VALID",
+      "status": "PASS",
+      "detail": "8 configuration(s), all observations valid, no duplicates"
+    },
+    {
+      "id": "C1_SAMPLES_AT_LEAST_30",
+      "status": "PASS",
+      "detail": "all configurations have >= 30 samples"
+    },
+    {
+      "id": "C8_DECLARED_CONFIGURATIONS_COMPLETE",
+      "status": "PASS",
+      "detail": "all 8 declared configuration(s) observed"
+    },
+    {
+      "id": "C2_BITWISE_IDENTICAL_TO_SEQUENTIAL",
+      "status": "PASS",
+      "detail": "every strategy reproduced the sequential bits in every fork"
+    },
+    {
+      "id": "C3_OVERHEAD_AT_P1_AT_MOST_5_PERCENT",
+      "status": "FAIL",
+      "detail": "worst: STATIC UNIFORM_2 n=1000000 overhead=28.7%; 5 configuration(s) above 5.0%"
+    },
+    {
+      "id": "C4_SPEEDUP_GT_1_AT_P2_N_GE_10M",
+      "status": "NOT_EVALUATED",
+      "detail": "no p=2 rows with n >= 10M; this needs a machine with at least 2 cores and the 10M size"
+    },
+    {
+      "id": "C5_NO_SIGNIFICANT_REGRESSION_AT_N_GE_1M",
+      "status": "NOT_EVALUATED",
+      "detail": "no p >= 2 rows (single-core machine or filtered)"
+    },
+    {
+      "id": "C6_BANDWIDTH_CEILING_RECORDED",
+      "status": "PASS",
+      "detail": "1 triad measurement(s)"
+    },
+    {
+      "id": "C7_SKIPS_AND_PREFLIGHT_DOCUMENTED",
+      "status": "PASS",
+      "detail": "2 skipped configuration(s) with reasons, 0 preflight refusal(s)"
+    }
+  ]
+}
