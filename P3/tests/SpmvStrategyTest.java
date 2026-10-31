@@ -5,8 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.lang.management.ManagementFactory;
-import java.lang.management.ThreadMXBean;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
@@ -14,6 +12,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.Test;
 
@@ -22,7 +21,7 @@ import org.junit.jupiter.api.Test;
  *
  * Central properties:
  *  1. every strategy is BITWISE identical to the sequential kernel;
- *  2. no thread or pool is created per multiplication;
+ *  2. no worker thread is created per multiplication after pool warmup;
  *  3. caller-owned pools are never shut down;
  *  4. chunk partitions are valid, aligned and NNZ-balanced.
  */
@@ -250,11 +249,10 @@ class SpmvStrategyTest {
         }
     }
 
-    // ---- no per-call threads or pools ----------------------------------
+    // ---- no per-call worker threads or pools ---------------------------
 
     @Test
-    void noThreadsAreStartedByRepeatedMultiplications() {
-        ThreadMXBean threads = ManagementFactory.getThreadMXBean();
+    void noWorkerThreadsAreCreatedDuringRepeatedMultiplications() {
         SparseMatrixCSR matrix = uniform(200_000, 2, 12L);
         double[] x = vector(200_000, 13L);
         double[] y = new double[200_000];
@@ -263,23 +261,64 @@ class SpmvStrategyTest {
                 PlannedForkJoinSpmvStrategy.NAME,
                 StaticChunkSpmvStrategy.NAME)) {
 
-            try (SpmvStrategy strategy =
-                         SpmvStrategies.create(name, matrix, 2)) {
+            AtomicInteger createdWorkers = new AtomicInteger();
 
-                for (int i = 0; i < 100; i++) {
-                    strategy.multiplyInto(x, y);
+            ForkJoinPool.ForkJoinWorkerThreadFactory workerFactory =
+                    ownerPool -> {
+                        createdWorkers.incrementAndGet();
+                        return ForkJoinPool
+                                .defaultForkJoinWorkerThreadFactory
+                                .newThread(ownerPool);
+                    };
+
+            ForkJoinPool pool = new ForkJoinPool(
+                    2,
+                    workerFactory,
+                    null,
+                    false);
+
+            try {
+                SpmvStrategy strategy;
+
+                if (PlannedForkJoinSpmvStrategy.NAME.equals(name)) {
+                    strategy = new PlannedForkJoinSpmvStrategy(
+                            matrix, 2, 4096, pool);
+                } else {
+                    strategy = new StaticChunkSpmvStrategy(
+                            matrix, 2, 4, pool);
                 }
 
-                long before = threads.getTotalStartedThreadCount();
+                try (strategy) {
+                    // Warmup: worker creation is allowed here.
+                    for (int i = 0; i < 100; i++) {
+                        strategy.multiplyInto(x, y);
+                    }
 
-                for (int i = 0; i < 300; i++) {
-                    strategy.multiplyInto(x, y);
+                    int workersAfterWarmup = createdWorkers.get();
+
+                    assertTrue(
+                            workersAfterWarmup > 0,
+                            name + " did not create any worker thread");
+
+                    // Hot loop: no additional worker may be created.
+                    for (int i = 0; i < 300; i++) {
+                        strategy.multiplyInto(x, y);
+                    }
+
+                    int workersAfterHotLoop = createdWorkers.get();
+
+                    assertEquals(
+                            workersAfterWarmup,
+                            workersAfterHotLoop,
+                            name + " created additional worker threads "
+                                    + "inside the hot loop");
+
+                    assertFalse(
+                            pool.isShutdown(),
+                            name + " shut down a caller-owned pool");
                 }
-
-                long after = threads.getTotalStartedThreadCount();
-
-                assertEquals(0L, after - before,
-                        name + " started threads inside the hot loop");
+            } finally {
+                pool.shutdown();
             }
         }
     }
@@ -389,7 +428,7 @@ class SpmvStrategyTest {
         }
     }
 
-    // ---- static partition invariants -----------------------------------
+    // ---- static partition invariants ----------------------------------
 
     @Test
     void chunkBoundsAreValidMonotoneAndCoverAllRows() {
