@@ -1,93 +1,54 @@
 #!/usr/bin/env python3
-"""
-Fail-closed validator for QFLPN P3 distributed HPC benchmark results.
+"""Fail-closed validation of the QFLPN P3 HPC target and node inventories.
 
-CSV contract:
-    run_id,commit,configuration_id,workload,strategy,n,nnz,workers,
-    mpi_ranks,node_count,threshold,fork_id,iteration,elapsed_time_ms,
-    status,correctness_pass,max_abs_error,max_rel_error
+This validator checks:
+- the qflpn-p3-hpc-target-v2 configuration;
+- the 16-node / 664-physical-core hardware target;
+- the 8x42 + 8x41 core distribution;
+- per-node RAM and motherboard inventory;
+- the SpMV proposal, including 664 workers and dimension 10,000,000.
 
-JSON metadata contract:
-    {
-      "schema": "qflpn-p3-hpc-benchmark",
-      "schema_version": "1.0.0",
-      "run_id": "...",
-      "source_commit": "<40 hexadecimal characters>",
-      "configuration_id": "P3-HPC-664-REFERENCE",
-      "node_count": 16,
-      "mpi_ranks": 664,
-      "benchmark_csv": "benchmark.csv"
-    }
+It does NOT validate measured benchmark CSV data and does NOT claim that
+the proposed benchmark has been executed.
 
-The CSV is the raw observation source. The JSON is its provenance/summary
-metadata. The validator never infers missing measurements and never turns an
-unexecuted HPC campaign into PASS.
-
-Example:
-    python3 P3/hpc/tools/validate_hpc_results.py \
-        --config P3/hpc/config/hpc-664.json \
-        --inventory P3/results/hpc/inventory/node_inventory.json \
-        --benchmark-csv P3/results/hpc/raw/benchmark.csv \
-        --benchmark-json P3/results/hpc/raw/benchmark.json \
-        --output P3/results/hpc/reports/HPC_VALIDATION.json
+Inventory input may be:
+- one node inventory JSON file per --inventory argument; or
+- one aggregate JSON file containing a "nodes" array.
 
 Exit codes:
-    0: HPC result package passed this validator
-    2: invalid arguments/configuration
-    3: validation failed or campaign is not evaluable
+    0: configuration valid; inventory is PASS or DEFERRED
+    2: invalid input or invalid configuration
+    3: inventory contradicts the declared target
     4: unexpected runtime failure
 
-Only Python's standard library is used.
+Only the Python standard library is used.
 """
 
 from __future__ import annotations
 
 import argparse
-import csv
 import datetime as dt
 import json
 import math
 import re
 import sys
-from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+CONFIG_SCHEMA = "qflpn-p3-hpc-target-v2"
+NODE_SCHEMA = "qflpn-p3-hpc-node-inventory-v1"
+AGGREGATE_SCHEMA = "qflpn-p3-hpc-cluster-inventory-v1"
+REPORT_SCHEMA = "qflpn-p3-hpc-target-validation-v1"
 
-SCHEMA = "qflpn-p3-hpc-validation"
-SCHEMA_VERSION = "1.0.0"
+EXPECTED_WORKLOAD = "SpMV"
+EXPECTED_PARALLELISM = 664
+EXPECTED_MAX_DIMENSION = 10_000_000
+EXPECTED_WARMUP = 5
+EXPECTED_MEASUREMENTS = 30
 
-REQUIRED_CSV_COLUMNS = {
-    "run_id",
-    "commit",
-    "configuration_id",
-    "workload",
-    "strategy",
-    "n",
-    "nnz",
-    "workers",
-    "mpi_ranks",
-    "node_count",
-    "threshold",
-    "fork_id",
-    "iteration",
-    "elapsed_time_ms",
-    "status",
-    "correctness_pass",
-    "max_abs_error",
-    "max_rel_error",
-}
 
-REQUIRED_JSON_FIELDS = {
-    "schema",
-    "schema_version",
-    "run_id",
-    "source_commit",
-    "configuration_id",
-    "node_count",
-    "mpi_ranks",
-    "benchmark_csv",
-}
+class InputError(ValueError):
+    """Raised when an input file cannot be interpreted safely."""
 
 
 def utc_now() -> str:
@@ -98,415 +59,629 @@ def load_json(path: Path, label: str) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
-        raise ValueError(f"Lipsește {label}: {path}") from exc
+        raise InputError(f"Missing {label}: {path}") from exc
+    except OSError as exc:
+        raise InputError(f"Cannot read {label} {path}: {exc}") from exc
     except json.JSONDecodeError as exc:
-        raise ValueError(f"JSON invalid pentru {label}: {exc}") from exc
+        raise InputError(f"Invalid JSON in {label} {path}: {exc}") from exc
 
     if not isinstance(value, dict):
-        raise ValueError(f"{label} trebuie să aibă un obiect JSON la rădăcină.")
+        raise InputError(f"{label} must be a JSON object: {path}")
     return value
 
 
-def add_error(errors: list[dict[str, str]], code: str, message: str) -> None:
-    errors.append({"code": code, "message": message})
+def add_check(
+    checks: list[dict[str, str]],
+    check_id: str,
+    status: str,
+    detail: str,
+) -> None:
+    checks.append({
+        "id": check_id,
+        "status": status,
+        "detail": detail,
+    })
 
 
-def parse_int(value: Any, field: str, row_number: int) -> int:
-    try:
-        parsed = int(str(value).strip())
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"Linia CSV {row_number}: {field} nu este întreg.") from exc
-    return parsed
-
-
-def parse_float(value: Any, field: str, row_number: int) -> float:
-    try:
-        parsed = float(str(value).strip())
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"Linia CSV {row_number}: {field} nu este numeric.") from exc
-    if not math.isfinite(parsed):
-        raise ValueError(f"Linia CSV {row_number}: {field} nu este finit.")
-    return parsed
-
-
-def parse_bool(value: Any, field: str, row_number: int) -> bool:
-    normalized = str(value).strip().lower()
-    if normalized in {"true", "1", "yes"}:
-        return True
-    if normalized in {"false", "0", "no"}:
-        return False
-    raise ValueError(
-        f"Linia CSV {row_number}: {field} trebuie să fie true/false."
+def is_positive_number(value: Any) -> bool:
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(float(value))
+        and value > 0
     )
+
+
+def expected_node_core_map(hardware: dict[str, Any]) -> dict[str, int]:
+    groups = hardware.get("node_groups")
+    if not isinstance(groups, list) or not groups:
+        raise InputError("hardware_target.node_groups must be a non-empty list")
+
+    expected: dict[str, int] = {}
+    for group in groups:
+        if not isinstance(group, dict):
+            raise InputError("Every node_groups entry must be an object")
+
+        names = group.get("names")
+        count = group.get("nodes")
+        cores = group.get("physical_cores_per_node")
+
+        if not isinstance(names, str):
+            raise InputError("node_groups.names must be a string")
+        if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
+            raise InputError("node_groups.nodes must be a positive integer")
+        if not isinstance(cores, int) or isinstance(cores, bool) or cores <= 0:
+            raise InputError(
+                "node_groups.physical_cores_per_node must be a positive integer"
+            )
+
+        match = re.fullmatch(
+            r"\s*([A-Za-z0-9_-]+)-(\d+)\.\.([A-Za-z0-9_-]+)-(\d+)\s*",
+            names,
+        )
+        if not match or match.group(1).lower() != match.group(3).lower():
+            raise InputError(
+                f"Unsupported node group range {names!r}; "
+                "expected a range such as HPC-01..HPC-08"
+            )
+
+        prefix = match.group(1)
+        first = int(match.group(2))
+        last = int(match.group(4))
+
+        if last - first + 1 != count:
+            raise InputError(
+                f"Node range {names!r} contains {last - first + 1} "
+                f"names but declares {count} nodes"
+            )
+
+        for number in range(first, last + 1):
+            hostname = f"{prefix}-{number:02d}".lower()
+            if hostname in expected:
+                raise InputError(f"Duplicate node in target groups: {hostname}")
+            expected[hostname] = cores
+
+    return expected
+
+
+def validate_configuration(
+    config: dict[str, Any],
+) -> tuple[list[dict[str, str]], dict[str, Any]]:
+    checks: list[dict[str, str]] = []
+
+    if config.get("schema") != CONFIG_SCHEMA:
+        add_check(
+            checks, "CONFIG_SCHEMA", "FAIL",
+            f"Expected {CONFIG_SCHEMA}; got {config.get('schema')!r}",
+        )
+        return checks, {}
+
+    if config.get("status") != "PROPOSED_REFERENCE_CONFIGURATION_NOT_EVIDENCE":
+        add_check(
+            checks, "CONFIG_STATUS", "FAIL",
+            "Configuration must remain explicitly marked as proposed, not evidence.",
+        )
+    else:
+        add_check(
+            checks, "CONFIG_STATUS", "PASS",
+            "Configuration is explicitly marked as proposed reference configuration.",
+        )
+
+    hardware = config.get("hardware_target")
+    benchmark = config.get("benchmark")
+
+    if not isinstance(hardware, dict):
+        add_check(checks, "HARDWARE_TARGET_OBJECT", "FAIL",
+                  "hardware_target must be a JSON object")
+        return checks, {}
+
+    if not isinstance(benchmark, dict):
+        add_check(checks, "BENCHMARK_OBJECT", "FAIL",
+                  "benchmark must be a JSON object")
+        return checks, {}
+
+    try:
+        expected_cores_by_node = expected_node_core_map(hardware)
+    except InputError as exc:
+        add_check(checks, "NODE_GROUPS", "FAIL", str(exc))
+        expected_cores_by_node = {}
+
+    nodes = hardware.get("compute_nodes")
+    cores = hardware.get("physical_cores_total")
+    ram_total = hardware.get("ram_gib_total")
+    ram_per_node = hardware.get("ram_gib_per_node")
+
+    numeric_hardware_valid = (
+        isinstance(nodes, int) and not isinstance(nodes, bool)
+        and isinstance(cores, int) and not isinstance(cores, bool)
+        and is_positive_number(ram_total)
+        and is_positive_number(ram_per_node)
+    )
+
+    if not numeric_hardware_valid:
+        add_check(
+            checks, "HARDWARE_NUMERIC_FIELDS", "FAIL",
+            "Node, core and RAM target fields have invalid types or values.",
+        )
+    else:
+        add_check(
+            checks, "HARDWARE_NUMERIC_FIELDS", "PASS",
+            "Node, core and RAM target fields are valid positive values.",
+        )
+
+    group_nodes = len(expected_cores_by_node)
+    group_cores = sum(expected_cores_by_node.values())
+
+    consistent = (
+        numeric_hardware_valid
+        and nodes == group_nodes == 16
+        and cores == group_cores == 664
+        and math.isclose(
+            float(ram_total),
+            float(nodes) * float(ram_per_node),
+            rel_tol=0,
+            abs_tol=0.001,
+        )
+        and math.isclose(float(ram_total), 4096.0, abs_tol=0.001)
+        and math.isclose(float(ram_per_node), 256.0, abs_tol=0.001)
+    )
+
+    add_check(
+        checks,
+        "HARDWARE_TARGET_INTERNAL_CONSISTENCY",
+        "PASS" if consistent else "FAIL",
+        (
+            f"{group_nodes} nodes / {group_cores} physical cores; "
+            f"declared {nodes} nodes / {cores} cores; "
+            f"RAM {ram_total} GiB total / {ram_per_node} GiB per node."
+        ),
+    )
+
+    motherboard = hardware.get("motherboard")
+    motherboard_valid = (
+        isinstance(motherboard, dict)
+        and motherboard.get("collection_required") is True
+        and motherboard.get("fields") == ["manufacturer", "model", "version"]
+        and motherboard.get("source") == "/sys/class/dmi/id/"
+        and motherboard.get("missing_value") == "UNAVAILABLE"
+    )
+
+    add_check(
+        checks,
+        "MOTHERBOARD_COLLECTION_CONTRACT",
+        "PASS" if motherboard_valid else "FAIL",
+        (
+            "Motherboard manufacturer, model and version are required "
+            "from the DMI sysfs inventory."
+            if motherboard_valid
+            else "Motherboard collection contract is missing or inconsistent."
+        ),
+    )
+
+    worker_counts = benchmark.get("worker_counts")
+    thresholds = benchmark.get("thresholds")
+
+    benchmark_valid = (
+        benchmark.get("workload") == EXPECTED_WORKLOAD
+        and benchmark.get("parallelism_target") == EXPECTED_PARALLELISM
+        and isinstance(worker_counts, list)
+        and all(isinstance(x, int) and not isinstance(x, bool) for x in worker_counts)
+        and worker_counts == sorted(set(worker_counts))
+        and EXPECTED_PARALLELISM in worker_counts
+        and isinstance(thresholds, list)
+        and all(isinstance(x, int) and not isinstance(x, bool) for x in thresholds)
+        and thresholds == sorted(set(thresholds))
+        and EXPECTED_MAX_DIMENSION in thresholds
+        and benchmark.get("maximum_target_dimension") == EXPECTED_MAX_DIMENSION
+        and benchmark.get("minimum_warmup") == EXPECTED_WARMUP
+        and benchmark.get("minimum_valid_measurements") == EXPECTED_MEASUREMENTS
+        and benchmark.get("execution_status") == "NOT_EXECUTED"
+    )
+
+    add_check(
+        checks,
+        "SPMV_BENCHMARK_PROPOSAL",
+        "PASS" if benchmark_valid else "FAIL",
+        (
+            "SpMV proposal declares 664 workers, dimension 10,000,000, "
+            "5 warm-ups and 30 valid measurements; execution remains NOT_EXECUTED."
+            if benchmark_valid
+            else "SpMV proposal does not match the required HPC target contract."
+        ),
+    )
+
+    return checks, {
+        "expected_cores_by_node": expected_cores_by_node,
+        "expected_nodes": nodes,
+        "expected_physical_cores": cores,
+        "expected_ram_gib_total": ram_total,
+        "expected_ram_gib_per_node": ram_per_node,
+        "benchmark": benchmark,
+        "motherboard": motherboard,
+    }
+
+
+def normalize_hostname(value: Any) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return value.strip().split(".", 1)[0].lower()
+
+
+def usable_cores(node: dict[str, Any]) -> float | None:
+    """Return the minimum known CPU capacity limit for the node."""
+    limits: list[float] = []
+
+    physical = node.get("physical_cores")
+    affinity = node.get("cpu_affinity_count")
+    quota = node.get("cgroup_cpu_quota_cores")
+
+    for value in (physical, affinity, quota):
+        if is_positive_number(value):
+            limits.append(float(value))
+
+    return min(limits) if limits else None
+
+
+def load_inventory_files(paths: list[Path]) -> list[dict[str, Any]]:
+    nodes: list[dict[str, Any]] = []
+
+    for path in paths:
+        value = load_json(path, "node inventory")
+
+        if value.get("schema") == NODE_SCHEMA:
+            nodes.append(value)
+            continue
+
+        if value.get("schema") == AGGREGATE_SCHEMA:
+            aggregate_nodes = value.get("nodes")
+            if not isinstance(aggregate_nodes, list):
+                raise InputError(
+                    f"Aggregate inventory {path} must contain a nodes array"
+                )
+            if not all(isinstance(item, dict) for item in aggregate_nodes):
+                raise InputError(
+                    f"Aggregate inventory {path} contains a non-object node"
+                )
+            nodes.extend(aggregate_nodes)
+            continue
+
+        raise InputError(
+            f"Unsupported inventory schema in {path}: {value.get('schema')!r}"
+        )
+
+    return nodes
 
 
 def validate_inventory(
-    config: dict[str, Any],
-    inventory: dict[str, Any],
-    metadata: dict[str, Any],
-    errors: list[dict[str, str]],
-) -> None:
-    if inventory.get("schema") != "qflpn-p3-hpc-inventory":
-        add_error(errors, "INVENTORY_SCHEMA_INVALID", "Schema inventarului este invalidă.")
-        return
+    nodes: list[dict[str, Any]],
+    target: dict[str, Any],
+) -> tuple[str, list[dict[str, str]], dict[str, Any]]:
+    checks: list[dict[str, str]] = []
 
-    validation = inventory.get("validation", {})
-    if validation.get("status") != "PASS_LOCAL_PREFLIGHT":
-        add_error(
-            errors,
-            "INVENTORY_PREFLIGHT_NOT_PASSED",
-            "Inventarul nu are status PASS_LOCAL_PREFLIGHT.",
+    expected_map = target.get("expected_cores_by_node", {})
+    expected_count = target.get("expected_nodes")
+    expected_total_cores = target.get("expected_physical_cores")
+    expected_ram = target.get("expected_ram_gib_total")
+    expected_ram_per_node = target.get("expected_ram_gib_per_node")
+
+    if not nodes:
+        add_check(
+            checks, "INVENTORY_PRESENT", "DEFERRED",
+            "No node inventories were supplied; hardware targets are not demonstrated.",
         )
-
-    if validation.get("errors"):
-        add_error(
-            errors,
-            "INVENTORY_CONTAINS_ERRORS",
-            "Inventarul conține erori de preflight.",
+        add_check(
+            checks, "MOTHERBOARD_INVENTORY", "DEFERRED",
+            "No per-node motherboard information is available.",
         )
+        return "DEFERRED", checks, {"node_count_observed": 0}
 
-    slurm = inventory.get("scheduler", {}).get("slurm", {})
-    if not slurm.get("active"):
-        add_error(
-            errors,
-            "SLURM_ALLOCATION_ABSENT",
-            "Inventarul nu demonstrează o alocare Slurm activă.",
+    invalid_schema = [
+        n for n in nodes if n.get("schema") != NODE_SCHEMA
+    ]
+    if invalid_schema:
+        add_check(
+            checks, "NODE_INVENTORY_SCHEMA", "FAIL",
+            f"{len(invalid_schema)} node inventory entries have an unsupported schema.",
         )
+        return "FAIL", checks, {"node_count_observed": len(nodes)}
 
-    expected_nodes = config.get("hardware_reference", {}).get("compute_nodes")
-    observed_nodes_raw = slurm.get("environment", {}).get("SLURM_NNODES")
-    try:
-        observed_nodes = int(observed_nodes_raw)
-    except (TypeError, ValueError):
-        observed_nodes = None
-
-    if observed_nodes is None:
-        add_error(
-            errors,
-            "SLURM_NODE_COUNT_UNKNOWN",
-            "SLURM_NNODES lipsește sau nu este numeric.",
+    hosts = [normalize_hostname(n.get("hostname")) for n in nodes]
+    if any(host is None for host in hosts):
+        add_check(
+            checks, "NODE_HOSTNAMES", "FAIL",
+            "Every node inventory must contain a non-empty hostname.",
         )
-    elif observed_nodes != expected_nodes:
-        add_error(
-            errors,
-            "SLURM_NODE_COUNT_MISMATCH",
-            f"Slurm a alocat {observed_nodes} noduri; configurația cere {expected_nodes}.",
-        )
+        return "FAIL", checks, {"node_count_observed": len(nodes)}
 
-    metadata_nodes = metadata.get("node_count")
-    if metadata_nodes != expected_nodes:
-        add_error(
-            errors,
-            "BENCHMARK_NODE_COUNT_MISMATCH",
-            "Numărul de noduri din metadata nu corespunde configurației HPC.",
-        )
-
-    if observed_nodes is not None and metadata_nodes != observed_nodes:
-        add_error(
-            errors,
-            "INVENTORY_BENCHMARK_NODE_COUNT_MISMATCH",
-            "Numărul de noduri din inventar și benchmark nu coincide.",
-        )
-
-
-def validate_metadata(
-    config: dict[str, Any],
-    metadata: dict[str, Any],
-    errors: list[dict[str, str]],
-) -> tuple[str | None, str | None]:
-    missing = sorted(REQUIRED_JSON_FIELDS - set(metadata))
-    if missing:
-        add_error(
-            errors,
-            "BENCHMARK_METADATA_FIELDS_MISSING",
-            "Lipsesc câmpuri obligatorii din benchmark JSON: " + ", ".join(missing),
-        )
-
-    if metadata.get("schema") != "qflpn-p3-hpc-benchmark":
-        add_error(
-            errors,
-            "BENCHMARK_JSON_SCHEMA_INVALID",
-            "Schema benchmark JSON este invalidă.",
-        )
-
-    if metadata.get("schema_version") != "1.0.0":
-        add_error(
-            errors,
-            "BENCHMARK_JSON_VERSION_UNSUPPORTED",
-            "Versiunea benchmark JSON trebuie să fie 1.0.0.",
-        )
-
-    expected_id = config.get("configuration_id")
-    if metadata.get("configuration_id") != expected_id:
-        add_error(
-            errors,
-            "CONFIGURATION_ID_MISMATCH",
-            "Identificatorul configurației din benchmark nu corespunde.",
-        )
-
-    run_id = metadata.get("run_id")
-    if not isinstance(run_id, str) or not run_id.strip():
-        add_error(errors, "RUN_ID_MISSING", "run_id lipsește din metadata.")
-        run_id = None
-
-    commit = metadata.get("source_commit")
-    if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-fA-F]{40}", commit):
-        add_error(
-            errors,
-            "SOURCE_COMMIT_INVALID",
-            "source_commit trebuie să fie un SHA Git complet de 40 de caractere.",
-        )
-        commit = None
-
-    mpi_ranks = metadata.get("mpi_ranks")
-    if not isinstance(mpi_ranks, int) or mpi_ranks <= 0:
-        add_error(
-            errors,
-            "MPI_RANK_COUNT_INVALID",
-            "mpi_ranks trebuie să fie un întreg pozitiv.",
-        )
-
-    return run_id, commit
-
-
-def load_and_validate_csv(
-    csv_path: Path,
-    metadata: dict[str, Any],
-    config: dict[str, Any],
-    errors: list[dict[str, str]],
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    try:
-        handle = csv_path.open("r", encoding="utf-8-sig", newline="")
-    except OSError as exc:
-        add_error(errors, "BENCHMARK_CSV_UNREADABLE", str(exc))
-        return [], {"row_count": 0, "configuration_count": 0}
-
-    observations: list[dict[str, Any]] = []
-
-    with handle:
-        reader = csv.DictReader(handle)
-        columns = set(reader.fieldnames or [])
-        missing = sorted(REQUIRED_CSV_COLUMNS - columns)
-
-        if missing:
-            add_error(
-                errors,
-                "BENCHMARK_CSV_COLUMNS_MISSING",
-                "Lipsesc coloane CSV obligatorii: " + ", ".join(missing),
-            )
-            return [], {"row_count": 0, "configuration_count": 0}
-
-        for row_number, raw in enumerate(reader, start=2):
-            try:
-                row: dict[str, Any] = dict(raw)
-
-                for key in ("run_id", "commit", "configuration_id", "workload",
-                            "strategy", "fork_id", "status"):
-                    row[key] = str(row[key]).strip()
-
-                for key in ("n", "nnz", "workers", "mpi_ranks",
-                            "node_count", "threshold", "iteration"):
-                    row[key] = parse_int(row[key], key, row_number)
-
-                for key in ("elapsed_time_ms", "max_abs_error", "max_rel_error"):
-                    row[key] = parse_float(row[key], key, row_number)
-
-                row["correctness_pass"] = parse_bool(
-                    row["correctness_pass"], "correctness_pass", row_number
-                )
-
-                if row["n"] <= 0 or row["nnz"] < 0:
-                    raise ValueError(f"Linia CSV {row_number}: N/NNZ invalid.")
-                if row["workers"] <= 0 or row["mpi_ranks"] <= 0 or row["node_count"] <= 0:
-                    raise ValueError(f"Linia CSV {row_number}: resursele trebuie să fie pozitive.")
-                if row["threshold"] <= 0 or row["iteration"] < 0:
-                    raise ValueError(f"Linia CSV {row_number}: prag/iterație invalidă.")
-                if row["elapsed_time_ms"] <= 0:
-                    raise ValueError(f"Linia CSV {row_number}: timpul trebuie să fie pozitiv.")
-                if row["max_abs_error"] < 0 or row["max_rel_error"] < 0:
-                    raise ValueError(f"Linia CSV {row_number}: erorile nu pot fi negative.")
-                if row["status"].upper() != "PASS":
-                    raise ValueError(f"Linia CSV {row_number}: statusul nu este PASS.")
-                if not row["correctness_pass"]:
-                    raise ValueError(f"Linia CSV {row_number}: verificarea numerică a eșuat.")
-
-                observations.append(row)
-
-            except ValueError as exc:
-                add_error(errors, "BENCHMARK_ROW_INVALID", str(exc))
-
-    if not observations:
-        add_error(
-            errors,
-            "BENCHMARK_HAS_NO_VALID_OBSERVATIONS",
-            "CSV-ul nu conține nicio observație validă; datele absente nu pot trece.",
-        )
-        return [], {"row_count": 0, "configuration_count": 0}
-
-    expected_run_id = metadata.get("run_id")
-    expected_commit = metadata.get("source_commit")
-    expected_config_id = config.get("configuration_id")
-
-    for index, row in enumerate(observations, start=2):
-        if row["run_id"] != expected_run_id:
-            add_error(
-                errors,
-                "ROW_RUN_ID_MISMATCH",
-                f"Observația {index}: run_id diferă de metadata.",
-            )
-        if row["commit"] != expected_commit:
-            add_error(
-                errors,
-                "ROW_COMMIT_MISMATCH",
-                f"Observația {index}: commit diferă de metadata.",
-            )
-        if row["configuration_id"] != expected_config_id:
-            add_error(
-                errors,
-                "ROW_CONFIGURATION_MISMATCH",
-                f"Observația {index}: configuration_id diferă de configurație.",
-            )
-
-        if row["node_count"] != metadata.get("node_count"):
-            add_error(
-                errors,
-                "ROW_NODE_COUNT_MISMATCH",
-                f"Observația {index}: node_count diferă de metadata.",
-            )
-        if row["mpi_ranks"] != metadata.get("mpi_ranks"):
-            add_error(
-                errors,
-                "ROW_MPI_RANK_COUNT_MISMATCH",
-                f"Observația {index}: mpi_ranks diferă de metadata.",
-            )
-
-    # A configuration is identified by workload, algorithm, problem size,
-    # workers/ranks, threshold. Fork and iteration are repeated observations.
-    groups: dict[tuple[Any, ...], list[dict[str, Any]]] = defaultdict(list)
-    for row in observations:
-        key = (
-            row["workload"],
-            row["strategy"],
-            row["n"],
-            row["nnz"],
-            row["workers"],
-            row["mpi_ranks"],
-            row["node_count"],
-            row["threshold"],
-        )
-        groups[key].append(row)
-
-    minimum_forks = int(
-        config.get("benchmark", {}).get("sampling", {}).get("minimum_forks", 5)
-    )
-    minimum_samples = int(
-        config.get("benchmark", {}).get("sampling", {})
-        .get("minimum_timed_samples_per_configuration", 30)
+    duplicates = sorted({
+        host for host in hosts if hosts.count(host) > 1
+    })
+    add_check(
+        checks, "DISTINCT_COMPUTE_NODES",
+        "FAIL" if duplicates else "PASS",
+        f"Duplicate hostnames: {duplicates}" if duplicates
+        else f"{len(set(hosts))} distinct hostnames.",
     )
 
-    insufficient: list[dict[str, Any]] = []
-    for key, rows in groups.items():
-        forks: dict[str, int] = defaultdict(int)
-        for row in rows:
-            forks[row["fork_id"]] += 1
+    observed_hosts = set(hosts)
+    expected_hosts = set(expected_map)
+    missing_hosts = sorted(expected_hosts - observed_hosts)
+    unexpected_hosts = sorted(observed_hosts - expected_hosts)
 
-        if len(forks) < minimum_forks or len(rows) < minimum_samples:
-            insufficient.append({
-                "workload": key[0],
-                "strategy": key[1],
-                "n": key[2],
-                "workers": key[4],
-                "mpi_ranks": key[5],
-                "threshold": key[7],
-                "fork_count": len(forks),
-                "sample_count": len(rows),
-            })
+    host_set_ok = (
+        len(nodes) == expected_count
+        and not missing_hosts
+        and not unexpected_hosts
+        and not duplicates
+    )
 
-    if insufficient:
-        add_error(
-            errors,
-            "INSUFFICIENT_REPETITIONS",
-            f"{len(insufficient)} configurații nu ating minimum "
-            f"{minimum_forks} fork-uri și {minimum_samples} observații.",
+    add_check(
+        checks, "COMPUTE_NODE_SET",
+        "PASS" if host_set_ok else "DEFERRED",
+        (
+            f"Observed all {expected_count} configured compute nodes."
+            if host_set_ok
+            else f"Missing={missing_hosts}; unexpected={unexpected_hosts}; "
+                 f"observed={len(observed_hosts)}; expected={expected_count}."
+        ),
+    )
+
+    physical_total = 0
+    physical_unknown: list[str] = []
+    physical_mismatch: list[str] = []
+
+    for node, hostname in zip(nodes, hosts):
+        physical = node.get("physical_cores")
+        if not isinstance(physical, int) or isinstance(physical, bool) or physical <= 0:
+            physical_unknown.append(str(hostname))
+            continue
+
+        physical_total += physical
+        expected = expected_map.get(hostname)
+        if expected is not None and physical != expected:
+            physical_mismatch.append(
+                f"{hostname}: observed {physical}, expected {expected}"
+            )
+
+    if physical_mismatch:
+        core_status = "FAIL"
+        core_detail = "; ".join(physical_mismatch)
+    elif physical_unknown or not host_set_ok:
+        core_status = "DEFERRED"
+        core_detail = (
+            f"Physical cores observed={physical_total}; expected={expected_total_cores}; "
+            f"unknown={physical_unknown}."
+        )
+    elif physical_total == expected_total_cores:
+        core_status = "PASS"
+        core_detail = f"Observed {physical_total} physical cores as declared."
+    else:
+        core_status = "FAIL"
+        core_detail = (
+            f"Observed {physical_total} physical cores; "
+            f"expected {expected_total_cores}."
         )
 
-    return observations, {
-        "row_count": len(observations),
-        "configuration_count": len(groups),
-        "minimum_forks_required": minimum_forks,
-        "minimum_samples_required": minimum_samples,
-        "insufficient_configurations": insufficient,
+    add_check(checks, "PHYSICAL_CORE_TOPOLOGY", core_status, core_detail)
+
+    ram_values = [n.get("memory_gib") for n in nodes]
+    ram_unknown = [
+        str(host) for host, value in zip(hosts, ram_values)
+        if not is_positive_number(value)
+    ]
+
+    if ram_unknown or not host_set_ok:
+        ram_status = "DEFERRED"
+        ram_detail = f"RAM unknown on {ram_unknown}; complete node set required."
+    else:
+        ram_total = sum(float(value) for value in ram_values)
+        # Allow up to 3% OS-visible memory reduction.
+        if ram_total >= 0.97 * float(expected_ram):
+            ram_status = "PASS"
+            ram_detail = (
+                f"Observed {ram_total:.2f} GiB; target {expected_ram} GiB "
+                "(3% OS-visible memory tolerance)."
+            )
+        else:
+            ram_status = "FAIL"
+            ram_detail = (
+                f"Observed {ram_total:.2f} GiB; target {expected_ram} GiB."
+            )
+
+    add_check(checks, "TOTAL_RAM", ram_status, ram_detail)
+
+    per_node_ram_mismatch: list[str] = []
+    for node, hostname in zip(nodes, hosts):
+        memory = node.get("memory_gib")
+        if is_positive_number(memory) and (
+            float(memory) < 0.97 * float(expected_ram_per_node)
+        ):
+            per_node_ram_mismatch.append(
+                f"{hostname}: {float(memory):.2f} GiB"
+            )
+
+    if per_node_ram_mismatch:
+        add_check(
+            checks, "RAM_PER_NODE", "FAIL",
+            "Nodes below the 97% visible-memory threshold: "
+            + "; ".join(per_node_ram_mismatch),
+        )
+    elif ram_unknown or not host_set_ok:
+        add_check(
+            checks, "RAM_PER_NODE", "DEFERRED",
+            "Per-node RAM cannot be fully evaluated without all node inventories.",
+        )
+    else:
+        add_check(
+            checks, "RAM_PER_NODE", "PASS",
+            f"All nodes meet the visible-memory target of "
+            f"{expected_ram_per_node} GiB within 3%.",
+        )
+
+    motherboard_missing: list[str] = []
+    for node, hostname in zip(nodes, hosts):
+        motherboard = node.get("motherboard")
+        if not isinstance(motherboard, dict):
+            motherboard_missing.append(str(hostname))
+            continue
+
+        for field in ("manufacturer", "model", "version"):
+            value = motherboard.get(field)
+            if (
+                not isinstance(value, str)
+                or not value.strip()
+                or value.strip().upper() == "UNAVAILABLE"
+            ):
+                motherboard_missing.append(str(hostname))
+                break
+
+    if motherboard_missing:
+        motherboard_status = "DEFERRED"
+        motherboard_detail = (
+            "Motherboard manufacturer/model/version unavailable for: "
+            + ", ".join(sorted(set(motherboard_missing)))
+        )
+    elif not host_set_ok:
+        motherboard_status = "DEFERRED"
+        motherboard_detail = "Complete configured node set is required."
+    else:
+        motherboard_status = "PASS"
+        motherboard_detail = (
+            "Manufacturer, model and version are present for every compute node."
+        )
+
+    add_check(
+        checks, "MOTHERBOARD_INVENTORY",
+        motherboard_status, motherboard_detail,
+    )
+
+    usable = [usable_cores(node) for node in nodes]
+    usable_unknown = [
+        str(host) for host, value in zip(hosts, usable) if value is None
+    ]
+
+    if usable_unknown or not host_set_ok:
+        usable_status = "DEFERRED"
+        usable_detail = f"Effective CPU capacity unknown for: {usable_unknown}"
+    else:
+        usable_total = sum(float(value) for value in usable if value is not None)
+        usable_status = (
+            "PASS" if usable_total >= EXPECTED_PARALLELISM else "DEFERRED"
+        )
+        usable_detail = (
+            f"Known effective CPU capacity: {usable_total:g}; "
+            f"parallelism target: {EXPECTED_PARALLELISM}."
+        )
+
+    add_check(checks, "EFFECTIVE_CPU_CAPACITY", usable_status, usable_detail)
+
+    statuses = {check["status"] for check in checks}
+    if "FAIL" in statuses:
+        overall = "FAIL"
+    elif "DEFERRED" in statuses:
+        overall = "DEFERRED"
+    else:
+        overall = "PASS"
+
+    summary = {
+        "node_count_observed": len(nodes),
+        "physical_cores_observed": physical_total,
+        "expected_node_count": expected_count,
+        "expected_physical_cores": expected_total_cores,
+        "motherboard_nodes_missing": sorted(set(motherboard_missing)),
     }
+    return overall, checks, summary
 
 
 def validate(
     config_path: Path,
-    inventory_path: Path,
-    csv_path: Path,
-    json_path: Path,
+    inventory_paths: list[Path],
 ) -> dict[str, Any]:
-    errors: list[dict[str, str]] = []
+    config = load_json(config_path, "HPC target configuration")
+    config_checks, target = validate_configuration(config)
 
-    config = load_json(config_path, "configurația HPC")
-    inventory = load_json(inventory_path, "inventarul hardware")
-    metadata = load_json(json_path, "metadata benchmark")
-
-    if config.get("schema") != "qflpn-p3-hpc-configuration":
-        add_error(errors, "CONFIG_SCHEMA_INVALID", "Schema configurației HPC este invalidă.")
-
-    run_id, commit = validate_metadata(config, metadata, errors)
-    validate_inventory(config, inventory, metadata, errors)
-
-    observations, csv_summary = load_and_validate_csv(
-        csv_path, metadata, config, errors
+    config_status = (
+        "FAIL"
+        if any(check["status"] == "FAIL" for check in config_checks)
+        else "PASS"
     )
 
-    if not observations:
-        status = "NOT_EVALUATED" if not csv_path.exists() else "FAIL"
+    nodes = load_inventory_files(inventory_paths) if inventory_paths else []
+    if config_status == "PASS":
+        inventory_status, inventory_checks, inventory_summary = validate_inventory(
+            nodes, target
+        )
     else:
-        status = "PASS" if not errors else "FAIL"
+        inventory_status = "NOT_EVALUATED"
+        inventory_checks = [{
+            "id": "INVENTORY_VALIDATION",
+            "status": "NOT_EVALUATED",
+            "detail": "Configuration validation failed; inventory was not evaluated.",
+        }]
+        inventory_summary = {"node_count_observed": len(nodes)}
+
+    if config_status == "FAIL":
+        overall = "FAIL"
+    elif inventory_status == "FAIL":
+        overall = "FAIL"
+    elif inventory_status == "DEFERRED":
+        overall = "DEFERRED"
+    else:
+        overall = "PASS"
 
     return {
-        "schema": SCHEMA,
-        "schema_version": SCHEMA_VERSION,
+        "schema": REPORT_SCHEMA,
+        "schema_version": "1.0.0",
         "validated_at_utc": utc_now(),
-        "configuration_id": config.get("configuration_id"),
-        "run_id": run_id,
-        "source_commit": commit,
-        "status": status,
+        "configuration": {
+            "path": str(config_path),
+            "schema": config.get("schema"),
+            "status": config.get("status"),
+        },
+        "configuration_validation": {
+            "status": config_status,
+            "checks": config_checks,
+        },
+        "inventory_validation": {
+            "status": inventory_status,
+            "checks": inventory_checks,
+            "summary": inventory_summary,
+            "input_files": [str(path) for path in inventory_paths],
+        },
+        "overall_status": overall,
+        "execution_evidence": {
+            "benchmark_execution_status": "NOT_EXECUTED",
+            "664_worker_execution_demonstrated": False,
+            "dimension_10000000_execution_demonstrated": False,
+            "this_report_is_not_performance_evidence": True,
+        },
         "acceptance_effect": (
-            "HPC_EVIDENCE_VALIDATED"
-            if status == "PASS"
-            else "P3_ACCEPTANCE_BLOCKED"
+            "NO_HPC_EXECUTION_CLAIM"
+            if overall in {"PASS", "DEFERRED"}
+            else "HPC_TARGET_VALIDATION_FAILED"
         ),
-        "inputs": {
-            "configuration": str(config_path),
-            "inventory": str(inventory_path),
-            "benchmark_csv": str(csv_path),
-            "benchmark_json": str(json_path),
-        },
-        "observations": csv_summary,
-        "errors": errors,
-        "rules": {
-            "fail_closed": True,
-            "empty_data_can_pass": False,
-            "same_run_id_required": True,
-            "same_commit_required": True,
-            "same_configuration_required": True,
-            "minimum_forks_and_samples_enforced": True,
-            "cluster_hardware_must_be_observed": True,
-            "this_validator_does_not_generate_P3_ACCEPTED": True,
-        },
     }
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", required=True, type=Path)
-    parser.add_argument("--inventory", required=True, type=Path)
-    parser.add_argument("--benchmark-csv", required=True, type=Path)
-    parser.add_argument("--benchmark-json", required=True, type=Path)
-    parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=Path("P3/hpc/config/hpc-target.json"),
+    )
+    parser.add_argument(
+        "--inventory",
+        type=Path,
+        action="append",
+        default=[],
+        help="Node or aggregate inventory JSON; may be supplied more than once.",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path("P3/hpc/reports/hpc-target-validation.json"),
+    )
     return parser.parse_args()
 
 
@@ -514,13 +689,9 @@ def main() -> int:
     args = parse_args()
 
     try:
-        report = validate(
-            args.config,
-            args.inventory,
-            args.benchmark_csv,
-            args.benchmark_json,
-        )
+        report = validate(args.config, args.inventory)
         args.output.parent.mkdir(parents=True, exist_ok=True)
+
         temporary = args.output.with_suffix(args.output.suffix + ".tmp")
         temporary.write_text(
             json.dumps(report, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
@@ -528,17 +699,24 @@ def main() -> int:
         )
         temporary.replace(args.output)
 
-        print(f"HPC_VALIDATION_REPORT={args.output}")
-        print(f"HPC_VALIDATION_STATUS={report['status']}")
-        print(f"HPC_ACCEPTANCE_EFFECT={report['acceptance_effect']}")
+        print(f"HPC_TARGET_VALIDATION_REPORT={args.output}")
+        print(f"HPC_CONFIGURATION_STATUS={report['configuration_validation']['status']}")
+        print(f"HPC_INVENTORY_STATUS={report['inventory_validation']['status']}")
+        print(f"HPC_OVERALL_STATUS={report['overall_status']}")
+        print("HPC_BENCHMARK_EXECUTION=NOT_EXECUTED")
 
-        return 0 if report["status"] == "PASS" else 3
+        if report["overall_status"] == "FAIL":
+            return 3
+        return 0
 
-    except ValueError as exc:
-        print(f"VALIDATION_INPUT_ERROR: {exc}", file=sys.stderr)
+    except InputError as exc:
+        print(f"HPC_VALIDATION_INPUT_ERROR: {exc}", file=sys.stderr)
         return 2
     except Exception as exc:
-        print(f"VALIDATION_RUNTIME_ERROR: {type(exc).__name__}: {exc}", file=sys.stderr)
+        print(
+            f"HPC_VALIDATION_RUNTIME_ERROR: {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
         return 4
 
 
