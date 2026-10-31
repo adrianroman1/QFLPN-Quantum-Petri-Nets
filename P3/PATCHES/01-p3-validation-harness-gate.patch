@@ -1,1 +1,67 @@
-jb
+diff --git a/.github/workflows/p3-validation.yml b/.github/workflows/p3-validation.yml
+index 162a26c..ddacd7e 100644
+--- a/.github/workflows/p3-validation.yml
++++ b/.github/workflows/p3-validation.yml
+@@ -174,6 +174,13 @@ jobs:
+             "P3/tests/test_verify_evidence_consistency.py"
+             "P3/tests/test_verify_final_package.py"
+             "P3/tests/test_compute_checksums.py"
++            "P3/results/run_parallel_harness.sh"
++            "P3/benchmarks/harness/ParallelSpmvHarness.java"
++            "P3/tools/summarize_harness.py"
++            "P3/tools/generate_results_md.py"
++            "P3/tools/check_harness_gate.py"
++            "P3/tests/test_summarize_harness.py"
++            "P3/tests/test_check_harness_gate.py"
+             ".github/workflows/p3-validation.yml"
+           )
+ 
+@@ -506,6 +513,48 @@ jobs:
+       # 9. PERSISTENT REPORTS AND ENVIRONMENT PROVENANCE
+       # ============================================================
+ 
++      # ============================================================
++      # 11b. PARALLEL SpMV HARNESS — SMOKE RUN AND BLOCKING GATE
++      #
++      # Output goes under P3/results/raw/<RUN_ID>/harness-smoke/, so the
++      # existing upload, evidence index, global MANIFEST/SHA256SUMS and
++      # evidence commit pick it up without further changes.
++      # Blocking: build, input validity, >= 30 samples, bitwise equality
++      # with the sequential product, documented skips, complete
++      # configuration set, and the run's own SHA-256 inventory.
++      # Not blocking (shared runners are noisy): C3-C6 performance criteria.
++      # The step outcome is intentionally not part of ci-outcomes.json, so
++      # the audited stage schema is unchanged; a failure still stops the job
++      # before any later step and therefore prevents P3_ACCEPTED.
++      # ============================================================
++
++      - name: Run parallel SpMV harness smoke and blocking gate
++        id: p3_harness_smoke
++        shell: bash
++        run: |
++          set -Eeuo pipefail
++
++          RAW="${P3_RAW_ROOT}/${P3_RUN_ID}"
++
++          export RUN_ID="${P3_RUN_ID}-harness-smoke"
++          export HARNESS_OUT_DIR="${RAW}/harness-smoke"
++          export SIZES="1000000"
++          export WORKLOADS="UNIFORM_2"
++          export STRATEGIES="SEQ FJ_PLAN STATIC"
++          export PARALLELISMS="1 2"
++          export FORKS="2"
++          export WARMUP="3"
++          export ITERATIONS="15"
++          export HEAP_MB="2048"
++
++          bash P3/results/run_parallel_harness.sh \
++            2>&1 | tee "${RAW}/harness-smoke-run.log"
++
++          python P3/tools/check_harness_gate.py "${HARNESS_OUT_DIR}" \
++            2>&1 | tee -a "${RAW}/harness-smoke-run.log"
++
++          echo "P3_HARNESS_SMOKE: PASS"
++
+       - name: Persist V2 reports and execution environment
+         id: p3_benchmark_summary
+         shell: bash
