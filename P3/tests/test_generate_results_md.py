@@ -155,3 +155,12 @@ def test_no_timing_is_published_for_envelope_sizes(tmp_path: Path) -> None:
     text = (harness / "Results.generated.md").read_text("utf-8")
     envelope = text.split("## Resource envelope")[1]
     assert "median ms" not in envelope
+
+
+def test_no_latest_copy_flag_keeps_everything_inside_the_run_directory(
+        tmp_path: Path) -> None:
+    harness, results_dir = run_tool(tmp_path, ["--no-latest-copy"])
+
+    assert (harness / "Results.generated.md").is_file()
+    assert not (results_dir / "Results.generated.md").exists()
+    assert (results_dir / "Results.md").read_text("utf-8") == "HAND WRITTEN\n"
