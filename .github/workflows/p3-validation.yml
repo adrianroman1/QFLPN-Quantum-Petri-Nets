@@ -634,7 +634,7 @@ jobs:
           path = Path("P3/reports/evidence-consistency.json")
           report = json.loads(path.read_text(encoding="utf-8"))
 
-          if report.get("schema") != "qflqn-p3-evidence-consistency-v2":
+          if report.get("schema") != "qflpn-p3-evidence-consistency-v2":
               raise SystemExit("Evidence consistency schema mismatch.")
 
           if report.get("validation") != "PASS":
