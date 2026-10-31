@@ -1,988 +1,301 @@
 #!/usr/bin/env python3
-"""
-QFLPN P3 — Hardware and software inventory.
+"""Collect a hardware inventory and validate the HPC target (stdlib only).
 
-Collects observed resources from the current Linux node and compares them
-with P3/hpc/config/hpc-664.json.
+Two uses:
 
-Important:
-- A single-node inventory never certifies a 16-node cluster.
-- Proposed hardware values are targets, not observed facts.
-- Slurm is mandatory only when --require-slurm is supplied.
-- Unknown measurements remain null/UNKNOWN; they are never fabricated.
+  collect   python collect_hpc_inventory.py collect  > node.json
+            Run on every compute node (for example through srun). Records what
+            the node and the job REALLY expose: logical CPUs, the CPU affinity
+            mask, the cgroup CPU quota, physical cores/sockets from
+            /proc/cpuinfo, memory, NUMA nodes, Slurm variables, JDK and MPI.
 
-Exit codes:
-    0: inventory successfully collected; local checks passed
-    2: invalid configuration or arguments
-    3: local preflight failed
-    4: unexpected runtime failure
+  validate  python collect_hpc_inventory.py validate hpc-664.json node1.json ...
+            Merges node inventories and checks them against the target.
+
+The target is demonstrated by inventories, never inferred from the number of
+workers configured in an application. A single JVM with parallelism = 664 on
+one node is NOT a distributed run; the validator reports it as such.
+
+Verdicts: PASS only if every target quantity is met by distinct nodes;
+DEFERRED when the inventories are insufficient or absent (never PASS);
+FAIL when inventories contradict the target (for example duplicate hosts).
 """
 
 from __future__ import annotations
 
-import argparse
-import datetime as dt
 import json
 import os
 import platform
 import re
 import shutil
-import socket
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-
-SCHEMA = "qflqn-p3-hpc-inventory"
-SCHEMA_VERSION = "1.1.0"
-SUPPORTED_CONFIG_SCHEMAS = {
-    "qflqn-p3-hpc-configuration",
-    "qflqn-p3-hpc-configuration-v1",
-}
+SCHEMA = "qflpn-p3-hpc-node-inventory-v1"
 
 
-def utc_now() -> str:
-    return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+# ---------------------------------------------------------------------------
+# parsing helpers (pure functions, testable without the hardware)
+# ---------------------------------------------------------------------------
 
+def parse_cpuinfo(text: str) -> dict[str, Any]:
+    """Logical processors, physical cores and sockets from /proc/cpuinfo."""
+    logical = 0
+    pairs: set[tuple[str, str]] = set()
+    sockets: set[str] = set()
+    model = ""
+    physical_id = core_id = None
 
-def read_text(path: Path) -> str | None:
-    try:
-        return path.read_text(
-            encoding="utf-8",
-            errors="replace",
-        ).strip()
-    except OSError:
-        return None
-
-
-def read_int(path: Path) -> int | None:
-    value = read_text(path)
-    if value is None:
-        return None
-
-    match = re.fullmatch(r"\s*(\d+)\s*", value)
-    return int(match.group(1)) if match else None
-
-
-def run_command(
-    command: list[str],
-    timeout: int = 5,
-) -> dict[str, Any]:
-    executable = shutil.which(command[0])
-
-    if executable is None:
-        return {
-            "available": False,
-            "return_code": None,
-            "stdout": "",
-            "stderr": "",
-        }
-
-    try:
-        result = subprocess.run(
-            [executable, *command[1:]],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            encoding="utf-8",
-            errors="replace",
-        )
-
-        return {
-            "available": True,
-            "return_code": result.returncode,
-            "stdout": result.stdout.strip(),
-            "stderr": result.stderr.strip(),
-        }
-
-    except subprocess.TimeoutExpired:
-        return {
-            "available": True,
-            "return_code": None,
-            "stdout": "",
-            "stderr": f"COMMAND_TIMEOUT_AFTER_{timeout}_SECONDS",
-        }
-
-    except OSError as exc:
-        return {
-            "available": True,
-            "return_code": None,
-            "stdout": "",
-            "stderr": f"{type(exc).__name__}: {exc}",
-        }
-
-
-def parse_cpuinfo() -> dict[str, Any]:
-    cpuinfo = read_text(Path("/proc/cpuinfo"))
-
-    if not cpuinfo:
-        return {
-            "model_names": [],
-            "logical_processors": None,
-            "physical_core_ids": [],
-            "physical_core_count": None,
-            "socket_ids": [],
-            "socket_count": None,
-        }
-
-    model_names: set[str] = set()
-    physical_pairs: set[tuple[str, str]] = set()
-    socket_ids: set[str] = set()
-    logical_processors = 0
-
-    for block in re.split(r"\n\s*\n", cpuinfo):
-        fields: dict[str, str] = {}
-
-        for line in block.splitlines():
-            if ":" not in line:
-                continue
-
-            key, value = line.split(":", 1)
-            fields[key.strip()] = value.strip()
-
-        if not fields:
+    for line in text.splitlines() + [""]:
+        if not line.strip():
+            if physical_id is not None and core_id is not None:
+                pairs.add((physical_id, core_id))
+                sockets.add(physical_id)
+            physical_id = core_id = None
             continue
 
-        if "processor" in fields:
-            logical_processors += 1
+        key, _, value = line.partition(":")
+        key, value = key.strip(), value.strip()
 
-        model = fields.get("model name") or fields.get("Hardware")
-        if model:
-            model_names.add(model)
-
-        physical_id = fields.get("physical id")
-        core_id = fields.get("core id")
-
-        if physical_id is not None:
-            socket_ids.add(physical_id)
-
-        if physical_id is not None and core_id is not None:
-            physical_pairs.add((physical_id, core_id))
-
-    physical_ids = sorted(
-        f"{socket}:{core}"
-        for socket, core in physical_pairs
-    )
+        if key == "processor":
+            logical += 1
+        elif key == "physical id":
+            physical_id = value
+        elif key == "core id":
+            core_id = value
+        elif key == "model name" and not model:
+            model = value
 
     return {
-        "model_names": sorted(model_names),
-        "logical_processors": logical_processors or None,
-        "physical_core_ids": physical_ids,
-        "physical_core_count": len(physical_ids) if physical_ids else None,
-        "socket_ids": sorted(socket_ids),
-        "socket_count": len(socket_ids) if socket_ids else None,
+        "logical_processors": logical,
+        "physical_cores": len(pairs) or None,
+        "sockets": len(sockets) or None,
+        "cpu_model": model or None,
     }
 
 
-def parse_cpu_list(value: str | None) -> list[int] | None:
-    """Parse strict Linux CPU-list syntax, e.g. 0-3,8,10-11.
+def parse_meminfo_gib(text: str) -> float | None:
+    match = re.search(r"^MemTotal:\s+(\d+)\s+kB", text, re.MULTILINE)
+    return round(int(match.group(1)) / 1024 / 1024, 3) if match else None
 
-    Empty segments, whitespace, malformed ranges and negative CPU IDs
-    are rejected. Duplicate CPU IDs are accepted and deduplicated.
-    """
-    if not isinstance(value, str) or not value:
+
+def parse_cgroup_cpu_max(text: str) -> float | None:
+    """CPU quota in cores from cgroup v2 'cpu.max' ('max 100000' = none)."""
+    parts = text.split()
+    if len(parts) != 2 or parts[0] == "max":
+        return None
+    try:
+        return round(int(parts[0]) / int(parts[1]), 3)
+    except (ValueError, ZeroDivisionError):
         return None
 
-    if re.fullmatch(
-        r"\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*",
-        value,
-    ) is None:
+
+def read_text(path: str) -> str:
+    try:
+        return Path(path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+
+
+def run_version(command: list[str]) -> str | None:
+    if shutil.which(command[0]) is None:
+        return None
+    try:
+        out = subprocess.run(command, capture_output=True, text=True,
+                             timeout=20)
+        return (out.stdout or out.stderr).strip().splitlines()[0]
+    except (OSError, subprocess.SubprocessError, IndexError):
         return None
 
-    cpus: set[int] = set()
 
-    try:
-        for item in value.split(","):
-            if "-" in item:
-                left, right = item.split("-", 1)
-                start = int(left)
-                end = int(right)
+# ---------------------------------------------------------------------------
+# collection
+# ---------------------------------------------------------------------------
 
-                if end < start:
-                    return None
+def collect() -> dict[str, Any]:
+    cpu = parse_cpuinfo(read_text("/proc/cpuinfo"))
+    affinity = (len(os.sched_getaffinity(0))
+                if hasattr(os, "sched_getaffinity") else None)
+    numa = sorted(
+        p.name for p in Path("/sys/devices/system/node").glob("node[0-9]*")
+    ) if Path("/sys/devices/system/node").is_dir() else []
 
-                cpus.update(range(start, end + 1))
-            else:
-                cpus.add(int(item))
-
-    except (ValueError, OverflowError):
-        return None
-
-    return sorted(cpus)
-
-
-def discover_affinity() -> dict[str, Any]:
-    try:
-        affinity = sorted(os.sched_getaffinity(0))
-
-        return {
-            "available": True,
-            "cpu_ids": affinity,
-            "cpu_count": len(affinity),
-            "source": "os.sched_getaffinity",
-        }
-
-    except (AttributeError, OSError):
-        return {
-            "available": False,
-            "cpu_ids": None,
-            "cpu_count": None,
-            "source": "UNAVAILABLE",
-        }
-
-
-def discover_cgroup() -> dict[str, Any]:
-    result: dict[str, Any] = {
-        "version": "UNKNOWN",
-        "cpu_quota_cores": None,
-        "cpu_period_us": None,
-        "cpu_max": None,
-        "cpuset_cpus": None,
-        "cpuset_cpu_ids": None,
-        "memory_limit_bytes": None,
-        "memory_current_bytes": None,
-        "cgroup_mount_detected": False,
-    }
-
-    cgroup_text = read_text(Path("/proc/self/cgroup")) or ""
-    mount_text = read_text(Path("/proc/self/mountinfo")) or ""
-
-    if re.search(r"(^|:)0::", cgroup_text):
-        result["version"] = "V2"
-        relative = ""
-
-        for line in cgroup_text.splitlines():
-            if line.startswith("0::"):
-                relative = line.split("::", 1)[1].lstrip("/")
-                break
-
-        base = Path("/sys/fs/cgroup") / relative
-
-        cpu_max = read_text(base / "cpu.max")
-
-        if cpu_max:
-            result["cpu_max"] = cpu_max
-            parts = cpu_max.split()
-
-            if len(parts) == 2 and parts[0] != "max":
-                try:
-                    quota = int(parts[0])
-                    period = int(parts[1])
-
-                    if quota > 0 and period > 0:
-                        result["cpu_quota_cores"] = quota / period
-                        result["cpu_period_us"] = period
-
-                except ValueError:
-                    pass
-
-        cpuset = (
-            read_text(base / "cpuset.cpus.effective")
-            or read_text(base / "cpuset.cpus")
-        )
-
-        result["cpuset_cpus"] = cpuset
-        result["cpuset_cpu_ids"] = parse_cpu_list(cpuset)
-
-        memory_max = read_text(base / "memory.max")
-
-        if memory_max and memory_max != "max":
-            try:
-                result["memory_limit_bytes"] = int(memory_max)
-            except ValueError:
-                pass
-
-        result["memory_current_bytes"] = read_int(
-            base / "memory.current"
-        )
-
-    else:
-        result["version"] = "V1_OR_UNKNOWN"
-
-        cpu_candidates = [
-            Path("/sys/fs/cgroup/cpu"),
-            Path("/sys/fs/cgroup/cpu,cpuacct"),
-        ]
-
-        for base in cpu_candidates:
-            quota = read_int(base / "cpu.cfs_quota_us")
-            period = read_int(base / "cpu.cfs_period_us")
-
-            if quota is not None and period and quota > 0 and period > 0:
-                result["cpu_quota_cores"] = quota / period
-                result["cpu_period_us"] = period
-                break
-
-        for base in cpu_candidates:
-            cpuset = read_text(base / "cpuset.cpus")
-
-            if cpuset:
-                result["cpuset_cpus"] = cpuset
-                result["cpuset_cpu_ids"] = parse_cpu_list(cpuset)
-                break
-
-        memory_candidates = [
-            Path("/sys/fs/cgroup/memory"),
-            Path("/sys/fs/cgroup"),
-        ]
-
-        for base in memory_candidates:
-            limit = read_int(base / "memory.limit_in_bytes")
-            current = read_int(base / "memory.usage_in_bytes")
-
-            if limit is not None:
-                # Large sentinel values represent unlimited/unknown.
-                if limit < (1 << 60):
-                    result["memory_limit_bytes"] = limit
-
-                result["memory_current_bytes"] = current
-                break
-
-    result["cgroup_mount_detected"] = (
-        " - cgroup " in mount_text
-        or " - cgroup2 " in mount_text
-    )
-
-    return result
-
-
-def discover_memory() -> dict[str, Any]:
-    meminfo = read_text(Path("/proc/meminfo")) or ""
-    values: dict[str, int] = {}
-
-    for line in meminfo.splitlines():
-        match = re.match(
-            r"^([A-Za-z_()]+):\s+(\d+)\s+kB$",
-            line,
-        )
-
-        if match:
-            values[match.group(1)] = int(match.group(2)) * 1024
-
-    total = values.get("MemTotal")
-    available = values.get("MemAvailable")
+    slurm = {k: v for k, v in os.environ.items()
+             if k.startswith("SLURM_") and k in {
+                 "SLURM_JOB_ID", "SLURM_JOB_NODELIST", "SLURM_NNODES",
+                 "SLURM_CPUS_ON_NODE", "SLURM_CPUS_PER_TASK",
+                 "SLURM_NTASKS", "SLURM_NODEID", "SLURM_CPU_BIND"}}
 
     return {
-        "total_bytes": total,
-        "available_bytes": available,
-        "free_bytes": values.get("MemFree"),
-        "total_gib": round(total / (1024**3), 3) if total else None,
-        "available_gib": (
-            round(available / (1024**3), 3)
-            if available else None
-        ),
-    }
-
-
-def discover_numa() -> dict[str, Any]:
-    node_root = Path("/sys/devices/system/node")
-    nodes: list[dict[str, Any]] = []
-
-    if node_root.exists():
-        for node_path in sorted(node_root.glob("node[0-9]*")):
-            node_id = node_path.name.removeprefix("node")
-            cpulist = read_text(node_path / "cpulist")
-
-            nodes.append({
-                "node_id": node_id,
-                "cpu_list": cpulist,
-                "cpu_ids": parse_cpu_list(cpulist),
-                "memory_info": read_text(node_path / "meminfo"),
-            })
-
-    return {
-        "available": bool(nodes),
-        "node_count": len(nodes) if nodes else None,
-        "nodes": nodes,
-    }
-
-
-def discover_cache() -> list[dict[str, Any]]:
-    root = Path("/sys/devices/system/cpu")
-    caches: list[dict[str, Any]] = []
-
-    for index in sorted(root.glob("cpu0/cache/index*")):
-        caches.append({
-            "level": read_text(index / "level"),
-            "type": read_text(index / "type"),
-            "size": read_text(index / "size"),
-            "line_size_bytes": read_int(
-                index / "coherency_line_size"
-            ),
-            "shared_cpu_list": read_text(
-                index / "shared_cpu_list"
-            ),
-        })
-
-    return caches
-
-
-def discover_frequency() -> dict[str, Any]:
-    root = Path("/sys/devices/system/cpu/cpu0/cpufreq")
-
-    if not root.exists():
-        return {
-            "available": False,
-            "scaling_governor": None,
-            "scaling_min_khz": None,
-            "scaling_max_khz": None,
-            "cpuinfo_max_khz": None,
-        }
-
-    return {
-        "available": True,
-        "scaling_governor": read_text(root / "scaling_governor"),
-        "scaling_min_khz": read_int(root / "scaling_min_freq"),
-        "scaling_max_khz": read_int(root / "scaling_max_freq"),
-        "cpuinfo_max_khz": read_int(root / "cpuinfo_max_freq"),
-    }
-
-
-def discover_slurm() -> dict[str, Any]:
-    names = (
-        "SLURM_JOB_ID",
-        "SLURM_JOB_NAME",
-        "SLURM_JOB_PARTITION",
-        "SLURM_JOB_NODELIST",
-        "SLURM_NNODES",
-        "SLURM_NTASKS",
-        "SLURM_CPUS_ON_NODE",
-        "SLURM_CPUS_PER_TASK",
-        "SLURM_MEM_PER_NODE",
-        "SLURM_MEM_PER_CPU",
-        "SLURM_JOB_ACCOUNT",
-        "SLURM_CLUSTER_NAME",
-        "SLURM_NODEID",
-        "SLURM_PROCID",
-        "SLURM_LOCALID",
-    )
-
-    env = {name: os.environ.get(name) for name in names}
-    active = bool(env.get("SLURM_JOB_ID"))
-
-    if active:
-        scontrol = run_command([
-            "scontrol",
-            "show",
-            "job",
-            str(env["SLURM_JOB_ID"]),
-        ])
-    else:
-        scontrol = {
-            "available": False,
-            "return_code": None,
-            "stdout": "",
-            "stderr": "",
-        }
-
-    return {
-        "active": active,
-        "environment": env,
-        "scontrol_job_query": scontrol,
-    }
-
-
-def discover_software() -> dict[str, Any]:
-    mpi_commands = {
-        name: run_command([name, "--version"])
-        for name in ("mpirun", "mpiexec", "mpicc", "srun")
-    }
-
-    return {
-        "platform": platform.platform(),
-        "system": platform.system(),
-        "release": platform.release(),
-        "machine": platform.machine(),
-        "python_version": platform.python_version(),
-        "java": run_command(["java", "-version"]),
-        "maven": run_command(["mvn", "-version"]),
-        "mpi_and_scheduler_commands": mpi_commands,
-    }
-
-
-def positive_number(value: Any) -> bool:
-    return (
-        isinstance(value, (int, float))
-        and not isinstance(value, bool)
-        and value > 0
-    )
-
-
-def read_reference_targets(
-    config: dict[str, Any],
-) -> tuple[int | None, int | None, float | None]:
-    """
-    Read both the current v1 schema and the earlier reference schema.
-    Returns (node_count, total_physical_cores, memory_gib_per_node).
-    """
-    schema = config.get("schema")
-
-    if schema not in SUPPORTED_CONFIG_SCHEMAS:
-        raise ValueError(
-            "CONFIG_SCHEMA_INVALID: "
-            f"schema={schema!r}; supported={sorted(SUPPORTED_CONFIG_SCHEMAS)}"
-        )
-
-    if schema == "qflqn-p3-hpc-configuration-v1":
-        cluster = config.get("cluster")
-        if not isinstance(cluster, dict):
-            raise ValueError("CONFIG_CLUSTER_INVALID")
-
-        node_count = cluster.get("node_count")
-        total_cores = cluster.get("physical_cores_target")
-
-        memory_total = cluster.get("memory_gib_total")
-        if not positive_number(memory_total) or not positive_number(node_count):
-            memory_per_node = None
-        else:
-            memory_per_node = float(memory_total) / int(node_count)
-
-        allocation = config.get("node_allocation")
-        if isinstance(allocation, dict):
-            groups = allocation.get("groups", [])
-
-            if not isinstance(groups, list) or not groups:
-                raise ValueError("CONFIG_NODE_ALLOCATION_GROUPS_INVALID")
-
-            calculated_nodes = 0
-            calculated_cores = 0
-            calculated_memory = 0.0
-
-            for group in groups:
-                if not isinstance(group, dict):
-                    raise ValueError("CONFIG_NODE_ALLOCATION_GROUP_INVALID")
-
-                count = group.get("node_count")
-                cores = group.get("physical_cores_per_node")
-                memory = group.get("memory_gib_per_node")
-
-                if (
-                    not isinstance(count, int)
-                    or isinstance(count, bool)
-                    or count <= 0
-                    or not isinstance(cores, int)
-                    or isinstance(cores, bool)
-                    or cores <= 0
-                    or not positive_number(memory)
-                ):
-                    raise ValueError("CONFIG_NODE_ALLOCATION_VALUE_INVALID")
-
-                calculated_nodes += count
-                calculated_cores += count * cores
-                calculated_memory += count * float(memory)
-
-            if calculated_nodes != node_count:
-                raise ValueError(
-                    "CONFIG_NODE_COUNT_INCONSISTENT: "
-                    f"cluster={node_count}, allocation={calculated_nodes}"
-                )
-
-            if calculated_cores != total_cores:
-                raise ValueError(
-                    "CONFIG_CORE_COUNT_INCONSISTENT: "
-                    f"cluster={total_cores}, allocation={calculated_cores}"
-                )
-
-            if positive_number(memory_total):
-                if abs(calculated_memory - float(memory_total)) > 1e-6:
-                    raise ValueError("CONFIG_MEMORY_TOTAL_INCONSISTENT")
-
-        if not isinstance(node_count, int) or node_count <= 0:
-            raise ValueError("CONFIG_NODE_COUNT_INVALID")
-
-        if not isinstance(total_cores, int) or total_cores <= 0:
-            raise ValueError("CONFIG_CORE_COUNT_INVALID")
-
-        if memory_per_node is None:
-            raise ValueError("CONFIG_MEMORY_PER_NODE_INVALID")
-
-        return node_count, total_cores, memory_per_node
-
-    hardware = config.get("hardware_reference", {})
-
-    if not isinstance(hardware, dict):
-        raise ValueError("CONFIG_HARDWARE_REFERENCE_INVALID")
-
-    return (
-        hardware.get("compute_nodes"),
-        hardware.get("physical_cores_total"),
-        hardware.get("memory_per_node_gib"),
-    )
-
-
-def validate_reference(
-    config: dict[str, Any],
-    inventory: dict[str, Any],
-    require_slurm: bool,
-) -> list[dict[str, str]]:
-    errors: list[dict[str, str]] = []
-
-    try:
-        expected_nodes, expected_cores, expected_memory = (
-            read_reference_targets(config)
-        )
-    except ValueError as exc:
-        return [{
-            "code": "CONFIGURATION_INVALID",
-            "message": str(exc),
-        }]
-
-    cpu = inventory["hardware"]["cpu"]
-    affinity = inventory["hardware"]["cpu_affinity"]
-    memory = inventory["hardware"]["memory"]
-    cgroup = inventory["hardware"]["cgroup"]
-    slurm = inventory["scheduler"]["slurm"]
-
-    observed_physical = cpu.get("physical_core_count")
-    observed_affinity = affinity.get("cpu_count")
-    observed_memory = memory.get("total_gib")
-
-    local_expected_memory = expected_memory
-
-    allocation = config.get("node_allocation", {})
-    groups = allocation.get("groups", []) if isinstance(allocation, dict) else []
-
-    if groups:
-        slurm_node_id = os.environ.get("SLURM_NODEID")
-
-        # The allocation is heterogeneous: a node can have 41 or 42 cores.
-        allowed_cores = sorted({
-            group["physical_cores_per_node"]
-            for group in groups
-            if isinstance(group, dict)
-            and isinstance(group.get("physical_cores_per_node"), int)
-        })
-
-        inventory["reference_comparison"] = {
-            "expected_cluster_nodes": expected_nodes,
-            "expected_cluster_physical_cores": expected_cores,
-            "expected_local_physical_cores_options": allowed_cores,
-            "expected_local_memory_gib": local_expected_memory,
-            "observed_local_physical_cores": observed_physical,
-            "observed_local_logical_processors": cpu.get(
-                "logical_processors"
-            ),
-            "observed_process_affinity_cpu_count": observed_affinity,
-            "observed_local_memory_gib": observed_memory,
-            "slurm_node_id": slurm_node_id,
-            "cluster_wide_verification": (
-                "NOT_POSSIBLE_FROM_SINGLE_NODE_INVENTORY"
-            ),
-        }
-
-        if observed_physical is not None and allowed_cores:
-            if observed_physical not in allowed_cores:
-                errors.append({
-                    "code": "LOCAL_PHYSICAL_CORE_TARGET_MISMATCH",
-                    "message": (
-                        f"Nodul are {observed_physical} nuclee fizice; "
-                        f"configurația admite {allowed_cores}."
-                    ),
-                })
-
-    else:
-        inventory["reference_comparison"] = {
-            "expected_cluster_nodes": expected_nodes,
-            "expected_cluster_physical_cores": expected_cores,
-            "expected_local_memory_gib": local_expected_memory,
-            "observed_local_physical_cores": observed_physical,
-            "observed_local_logical_processors": cpu.get(
-                "logical_processors"
-            ),
-            "observed_process_affinity_cpu_count": observed_affinity,
-            "observed_local_memory_gib": observed_memory,
-            "cluster_wide_verification": (
-                "NOT_POSSIBLE_FROM_SINGLE_NODE_INVENTORY"
-            ),
-        }
-
-    if inventory["host"]["operating_system"] != "Linux":
-        errors.append({
-            "code": "UNSUPPORTED_OPERATING_SYSTEM",
-            "message": "Inventarul HPC de referință necesită Linux.",
-        })
-
-    if observed_affinity is None or observed_affinity <= 0:
-        errors.append({
-            "code": "CPU_AFFINITY_UNKNOWN",
-            "message": "CPU affinity nu a putut fi determinată.",
-        })
-
-    if memory.get("total_bytes") is None:
-        errors.append({
-            "code": "MEMORY_TOTAL_UNKNOWN",
-            "message": "Memoria RAM locală nu a putut fi determinată.",
-        })
-
-    if (
-        positive_number(local_expected_memory)
-        and positive_number(observed_memory)
-        and float(observed_memory) < float(local_expected_memory) * 0.95
-    ):
-        errors.append({
-            "code": "LOCAL_MEMORY_TARGET_MISMATCH",
-            "message": (
-                f"Memorie locală observată {observed_memory} GiB; "
-                f"ținta per nod este {local_expected_memory} GiB."
-            ),
-        })
-
-    memory_limit = cgroup.get("memory_limit_bytes")
-    if memory_limit is not None and memory.get("total_bytes"):
-        if memory_limit < memory["total_bytes"] * 0.80:
-            inventory["resource_warnings"] = [{
-                "code": "CGROUP_MEMORY_LIMIT_BELOW_HOST_RAM",
-                "message": (
-                    "Limita cgroup este semnificativ sub memoria RAM "
-                    "a gazdei; experimentele trebuie dimensionate după "
-                    "limita efectivă a procesului."
-                ),
-            }]
-
-    if require_slurm and not slurm.get("active"):
-        errors.append({
-            "code": "SLURM_ALLOCATION_ABSENT",
-            "message": (
-                "--require-slurm a fost solicitat, dar nu există "
-                "o alocare Slurm activă."
-            ),
-        })
-
-    if slurm.get("active"):
-        slurm_nodes = slurm["environment"].get("SLURM_NNODES")
-
-        if slurm_nodes:
-            try:
-                observed_nodes = int(slurm_nodes)
-            except ValueError:
-                errors.append({
-                    "code": "SLURM_NODE_COUNT_INVALID",
-                    "message": "SLURM_NNODES nu este numeric.",
-                })
-            else:
-                if observed_nodes > expected_nodes:
-                    errors.append({
-                        "code": "SLURM_NODE_COUNT_EXCEEDS_REFERENCE",
-                        "message": (
-                            f"Alocarea Slurm are {observed_nodes} noduri, "
-                            f"peste ținta de {expected_nodes}."
-                        ),
-                    })
-
-    inventory["reference_comparison"]["expected_cluster_physical_cores"] = (
-        expected_cores
-    )
-
-    return errors
-
-
-def collect(
-    config_path: Path,
-    require_slurm: bool = False,
-) -> dict[str, Any]:
-    try:
-        config = json.loads(config_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise ValueError(
-            f"Nu se poate citi configurația JSON: {exc}"
-        ) from exc
-
-    if not isinstance(config, dict):
-        raise ValueError(
-            "Rădăcina configurației trebuie să fie un obiect JSON"
-        )
-
-    expected_nodes, expected_cores, expected_memory = (
-        read_reference_targets(config)
-    )
-
-    cpuinfo = parse_cpuinfo()
-    frequency = discover_frequency()
-
-    inventory: dict[str, Any] = {
         "schema": SCHEMA,
-        "schema_version": SCHEMA_VERSION,
-        "collected_at_utc": utc_now(),
-        "configuration": {
-            "path": str(config_path),
-            "schema": config.get("schema"),
-            "configuration_id": config.get("configuration_id"),
-            "status": config.get(
-                "status",
-                config.get("configuration_status"),
-            ),
-            "acceptance_gate": config.get("acceptance_gate"),
-            "expected_cluster_nodes": expected_nodes,
-            "expected_cluster_physical_cores": expected_cores,
-            "expected_memory_gib_per_node": expected_memory,
-        },
-        "host": {
-            "hostname": socket.gethostname(),
-            "fqdn": socket.getfqdn(),
-            "operating_system": platform.system(),
-            "platform": platform.platform(),
-            "kernel_release": platform.release(),
-            "architecture": platform.machine(),
-        },
-        "hardware": {
-            "cpu": {
-                **cpuinfo,
-                "os_cpu_count": os.cpu_count(),
-                "frequency": frequency,
-                "cache": discover_cache(),
-            },
-            "cpu_affinity": discover_affinity(),
-            "cgroup": discover_cgroup(),
-            "memory": discover_memory(),
-            "numa": discover_numa(),
-        },
-        "scheduler": {
-            "slurm": discover_slurm(),
-        },
-        "software": {
-            **discover_software(),
-        },
-        "measurement_capabilities": {
-            "dram_hardware_counters": "NOT_PROBED",
-            "network_bandwidth": "NOT_MEASURED",
-            "network_latency": "NOT_MEASURED",
-            "storage_bandwidth": "NOT_MEASURED",
-            "cpu_governor_observed": frequency.get(
-                "scaling_governor"
-            ),
-        },
-        "limitations": [
-            "Inventarul descrie numai nodul curent.",
-            "Inventarul unui singur nod nu certifică toate cele 16 noduri.",
-            "Nucleele fizice, procesoarele logice și CPU affinity sunt "
-            "mărimi distincte.",
-            "Memoria gazdei nu este neapărat memoria disponibilă jobului.",
-            "Limitele cgroup pot restrânge memoria și CPU disponibile.",
-            "Bandwidth-ul DRAM și al rețelei nu este măsurat de acest colector.",
-            "Statusul PASS_LOCAL_PREFLIGHT nu certifică un cluster HPC.",
-        ],
+        "collected_utc": datetime.now(timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"),
+        "hostname": platform.node(),
+        "os": platform.platform(),
+        "kernel": platform.release(),
+        "python": platform.python_version(),
+        "cpu_model": cpu["cpu_model"],
+        "sockets": cpu["sockets"],
+        "physical_cores": cpu["physical_cores"],
+        "logical_processors": cpu["logical_processors"] or os.cpu_count(),
+        "cpu_affinity_count": affinity,
+        "cgroup_cpu_quota_cores": parse_cgroup_cpu_max(
+            read_text("/sys/fs/cgroup/cpu.max")),
+        "memory_gib": parse_meminfo_gib(read_text("/proc/meminfo")),
+        "numa_nodes": numa,
+        "slurm": slurm,
+        "java": run_version(["java", "-version"]),
+        "maven": run_version(["mvn", "-version"]),
+        "mpi": (run_version(["mpirun", "--version"])
+                or run_version(["mpiexec", "--version"])),
     }
 
-    errors = validate_reference(
-        config,
-        inventory,
-        require_slurm=require_slurm,
-    )
 
-    inventory["validation"] = {
-        "status": "FAIL" if errors else "PASS_LOCAL_PREFLIGHT",
-        "errors": errors,
-        "cluster_acceptance": "NOT_EVALUATED",
-        "acceptance_gate": "p3_validation",
-        "note": (
-            "Inventarul local nu permite declararea P3_ACCEPTED. "
-            "Validarea clusterului necesită inventar separat pe fiecare "
-            "nod și proveniență comună a campaniei."
-        ),
-    }
+def usable_cores(node: dict[str, Any]) -> int | None:
+    """Cores really available to the job: the minimum of every known limit."""
+    limits = [v for v in (
+        node.get("physical_cores"),
+        node.get("cpu_affinity_count"),
+        node.get("cgroup_cpu_quota_cores"),
+    ) if isinstance(v, (int, float)) and v > 0]
 
-    return inventory
+    return int(min(limits)) if limits else None
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
+# ---------------------------------------------------------------------------
+# target validation
+# ---------------------------------------------------------------------------
 
-    parser.add_argument(
-        "--config",
-        required=True,
-        type=Path,
-        help="Configurația HPC JSON.",
-    )
+def validate_target(
+    target: dict[str, Any], nodes: list[dict[str, Any]]
+) -> dict[str, Any]:
+    checks: list[dict[str, str]] = []
 
-    parser.add_argument(
-        "--output",
-        required=True,
-        type=Path,
-        help="Calea fișierului JSON de inventar.",
-    )
+    def add(cid: str, status: str, detail: str) -> None:
+        checks.append({"id": cid, "status": status, "detail": detail})
 
-    parser.add_argument(
-        "--require-slurm",
-        action="store_true",
-        help="Eșuează dacă nu există alocare Slurm activă.",
-    )
+    # internal consistency of the declared target
+    groups = target.get("node_groups", [])
+    declared_cores = sum(g["nodes"] * g["physical_cores_per_node"]
+                         for g in groups)
+    declared_nodes = sum(g["nodes"] for g in groups)
 
-    return parser.parse_args()
+    add("T0_TARGET_IS_INTERNALLY_CONSISTENT",
+        "PASS" if (declared_cores == target["physical_cores_total"]
+                   and declared_nodes == target["compute_nodes"]
+                   and target["compute_nodes"] * target["ram_gib_per_node"]
+                   == target["ram_gib_total"]) else "FAIL",
+        f"groups give {declared_nodes} nodes / {declared_cores} cores; "
+        f"target says {target['compute_nodes']} / "
+        f"{target['physical_cores_total']}")
+
+    if not nodes:
+        add("T1_INVENTORIES_PRESENT", "DEFERRED",
+            "no node inventory supplied; the target is not demonstrated")
+        return finish(checks)
+
+    add("T1_INVENTORIES_PRESENT", "PASS", f"{len(nodes)} inventory file(s)")
+
+    hosts = [n.get("hostname") for n in nodes]
+    duplicates = sorted({h for h in hosts if hosts.count(h) > 1})
+    add("T2_DISTINCT_NODES",
+        "FAIL" if duplicates else "PASS",
+        f"duplicate hostnames: {duplicates}" if duplicates
+        else f"{len(set(hosts))} distinct hosts")
+
+    cores = [usable_cores(n) for n in nodes]
+    unknown = [h for h, c in zip(hosts, cores) if c is None]
+
+    if unknown:
+        add("T3_CORES_KNOWN_FOR_EVERY_NODE", "DEFERRED",
+            f"core count could not be determined on {unknown}")
+    else:
+        add("T3_CORES_KNOWN_FOR_EVERY_NODE", "PASS", "all nodes report cores")
+
+    total_cores = sum(c for c in cores if c)
+    needed_nodes = target["compute_nodes"]
+    needed_cores = target["physical_cores_total"]
+
+    add("T4_NODE_COUNT",
+        "PASS" if len(set(hosts)) >= needed_nodes else "DEFERRED",
+        f"{len(set(hosts))} of {needed_nodes} compute nodes")
+
+    add("T5_CORE_COUNT",
+        "PASS" if total_cores >= needed_cores and not unknown
+        else "DEFERRED",
+        f"{total_cores} usable cores of {needed_cores} "
+        "(minimum of physical cores, affinity mask and cgroup quota)")
+
+    ram = [n.get("memory_gib") for n in nodes]
+    if any(r is None for r in ram):
+        add("T6_RAM", "DEFERRED", "memory unknown on at least one node")
+    else:
+        total_ram = sum(ram)
+        add("T6_RAM",
+            "PASS" if total_ram >= 0.97 * target["ram_gib_total"]
+            else "DEFERRED",
+            f"{total_ram:.0f} GiB of {target['ram_gib_total']} GiB "
+            "(OS-reserved memory makes the visible total slightly lower)")
+
+    add("T7_MPI_PRESENT",
+        "PASS" if all(n.get("mpi") for n in nodes) else "DEFERRED",
+        "mpirun/mpiexec found on every node" if all(
+            n.get("mpi") for n in nodes) else "MPI not found on every node")
+
+    return finish(checks)
 
 
-def write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
-    if path.exists() and path.is_symlink():
-        raise ValueError(f"Refuz scrierea peste o cale symlink: {path}")
+def finish(checks: list[dict[str, str]]) -> dict[str, Any]:
+    statuses = {c["status"] for c in checks}
 
-    path.parent.mkdir(parents=True, exist_ok=True)
+    if "FAIL" in statuses:
+        overall = "FAIL"
+    elif "DEFERRED" in statuses:
+        overall = "DEFERRED"
+    else:
+        overall = "PASS"
 
-    temporary = path.with_name(path.name + ".tmp")
-
-    if temporary.exists() and temporary.is_symlink():
-        raise ValueError(f"Fișier temporar symlink nesigur: {temporary}")
-
-    temporary.write_text(
-        json.dumps(
-            payload,
-            indent=2,
-            sort_keys=True,
-            ensure_ascii=False,
-        ) + "\n",
-        encoding="utf-8",
-    )
-
-    temporary.replace(path)
+    return {"overall": overall, "checks": checks}
 
 
-def main() -> int:
-    args = parse_args()
+def classify_run(
+    nodes_used: int, workers: int, target: dict[str, Any]
+) -> str:
+    """Name what a run with this shape can demonstrate."""
+    if nodes_used < 1 or workers < 1:
+        raise ValueError("nodes_used and workers must be positive")
 
-    try:
-        inventory = collect(
-            args.config,
-            require_slurm=args.require_slurm,
-        )
+    if nodes_used == 1:
+        return "INTRA_NODE_ONLY"
 
-        write_json_atomic(args.output, inventory)
+    if nodes_used < target["compute_nodes"]:
+        return "PARTIAL_CLUSTER"
 
-        status = inventory["validation"]["status"]
+    return "FULL_CLUSTER"
 
-        print(f"INVENTORY_FILE={args.output}")
-        print(f"INVENTORY_STATUS={status}")
-        print("CLUSTER_ACCEPTANCE=NOT_EVALUATED")
-        print("ACCEPTANCE_GATE=p3_validation")
 
-        if status != "PASS_LOCAL_PREFLIGHT":
-            for error in inventory["validation"]["errors"]:
-                print(
-                    f"INVENTORY_ERROR[{error['code']}]: "
-                    f"{error['message']}",
-                    file=sys.stderr,
-                )
-            return 3
+def main(argv: list[str] | None = None) -> int:
+    args = sys.argv[1:] if argv is None else argv
 
+    if args and args[0] == "collect":
+        json.dump(collect(), sys.stdout, indent=2)
+        print()
         return 0
 
-    except ValueError as exc:
-        print(f"CONFIGURATION_ERROR: {exc}", file=sys.stderr)
-        return 2
+    if len(args) >= 2 and args[0] == "validate":
+        target = json.loads(Path(args[1]).read_text(encoding="utf-8"))
+        nodes = [json.loads(Path(p).read_text(encoding="utf-8"))
+                 for p in args[2:]]
+        result = validate_target(target, nodes)
+        print(json.dumps(result, indent=2))
+        return 0 if result["overall"] == "PASS" else 1
 
-    except OSError as exc:
-        print(
-            f"INVENTORY_IO_ERROR: {type(exc).__name__}: {exc}",
-            file=sys.stderr,
-        )
-        return 4
-
-    except Exception as exc:
-        print(
-            f"INVENTORY_RUNTIME_ERROR: {type(exc).__name__}: {exc}",
-            file=sys.stderr,
-        )
-        return 4
+    print(__doc__)
+    return 2
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())
