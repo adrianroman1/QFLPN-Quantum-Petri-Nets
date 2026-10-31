@@ -7,6 +7,9 @@ import java.util.concurrent.ForkJoinPool;
  * Strategy built on the existing SpmvPlan and the persistent-pool overload
  * SparseMatrixCSR.multiplyParallelInto(x, y, plan, pool).
  *
+ * Uses the public API of SparseMatrixCSR and SpmvPlan only; it does not
+ * require any change to those classes.
+ *
  * The plan is created once. The ForkJoinPool is either created once and
  * owned by the strategy, or supplied by the caller and left running on
  * close().
@@ -38,7 +41,26 @@ public final class PlannedForkJoinSpmvStrategy implements SpmvStrategy {
             int threshold,
             ForkJoinPool callerOwnedPool) {
 
+        this(matrix, parallelism, threshold,
+                MultiplyTask.ThresholdMode.ROW_THRESHOLD, callerOwnedPool);
+    }
+
+    /**
+     * @param thresholdMode unit of the recursion threshold. ROW_THRESHOLD
+     *                      matches the default of SparseMatrixCSR;
+     *                      SpmvPlan.create(int[], int, int) alone would use
+     *                      NNZ_THRESHOLD, so the mode is always passed
+     *                      explicitly here.
+     */
+    public PlannedForkJoinSpmvStrategy(
+            SparseMatrixCSR matrix,
+            int parallelism,
+            int threshold,
+            MultiplyTask.ThresholdMode thresholdMode,
+            ForkJoinPool callerOwnedPool) {
+
         this.matrix = Objects.requireNonNull(matrix, "matrix cannot be null");
+        Objects.requireNonNull(thresholdMode, "thresholdMode cannot be null");
 
         if (parallelism <= 0) {
             throw new IllegalArgumentException(
@@ -46,8 +68,13 @@ public final class PlannedForkJoinSpmvStrategy implements SpmvStrategy {
         }
 
         this.parallelism = parallelism;
+        // Public API only: getRowPointers() returns a copy, taken once here.
         this.plan = SpmvPlan.create(
-                matrix.rowPointersView(), threshold, parallelism);
+                matrix.getRowPointers(),
+                threshold,
+                parallelism,
+                MultiplyTask.SplitPolicy.BINARY_NNZ_SPLIT,
+                thresholdMode);
 
         if (callerOwnedPool != null) {
             this.pool = callerOwnedPool;

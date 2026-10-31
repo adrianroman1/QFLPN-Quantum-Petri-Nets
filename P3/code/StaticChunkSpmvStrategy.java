@@ -23,6 +23,10 @@ import java.util.concurrent.RecursiveAction;
  * output vector. This is best effort: the JVM does not guarantee the
  * alignment of array bases.
  *
+ * Memory: the strategy keeps a private copy of the CSR arrays (public
+ * getters only, no change to SparseMatrixCSR is required), i.e. one extra
+ * CSR payload while the strategy is open.
+ *
  * NUMA / first touch: the JVM zeroes a new array in the allocating thread,
  * so first-touch placement cannot be controlled from Java code; no claim is
  * made about it.
@@ -75,9 +79,14 @@ public final class StaticChunkSpmvStrategy implements SpmvStrategy {
                     "chunksPerThread must be greater than zero.");
         }
 
-        this.values = matrix.valuesView();
-        this.columns = matrix.columnIndicesView();
-        this.rowPointers = matrix.rowPointersView();
+        // Public API only. The getters return defensive copies, taken once
+        // at construction: the strategy therefore holds one extra copy of
+        // the CSR payload (12 bytes per entry + 4 bytes per row) for its
+        // lifetime. Account for it in memory budgets (the harness preflight
+        // model already assumes two copies of the CSR payload).
+        this.values = matrix.getValues();
+        this.columns = matrix.getColumnIndices();
+        this.rowPointers = matrix.getRowPointers();
         this.rows = matrix.getRows();
         this.columnCount = matrix.getColumns();
         this.parallelism = parallelism;
