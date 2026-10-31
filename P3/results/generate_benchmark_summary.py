@@ -1,18 +1,14 @@
 #!/usr/bin/env python3
 """Generate a RUN_ID-bound QFLPN P3 benchmark Markdown report.
 
-The same generator supports two output modes:
+The generator supports:
+1. A run-specific report, written atomically with --overwrite --strict-output.
+2. A GitHub Actions step summary, appended to GITHUB_STEP_SUMMARY.
 
-1. Run-specific report:
-   --output P3/results/raw/<RUN_ID>/benchmark-report.md
-   --overwrite --strict-output
+Only canonical timed benchmark dimensions are accepted:
+1,000,000; 10,000,000; 70,000,000; 100,000,000.
 
-2. GitHub Actions step summary:
-   --output "$GITHUB_STEP_SUMMARY"
-   (default append behavior)
-
-A strict run-specific invocation never writes a failure document that could
-be mistaken for a valid benchmark report.
+The dimension-12 correctness fixture is not a timed benchmark.
 """
 
 from __future__ import annotations
@@ -22,11 +18,42 @@ import csv
 import json
 import math
 import os
+import re
 import sys
 import tempfile
 from pathlib import Path
 from typing import Any
 
+
+CANONICAL_BENCHMARKS = {
+    12: {
+        "benchmark_id": "QFLPN-12",
+        "role": "CORRECTNESS_FIXTURE",
+    },
+    1_000_000: {
+        "benchmark_id": "QFLPN-1M",
+        "role": "TIMED_BENCHMARK",
+    },
+    10_000_000: {
+        "benchmark_id": "QFLPN-10M",
+        "role": "TIMED_BENCHMARK",
+    },
+    70_000_000: {
+        "benchmark_id": "QFLPN-70M",
+        "role": "TIMED_BENCHMARK",
+    },
+    100_000_000: {
+        "benchmark_id": "QFLPN-100M",
+        "role": "TIMED_BENCHMARK",
+    },
+}
+
+TIMED_BENCHMARK_DIMENSIONS = frozenset({
+    1_000_000,
+    10_000_000,
+    70_000_000,
+    100_000_000,
+})
 
 REQUIRED_CSV_FIELDS = {
     "timestamp",
@@ -63,6 +90,7 @@ REPORT_NUMERIC_FIELDS = (
     "sequential_oracle_error",
     "parallel_oracle_error",
     "max_absolute_error",
+    "max_error",
 )
 
 
@@ -84,21 +112,102 @@ def finite_number(value: Any, name: str) -> float:
     return result
 
 
+def strict_integer(value: Any, name: str) -> int:
+    """Parse a non-negative ASCII integer without accepting decimal forms."""
+
+    if not isinstance(value, str):
+        raise SummaryError(f"{name} must be an integer string")
+
+    normalized = value.strip()
+
+    if not re.fullmatch(r"[0-9]+", normalized):
+        raise SummaryError(f"{name} must be a non-negative integer")
+
+    try:
+        return int(normalized)
+    except ValueError as exc:
+        raise SummaryError(f"{name} is outside the supported range") from exc
+
+
 def require_regular_file(path: Path, description: str) -> None:
     """Reject missing files, directories, and symlinks."""
 
     if path.is_symlink():
-        raise SummaryError(f"{description} must not be a symlink: {path}")
+        raise SummaryError(
+            f"{description} must not be a symlink: {path}"
+        )
 
     if not path.is_file():
-        raise SummaryError(f"{description} is missing or not a regular file: {path}")
+        raise SummaryError(
+            f"{description} is missing or not a regular file: {path}"
+        )
+
+
+def validate_run_id(run_id: Any) -> str:
+    """Validate the run identifier used to join evidence."""
+
+    if not isinstance(run_id, str) or not run_id:
+        raise SummaryError("RUN_ID must be a non-empty string")
+
+    if not run_id.isascii():
+        raise SummaryError("RUN_ID must contain ASCII characters only")
+
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", run_id):
+        raise SummaryError("RUN_ID contains unsupported characters")
+
+    return run_id
+
+
+def validate_timed_benchmark_identity(
+    row: dict[str, str],
+) -> tuple[int, str, int]:
+    """Validate dimension, canonical ID, and NNZ for one timed CSV row."""
+
+    dimension = strict_integer(
+        row.get("dimension"),
+        "dimension",
+    )
+
+    if dimension not in CANONICAL_BENCHMARKS:
+        raise SummaryError(
+            f"unsupported benchmark dimension: {dimension}"
+        )
+
+    catalog_entry = CANONICAL_BENCHMARKS[dimension]
+    benchmark_id = row.get("benchmark_id")
+
+    if benchmark_id != catalog_entry["benchmark_id"]:
+        raise SummaryError(
+            "benchmark_id does not match the canonical catalog: "
+            f"dimension={dimension}, expected="
+            f"{catalog_entry['benchmark_id']}, got={benchmark_id!r}"
+        )
+
+    if dimension not in TIMED_BENCHMARK_DIMENSIONS:
+        raise SummaryError(
+            f"dimension {dimension} is a correctness fixture, "
+            "not a timed benchmark"
+        )
+
+    nnz = strict_integer(
+        row.get("non_zero_count"),
+        "non_zero_count",
+    )
+
+    if nnz != 2 * dimension:
+        raise SummaryError(
+            "non_zero_count does not match the P3 benchmark contract: "
+            f"expected {2 * dimension}, got {nnz}"
+        )
+
+    return dimension, benchmark_id, nnz
 
 
 def load_matching_csv_row(
     csv_path: Path,
     run_id: str,
 ) -> dict[str, str]:
-    """Load exactly one canonical CSV row for the requested RUN_ID."""
+    """Load exactly one canonical timed CSV row for the requested RUN_ID."""
 
     require_regular_file(csv_path, "benchmark CSV")
 
@@ -113,6 +222,11 @@ def load_matching_csv_row(
             if reader.fieldnames is None:
                 raise SummaryError("benchmark CSV has no header")
 
+            if len(reader.fieldnames) != len(set(reader.fieldnames)):
+                raise SummaryError(
+                    "benchmark CSV contains duplicate column names"
+                )
+
             missing = REQUIRED_CSV_FIELDS - set(reader.fieldnames)
 
             if missing:
@@ -121,14 +235,28 @@ def load_matching_csv_row(
                     + ", ".join(sorted(missing))
                 )
 
-            matches = [
-                row
-                for row in reader
-                if row.get("run_id") == run_id
-            ]
+            matches: list[dict[str, str]] = []
 
+            for row in reader:
+                if None in row:
+                    raise SummaryError(
+                        "benchmark CSV contains a row with extra fields"
+                    )
+
+                if any(value is None for value in row.values()):
+                    raise SummaryError(
+                        "benchmark CSV contains a row with missing fields"
+                    )
+
+                if row.get("run_id") == run_id:
+                    matches.append(row)
+
+    except SummaryError:
+        raise
     except (OSError, UnicodeError, csv.Error) as exc:
-        raise SummaryError(f"cannot read benchmark CSV: {exc}") from exc
+        raise SummaryError(
+            f"cannot read benchmark CSV: {exc}"
+        ) from exc
 
     if len(matches) != 1:
         raise SummaryError(
@@ -136,13 +264,18 @@ def load_matching_csv_row(
             f"found {len(matches)}"
         )
 
+    validate_timed_benchmark_identity(matches[0])
+
     return matches[0]
 
 
 def load_report(report_path: Path) -> dict[str, Any]:
     """Load and validate the benchmark validation JSON."""
 
-    require_regular_file(report_path, "benchmark validation report")
+    require_regular_file(
+        report_path,
+        "benchmark validation report",
+    )
 
     try:
         report = json.loads(
@@ -154,7 +287,9 @@ def load_report(report_path: Path) -> dict[str, Any]:
         ) from exc
 
     if not isinstance(report, dict):
-        raise SummaryError("validation report must be a JSON object")
+        raise SummaryError(
+            "validation report must be a JSON object"
+        )
 
     if report.get("schema") != "qflpn-benchmark-v2":
         raise SummaryError(
@@ -200,48 +335,66 @@ def compare_evidence(
     """Cross-check the CSV row and validation JSON for one RUN_ID."""
 
     latest = report["latest_record"]
-    csv_run_id = row["run_id"]
 
-    if not isinstance(csv_run_id, str) or not csv_run_id:
-        raise SummaryError("CSV row has an empty run_id")
+    csv_run_id = validate_run_id(row.get("run_id"))
 
-    if expected_run_id and csv_run_id != expected_run_id:
-        raise SummaryError(
-            f"CSV run_id mismatch: expected {expected_run_id}, "
-            f"got {csv_run_id}"
-        )
+    if expected_run_id is not None:
+        expected_run_id = validate_run_id(expected_run_id)
+
+        if csv_run_id != expected_run_id:
+            raise SummaryError(
+                f"CSV run_id mismatch: expected {expected_run_id}, "
+                f"got {csv_run_id}"
+            )
 
     if latest.get("run_id") != csv_run_id:
         raise SummaryError(
             "CSV and JSON report run_id values do not match"
         )
 
+    dimension, benchmark_id, nnz = (
+        validate_timed_benchmark_identity(row)
+    )
+
+    report_dimension = latest.get("dimension")
+    report_nnz = latest.get("nnz")
+
+    if report_dimension != dimension:
+        raise SummaryError(
+            "CSV/JSON mismatch for dimension: "
+            f"{dimension} versus {report_dimension!r}"
+        )
+
+    if report_nnz != nnz:
+        raise SummaryError(
+            "CSV/JSON mismatch for nnz: "
+            f"{nnz} versus {report_nnz!r}"
+        )
+
+    report_benchmark_id = latest.get("benchmark_id")
+
+    if (
+        report_benchmark_id is not None
+        and report_benchmark_id != benchmark_id
+    ):
+        raise SummaryError(
+            "CSV/JSON mismatch for benchmark_id: "
+            f"{benchmark_id} versus {report_benchmark_id!r}"
+        )
+
     comparisons = {
-        "dimension": int(row["dimension"]),
-        "nnz": int(row["non_zero_count"]),
-    }
-
-    for field, expected in comparisons.items():
-        if latest.get(field) != expected:
-            csv_key = (
-                "non_zero_count"
-                if field == "nnz"
-                else field
-            )
-            raise SummaryError(
-                f"CSV/JSON mismatch for {field}: "
-                f"{row.get(csv_key)} versus {latest.get(field)}"
-            )
-
-    csv_values = {
         "speedup": "speedup",
         "sequential_mean_ms": "sequential_mean_ms",
         "parallel_mean_ms": "parallel_mean_ms",
         "max_error": "max_absolute_error",
     }
 
-    for report_key, csv_key in csv_values.items():
-        actual = finite_number(row[csv_key], csv_key)
+    for report_key, csv_key in comparisons.items():
+        actual = finite_number(
+            row[csv_key],
+            csv_key,
+        )
+
         expected = finite_number(
             latest.get(report_key),
             report_key,
@@ -262,7 +415,6 @@ def compare_evidence(
         if field in latest:
             finite_number(latest[field], field)
 
-    # Ensure the displayed CSV metrics are numeric and finite.
     for field in REQUIRED_CSV_FIELDS:
         if field.endswith("_ms") or field in {
             "speedup",
@@ -292,23 +444,21 @@ def build_summary(
     if run_id is None:
         run_id = latest.get("run_id")
 
-    if not isinstance(run_id, str) or not run_id:
-        raise SummaryError("cannot determine benchmark run_id")
+    run_id = validate_run_id(run_id)
 
-    if not run_id.isascii():
-        raise SummaryError("RUN_ID must contain ASCII characters only")
+    row = load_matching_csv_row(
+        csv_path,
+        run_id,
+    )
 
-    if any(
-        not (character.isalnum() or character in "._-")
-        for character in run_id
-    ):
-        raise SummaryError("RUN_ID contains unsupported characters")
-
-    row = load_matching_csv_row(csv_path, run_id)
-    latest = compare_evidence(
+    compare_evidence(
         row,
         report,
         expected_run_id=run_id,
+    )
+
+    dimension, benchmark_id, nnz = (
+        validate_timed_benchmark_identity(row)
     )
 
     return "\n".join([
@@ -318,8 +468,9 @@ def build_summary(
         f"- Run ID: `{run_id}`",
         f"- Schema: `{report['schema']}`",
         f"- Valid CSV records: {report['records']}",
-        f"- Dimension: {row['dimension']}",
-        f"- Non-zero values: {row['non_zero_count']}",
+        f"- Benchmark ID: `{benchmark_id}`",
+        f"- Dimension: {dimension}",
+        f"- Non-zero values: {nnz}",
         f"- Warm-up iterations: {row['warmup_iterations']}",
         f"- Measured iterations: {row['measured_iterations']}",
         "",
@@ -408,7 +559,10 @@ def write_output(
                 stream.flush()
                 os.fsync(stream.fileno())
 
-            os.replace(temporary_path, output_path)
+            os.replace(
+                temporary_path,
+                output_path,
+            )
 
         except Exception:
             try:
@@ -497,7 +651,10 @@ def main() -> int:
             "",
         ])
 
-        print(f"[FAIL] {exc}", file=sys.stderr)
+        print(
+            f"[FAIL] {exc}",
+            file=sys.stderr,
+        )
 
         if args.output and not args.strict_output:
             try:
@@ -513,7 +670,10 @@ def main() -> int:
                 )
 
         elif not args.output and not args.strict_output:
-            print(failure, end="")
+            print(
+                failure,
+                end="",
+            )
 
         return 1
 
