@@ -1,0 +1,10 @@
+$ /usr/bin/mpicc.mpich -std=c11 -O2 -Wall -Wextra -Wpedantic -Wconversion -Wshadow /home/runner/work/QFLPN-Quantum-Petri-Nets/QFLPN-Quantum-Petri-Nets/P3/hpc/mpi/native/p3_mpi_spmv.c -o /home/runner/work/QFLPN-Quantum-Petri-Nets/QFLPN-Quantum-Petri-Nets/P3/target/mpi/p3_mpi_spmv -lm
+STDOUT:
+
+STDERR:
+/home/runner/work/QFLPN-Quantum-Petri-Nets/QFLPN-Quantum-Petri-Nets/P3/hpc/mpi/native/p3_mpi_spmv.c: In function ‘main’:
+/home/runner/work/QFLPN-Quantum-Petri-Nets/QFLPN-Quantum-Petri-Nets/P3/hpc/mpi/native/p3_mpi_spmv.c:594:28: warning: unused variable ‘nnz_end’ [-Wunused-variable]
+  594 |             const uint64_t nnz_end = input.row_ptr[row_end];
+      |                            ^~~~~~~
+
+EXIT_CODE=0

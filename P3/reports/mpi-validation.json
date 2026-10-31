@@ -1,48 +1,47 @@
 {
-  "schema": "qflpn-p3-mpi-validation-v1",
-  "validation": "PASS",
-  "run_id": "p3-123456789-1",
-  "source_commit": "0123456789abcdef0123456789abcdef01234567",
-  "workflow_run_id": "123456789",
-  "workflow_run_attempt": 1,
-  "created_utc": "2026-10-30T12:00:00Z",
-  "native_build": {
-    "status": "PASS",
-    "compiler": "mpicc",
-    "compiler_version": "REPLACE_WITH_ACTUAL_VERSION",
-    "source_file": "P3/hpc/mpi/native/p3_mpi_spmv.c",
-    "executable": "P3/target/mpi/p3_mpi_spmv",
-    "executable_sha256": "REPLACE_WITH_ACTUAL_64_HEX_SHA256",
-    "exit_code": 0
-  },
   "execution": {
-    "status": "PASS",
-    "launcher": "mpirun",
-    "process_count": 2,
     "exit_code": 0,
+    "launcher": "/usr/bin/mpiexec.hydra",
+    "process_count": 2,
     "skipped": false,
-    "timeout": false,
+    "status": "PASS",
+    "stderr_file": "P3/reports/mpi-stderr.log",
     "stdout_file": "P3/reports/mpi-stdout.log",
-    "stderr_file": "P3/reports/mpi-stderr.log"
+    "timeout": false
+  },
+  "native_build": {
+    "compiler": "mpicc",
+    "compiler_path": "/usr/bin/mpicc.mpich",
+    "compiler_version": "gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0\nCopyright (C) 2023 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.",
+    "executable": "P3/target/mpi/p3_mpi_spmv",
+    "executable_sha256": "51ee8c314b449bd81e9e1958af4ace5d8d2baf2c5669f9e4cdc83fabc9bbd149",
+    "exit_code": 0,
+    "source_file": "P3/hpc/mpi/native/p3_mpi_spmv.c",
+    "status": "PASS"
   },
   "numerical_validation": {
-    "status": "PASS",
-    "reference": "sequential_csr",
-    "rows": 1000,
-    "columns": 1000,
-    "nnz": 2000,
-    "max_absolute_error": 0.0,
-    "max_relative_error": 0.0,
     "absolute_tolerance": 1e-12,
+    "columns": 128,
+    "comparison": "PASS",
+    "max_absolute_error": 0.0,
+    "max_reference_magnitude": 1.0546875,
+    "max_relative_error": 0.0,
+    "nnz": 384,
+    "reference": "sequential_csr",
     "relative_tolerance": 1e-10,
-    "comparison": "PASS"
+    "rows": 128,
+    "status": "PASS"
   },
   "provenance": {
-    "repository": "adrianroman1/QFLPN-Quantum-Petri-Nets",
-    "branch": "main",
     "commit_verified": true,
     "run_id_verified": true,
-    "workflow_run_id_verified": true,
-    "workflow_run_attempt_verified": true
-  }
+    "workflow_run_id_verified": true
+  },
+  "repository": "adrianroman1/QFLPN-Quantum-Petri-Nets",
+  "run_id": "p3-41221462450-1",
+  "schema": "qflqn-p3-mpi-validation-v1",
+  "source_commit": "163fa41c0c62fbd2d67eba0d3af7f2b3401f344b",
+  "validation": "PASS",
+  "workflow_run_attempt": 1,
+  "workflow_run_id": "41221462450"
 }
