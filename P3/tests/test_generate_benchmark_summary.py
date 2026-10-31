@@ -76,6 +76,11 @@ def write_csv(
 ) -> None:
     """Write a CSV using the exact production V2 header."""
 
+    csv_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
     with csv_path.open(
         "w",
         encoding="utf-8",
@@ -96,7 +101,12 @@ def write_evidence(
     rows: list[dict[str, str]] | None = None,
     report_override: dict | None = None,
 ) -> tuple[Path, Path]:
-    """Create CSV evidence and JSON using the production validator."""
+    """Create valid CSV evidence and JSON using the production validator.
+
+    Invalid CSV and JSON cases must be introduced only after this helper
+    has generated a valid authoritative report. This prevents the fixture
+    setup itself from raising before the code under test is reached.
+    """
 
     csv_path = tmp_path / "benchmark_results_v2.csv"
     report_path = tmp_path / "validation-report.json"
@@ -108,7 +118,6 @@ def write_evidence(
         records,
     )
 
-    # Generate the JSON with the actual V2 validator.
     report = validator.validate(csv_path)
 
     if report_override is not None:
@@ -125,6 +134,29 @@ def write_evidence(
     )
 
     return csv_path, report_path
+
+
+def rewrite_csv_rows(
+    csv_path: Path,
+    rows: list[dict[str, str]],
+) -> None:
+    """Rewrite an existing CSV after a valid fixture has been created."""
+
+    write_csv(
+        csv_path,
+        rows,
+    )
+
+
+def read_csv_rows(csv_path: Path) -> list[dict[str, str]]:
+    """Read CSV rows while preserving the production header."""
+
+    with csv_path.open(
+        "r",
+        encoding="utf-8",
+        newline="",
+    ) as stream:
+        return list(csv.DictReader(stream))
 
 
 def test_summary_accepts_matching_csv_and_real_validator_json(
@@ -276,16 +308,20 @@ def test_summary_rejects_json_benchmark_id_mismatch(
 def test_summary_rejects_duplicate_csv_run_id(
     tmp_path: Path,
 ) -> None:
-    row = csv_row()
+    # First create a valid one-record fixture and its authoritative report.
+    csv_path, report_path = write_evidence(tmp_path)
 
-    csv_path, report_path = write_evidence(
-        tmp_path,
-        rows=[
-            row,
-            dict(row),
-        ],
-    )
+    # Only after fixture creation introduce the duplicate CSV record.
+    rows = read_csv_rows(csv_path)
+    assert len(rows) == 1
+    assert rows[0]["run_id"] == RUN_ID
 
+    rows.append(dict(rows[0]))
+    rewrite_csv_rows(csv_path, rows)
+
+    # The summary generator must reject the duplicate run ID itself.
+    # The fixture helper must not invoke the authoritative validator
+    # against the intentionally invalid CSV before this assertion.
     with pytest.raises(
         generator.SummaryError,
         match="exactly one CSV row",
@@ -366,13 +402,16 @@ def test_summary_rejects_invalid_report_schema(
 def test_summary_rejects_nonfinite_csv_metric(
     tmp_path: Path,
 ) -> None:
-    row = csv_row()
-    row["speedup"] = "NaN"
+    # Generate a valid report first. The CSV is corrupted afterwards,
+    # so the test exercises the summary generator rather than the
+    # authoritative validator used by write_evidence().
+    csv_path, report_path = write_evidence(tmp_path)
 
-    csv_path, report_path = write_evidence(
-        tmp_path,
-        rows=[row],
-    )
+    rows = read_csv_rows(csv_path)
+    assert len(rows) == 1
+
+    rows[0]["speedup"] = "NaN"
+    rewrite_csv_rows(csv_path, rows)
 
     with pytest.raises(generator.SummaryError):
         generator.build_summary(
@@ -385,23 +424,25 @@ def test_summary_rejects_nonfinite_csv_metric(
 def test_summary_rejects_nonfinite_json_metric(
     tmp_path: Path,
 ) -> None:
-    def alter(report: dict) -> None:
-        report["latest_record"]["speedup"] = float("inf")
+    # Start from valid evidence so the production JSON writer can
+    # serialize the authoritative validator result normally.
+    csv_path, report_path = write_evidence(tmp_path)
 
-    csv_path, report_path = write_evidence(
-        tmp_path,
-        report_override=alter,
-    )
-
-    # The report writer disallows NaN and infinity.
-    # Use a standards-compliant JSON token to test the generator itself.
     report = json.loads(
         report_path.read_text(encoding="utf-8")
     )
+
+    # Use a string accepted by JSON syntax and rejected by the
+    # generator's numeric finite-value validation.
     report["latest_record"]["speedup"] = "Infinity"
 
     report_path.write_text(
-        json.dumps(report),
+        json.dumps(
+            report,
+            indent=2,
+            ensure_ascii=False,
+            allow_nan=False,
+        ) + "\n",
         encoding="utf-8",
     )
 
@@ -422,14 +463,13 @@ def test_summary_rejects_correctness_fixture_dimension(
     )
 
     csv_path = tmp_path / "benchmark.csv"
-    report_path = tmp_path / "validation.json"
 
-    # The production validator must reject dimension 12 as timed evidence.
     write_csv(
         csv_path,
         [row],
     )
 
+    # The production validator must reject dimension 12 as timed evidence.
     with pytest.raises(
         validator.ValidationError,
         match="correctness fixture",
@@ -544,8 +584,6 @@ def test_summary_rejects_missing_csv_columns(
 ) -> None:
     csv_path = tmp_path / "benchmark.csv"
     report_path = tmp_path / "validation.json"
-
-    row = csv_row()
 
     with csv_path.open(
         "w",
