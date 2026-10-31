@@ -24,7 +24,13 @@
 #   WORKLOADS    [UNIFORM_2 POWERLAW]
 #   STRATEGIES   [SEQ FJ_PLAN STATIC]
 #   PARALLELISMS [1 2 4]    values above the core count are skipped, not run
+#   THRESHOLDS   [4096]  recursion thresholds for FJ_PLAN (sweep, e.g. "256 1024 4096 16384")
+#   THRESHOLD_MODE [ROW_THRESHOLD]  or NNZ_THRESHOLD
 #   FORKS [5] WARMUP [10] ITERATIONS [10]   -> 50 samples per configuration
+#   STRICT [0]   1 = exit non-zero unless the overall verdict is PASS
+#   P3_SRC_DIR   [P3/code]  Java sources to compile (used by the build-failure test)
+#   HARNESS_OUT_DIR [P3/results/harness/<RUN_ID>]  output directory; must not exist
+#                   (p3_validation points it into P3/results/raw/<RUN_ID>/)
 #   HEAP_MB [3072]   fixed heap (-Xms == -Xmx); GC is fixed to ParallelGC
 #   RUN_ID           [h3-<UTC timestamp>-<short commit>]
 #
@@ -42,6 +48,10 @@ SIZES="${SIZES:-1000000 2000000 7000000 10000000}"
 WORKLOADS="${WORKLOADS:-UNIFORM_2 POWERLAW}"
 STRATEGIES="${STRATEGIES:-SEQ FJ_PLAN STATIC}"
 PARALLELISMS="${PARALLELISMS:-1 2 4}"
+THRESHOLDS="${THRESHOLDS:-4096}"
+THRESHOLD_MODE="${THRESHOLD_MODE:-ROW_THRESHOLD}"
+STRICT="${STRICT:-0}"
+SRC_DIR="${P3_SRC_DIR:-${P3_DIR}/code}"
 FORKS="${FORKS:-5}"
 WARMUP="${WARMUP:-10}"
 ITERATIONS="${ITERATIONS:-10}"
@@ -51,7 +61,7 @@ MAX_N=30000000
 COMMIT="$(git -C "${REPO_DIR}" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 RUN_ID="${RUN_ID:-h3-${STAMP}-${COMMIT}}"
-OUT="${P3_DIR}/results/harness/${RUN_ID}"
+OUT="${HARNESS_OUT_DIR:-${P3_DIR}/results/harness/${RUN_ID}}"
 
 if [ -e "${OUT}" ]; then
   echo "Refusing to reuse existing run directory: ${OUT}" >&2
@@ -70,10 +80,19 @@ JVM_FLAGS=(
 HARNESS="hpc.csr.harness.ParallelSpmvHarness"
 
 echo "[1/8] compile (javac) ..."
-javac -nowarn -d "${BUILD}" \
-  "${P3_DIR}"/code/*.java \
-  "${P3_DIR}/benchmarks/harness/ParallelSpmvHarness.java" 2>&1 \
-  | grep -v "warning\|serial\|\^\|private final" || true
+# Fail-closed build: the real javac exit status is kept, the full log is
+# stored as an artifact, and any error stops the run before anything is
+# measured. Output is never filtered and never swallowed.
+if ! javac -nowarn -d "${BUILD}" \
+      "${SRC_DIR}"/*.java \
+      "${P3_DIR}/benchmarks/harness/ParallelSpmvHarness.java" \
+      > "${OUT}/build.log" 2>&1; then
+  echo "BUILD_FAILED" > "${OUT}/BUILD_FAILED.txt"
+  echo "BUILD_FAILED: javac returned a non-zero status." >&2
+  echo "P3_VALIDATION_FAILED: nothing was measured. Log: ${OUT}/build.log" >&2
+  cat "${OUT}/build.log" >&2
+  exit 1
+fi
 
 run_java() { java "${JVM_FLAGS[@]}" -cp "${BUILD}" "${HARNESS}" "$@"; }
 
@@ -134,6 +153,8 @@ for N in ${SIZES}; do
       run_java mode=child run="${RUN_ID}" commit="${COMMIT}" fork="${F}" \
         n="${N}" workload="${W}" p="${P_CSV}" strategies="${STRAT_CSV}" \
         warmup="${WARMUP}" iterations="${ITERATIONS}" \
+        thresholds="$(echo "${THRESHOLDS}" | tr ' ' ',')" \
+        thresholdMode="${THRESHOLD_MODE}" \
         raw="${OUT}/harness_raw_iterations.csv" \
         forks="${OUT}/harness_forks.csv"
     done
@@ -159,6 +180,9 @@ echo "[4/8] environment ..."
   echo "  \"strategies\": \"${STRATEGIES}\","
   echo "  \"parallelisms_requested\": \"${PARALLELISMS}\","
   echo "  \"parallelisms_run\": \"${P_CSV}\","
+  echo "  \"thresholds\": \"${THRESHOLDS}\","
+  echo "  \"threshold_mode\": \"${THRESHOLD_MODE}\","
+  echo "  \"strict\": ${STRICT},"
   echo "  \"forks\": ${FORKS},"
   echo "  \"warmup\": ${WARMUP},"
   echo "  \"iterations\": ${ITERATIONS}"
@@ -173,8 +197,9 @@ set -euo pipefail
 cd "\$(git rev-parse --show-toplevel)"
 git checkout ${COMMIT}
 SIZES="${SIZES}" WORKLOADS="${WORKLOADS}" STRATEGIES="${STRATEGIES}" \\
-PARALLELISMS="${PARALLELISMS}" FORKS=${FORKS} WARMUP=${WARMUP} \\
-ITERATIONS=${ITERATIONS} HEAP_MB=${HEAP_MB} \\
+PARALLELISMS="${PARALLELISMS}" THRESHOLDS="${THRESHOLDS}" \\
+THRESHOLD_MODE=${THRESHOLD_MODE} FORKS=${FORKS} WARMUP=${WARMUP} \\
+ITERATIONS=${ITERATIONS} HEAP_MB=${HEAP_MB} STRICT=${STRICT} \\
 bash P3/results/run_parallel_harness.sh
 EOF
 chmod +x "${OUT}/reproduce.sh"
@@ -183,7 +208,13 @@ echo "[5/8] statistics, criteria and reports ..."
 python3 "${P3_DIR}/tools/summarize_harness.py" "${OUT}"
 
 echo "[6/8] Results.generated.md and article tables ..."
-python3 "${P3_DIR}/tools/generate_results_md.py" --harness "${OUT}"
+GEN_FLAGS=()
+if [ -n "${HARNESS_OUT_DIR:-}" ]; then
+  # Inside p3_validation only the run directory may be written: a file
+  # created elsewhere would enter the global manifest without being committed.
+  GEN_FLAGS+=("--no-latest-copy")
+fi
+python3 "${P3_DIR}/tools/generate_results_md.py" --harness "${OUT}" ${GEN_FLAGS[@]+"${GEN_FLAGS[@]}"}
 
 echo "[7/8] manifest ..."
 {
@@ -204,4 +235,10 @@ echo "[8/8] checksums ..."
 
 echo
 echo "Done. Artifacts: ${OUT}"
-echo "Verdict: $(python3 -c "import json,sys;print(json.load(open('${OUT}/harness_verdict.json'))['overall'])")"
+VERDICT_OVERALL="$(python3 -c "import json;print(json.load(open('${OUT}/harness_verdict.json'))['overall'])")"
+echo "Verdict: ${VERDICT_OVERALL}"
+
+if [ "${STRICT}" = "1" ] && [ "${VERDICT_OVERALL}" != "PASS" ]; then
+  echo "STRICT=1: overall verdict is ${VERDICT_OVERALL}, not PASS." >&2
+  exit 1
+fi
