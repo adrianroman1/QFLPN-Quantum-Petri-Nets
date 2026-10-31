@@ -2,23 +2,29 @@ package hpc.csr;
 
 import java.util.Objects;
 import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
- * Strategy built on the existing SpmvPlan and the persistent-pool overload
- * SparseMatrixCSR.multiplyParallelInto(x, y, plan, pool).
+ * Planned Fork/Join strategy for repeated CSR sparse matrix-vector products.
  *
- * Uses the public API of SparseMatrixCSR and SpmvPlan only; it does not
- * require any change to those classes.
+ * The SpmvPlan is constructed once and reused for every multiplication.
+ * The ForkJoinPool is also constructed once, unless supplied by the caller.
  *
- * The plan is created once. The ForkJoinPool is either created once and
- * owned by the strategy, or supplied by the caller and left running on
- * close().
+ * Lifecycle:
+ * - an internally created pool is owned and shut down by this strategy;
+ * - a caller-supplied pool is never shut down by this strategy;
+ * - close() waits for active multiplyInto() calls to finish;
+ * - calls started after close() are rejected;
+ * - concurrent multiplyInto() calls are permitted.
+ *
+ * Numerical reproducibility:
+ * every row is evaluated in the same CSR entry order as the sequential
+ * SparseMatrixCSR kernel. Planned partitions are disjoint row intervals.
  */
 public final class PlannedForkJoinSpmvStrategy implements SpmvStrategy {
 
     public static final String NAME = "FJ_PLAN";
 
-    /** Default minimum row threshold used by the planned recursion. */
     public static final int DEFAULT_THRESHOLD = 4096;
 
     private final SparseMatrixCSR matrix;
@@ -26,13 +32,27 @@ public final class PlannedForkJoinSpmvStrategy implements SpmvStrategy {
     private final ForkJoinPool pool;
     private final boolean ownsPool;
     private final int parallelism;
+
+    /*
+     * Multiple readers may execute multiplications concurrently.
+     * close() obtains the write lock and therefore waits for all active
+     * multiplications before shutting down an owned pool.
+     */
+    private final ReentrantReadWriteLock lifecycleLock =
+            new ReentrantReadWriteLock();
+
     private volatile boolean closed;
 
     public PlannedForkJoinSpmvStrategy(
             SparseMatrixCSR matrix,
             int parallelism) {
 
-        this(matrix, parallelism, DEFAULT_THRESHOLD, null);
+        this(
+                matrix,
+                parallelism,
+                DEFAULT_THRESHOLD,
+                MultiplyTask.ThresholdMode.ROW_THRESHOLD,
+                null);
     }
 
     public PlannedForkJoinSpmvStrategy(
@@ -41,17 +61,14 @@ public final class PlannedForkJoinSpmvStrategy implements SpmvStrategy {
             int threshold,
             ForkJoinPool callerOwnedPool) {
 
-        this(matrix, parallelism, threshold,
-                MultiplyTask.ThresholdMode.ROW_THRESHOLD, callerOwnedPool);
+        this(
+                matrix,
+                parallelism,
+                threshold,
+                MultiplyTask.ThresholdMode.ROW_THRESHOLD,
+                callerOwnedPool);
     }
 
-    /**
-     * @param thresholdMode unit of the recursion threshold. ROW_THRESHOLD
-     *                      matches the default of SparseMatrixCSR;
-     *                      SpmvPlan.create(int[], int, int) alone would use
-     *                      NNZ_THRESHOLD, so the mode is always passed
-     *                      explicitly here.
-     */
     public PlannedForkJoinSpmvStrategy(
             SparseMatrixCSR matrix,
             int parallelism,
@@ -59,16 +76,44 @@ public final class PlannedForkJoinSpmvStrategy implements SpmvStrategy {
             MultiplyTask.ThresholdMode thresholdMode,
             ForkJoinPool callerOwnedPool) {
 
-        this.matrix = Objects.requireNonNull(matrix, "matrix cannot be null");
-        Objects.requireNonNull(thresholdMode, "thresholdMode cannot be null");
+        this.matrix = Objects.requireNonNull(
+                matrix,
+                "matrix cannot be null");
+
+        Objects.requireNonNull(
+                thresholdMode,
+                "thresholdMode cannot be null");
 
         if (parallelism <= 0) {
             throw new IllegalArgumentException(
                     "Parallelism must be greater than zero.");
         }
 
+        if (threshold <= 0) {
+            throw new IllegalArgumentException(
+                    "Threshold must be greater than zero.");
+        }
+
+        if (callerOwnedPool != null) {
+            if (callerOwnedPool.isShutdown()
+                    || callerOwnedPool.isTerminated()) {
+                throw new IllegalArgumentException(
+                        "Caller-owned ForkJoinPool must be active.");
+            }
+
+            if (callerOwnedPool.getParallelism() < parallelism) {
+                throw new IllegalArgumentException(
+                        "Caller-owned ForkJoinPool parallelism is smaller "
+                                + "than the requested strategy parallelism.");
+            }
+        }
+
         this.parallelism = parallelism;
-        // Public API only: getRowPointers() returns a copy, taken once here.
+
+        /*
+         * getRowPointers() returns a defensive copy. The plan retains its
+         * own immutable snapshot and is built only once per strategy.
+         */
         this.plan = SpmvPlan.create(
                 matrix.getRowPointers(),
                 threshold,
@@ -97,12 +142,27 @@ public final class PlannedForkJoinSpmvStrategy implements SpmvStrategy {
 
     @Override
     public void multiplyInto(double[] x, double[] y) {
-        ensureOpen();
-        matrix.multiplyParallelInto(x, y, plan, pool);
+        lifecycleLock.readLock().lock();
+
+        try {
+            ensureOpen();
+
+            matrix.multiplyParallelInto(
+                    x,
+                    y,
+                    plan,
+                    pool);
+        } finally {
+            lifecycleLock.readLock().unlock();
+        }
     }
 
     @Override
     public double[] multiply(double[] x) {
+        Objects.requireNonNull(
+                x,
+                "Input vector cannot be null.");
+
         double[] y = new double[matrix.getRows()];
         multiplyInto(x, y);
         return y;
@@ -115,16 +175,27 @@ public final class PlannedForkJoinSpmvStrategy implements SpmvStrategy {
 
     @Override
     public void close() {
-        closed = true;
+        lifecycleLock.writeLock().lock();
 
-        if (ownsPool) {
-            pool.shutdown();
+        try {
+            if (closed) {
+                return;
+            }
+
+            closed = true;
+
+            if (ownsPool) {
+                pool.shutdown();
+            }
+        } finally {
+            lifecycleLock.writeLock().unlock();
         }
     }
 
     private void ensureOpen() {
         if (closed) {
-            throw new IllegalStateException("SpmvStrategy is closed.");
+            throw new IllegalStateException(
+                    "SpmvStrategy is closed.");
         }
     }
 }
