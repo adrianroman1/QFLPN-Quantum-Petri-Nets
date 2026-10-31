@@ -439,7 +439,7 @@ jobs:
           report = json.loads(path.read_text(encoding="utf-8"))
 
           required = {
-              "schema": "qflqn-benchmark-v3-validation-v2",
+              "schema": "qflpn-benchmark-v3-validation-v2",
               "validation": "PASS",
               "all_records_valid": True,
               "configuration_matrix_complete": True,
@@ -958,7 +958,7 @@ jobs:
 
           v2 = result.get("benchmark_v2")
           v3 = result.get("benchmark_v3")
-          mpi = result.get("mpi")
+          mpi = result.get("mpi_validation")
           integrity = result.get("integrity")
 
           if not isinstance(v2, dict) or v2.get("validation") != "PASS":
