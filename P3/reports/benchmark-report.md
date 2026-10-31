@@ -1,220 +1,282 @@
 # QFLPN P3 — Benchmark Results and HPC Scaling Report
 
-## 1. Experimental scope
+## 1. Scopul campaniei
 
-This report defines the benchmark campaign for four state-space
-dimensions:
+Campania evaluează algoritmii Sparse Matrix-Vector Multiplication (SpMV) utilizați pentru evoluția spațiului de stări QFLPN.
 
-- 1,000,000 states
-- 10,000,000 states
-- 70,000,000 states
-- 100,000,000 states
+Evaluarea urmărește:
 
-The parallel execution campaign covers 1–664 physical cores.
+- scalarea în funcție de dimensiunea spațiului de stări;
+- comparația execuției secvențiale cu execuția paralelă;
+- influența pragurilor SpMV asupra performanței;
+- influența numărului de nuclee de calcul;
+- speedup și eficiență paralelă;
+- throughput și consum de memorie;
+- corectitudinea numerică;
+- reproductibilitatea și integritatea rezultatelor.
 
-All benchmark evidence must be generated, validated, and retained
-through the `p3_validation` workflow.
+Toate rezultatele experimentale trebuie să provină din execuții reale, identificabile prin RUN_ID și susținute de fișiere brute.
 
-The required integrity chain is:
+Nu se completează tabelele cu valori interpolate, estimate sau simulate.
 
-p3_validation
-    -> benchmark evidence
-    -> validation reports
-    -> MANIFEST.txt
-    -> SHA256SUMS.txt
-    -> final package verification
+## 2. Dimensiunile benchmarkului
 
-No unmeasured performance value is reported as an experimental result.
+Campania urmărește următoarele dimensiuni ale spațiului de stări:
 
-## 2. Latest verified benchmark execution
+| Nr. | Dimensiune | N | Statut în RUN_ID analizat |
+|---:|---|---:|---|
+| 1 | 1 milion de stări | 1.000.000 | MEASURED |
+| 2 | 10 milioane de stări | 10.000.000 | NOT MEASURED |
+| 3 | 70 milioane de stări | 70.000.000 | NOT MEASURED |
+| 4 | 100 milioane de stări | 100.000.000 | NOT MEASURED |
 
-| Field | Value |
+Dimensiunile de 1M, 10M, 70M și 100M sunt dimensiuni distincte ale campaniei.
+
+Rezultatele pentru o dimensiune nu pot fi extrapolate la altă dimensiune.
+
+Fiecare dimensiune trebuie executată independent și identificată prin RUN_ID.
+
+## 3. Configurația pragurilor SpMV
+
+Pragurile SpMV urmărite în campanie sunt:
+
+| Nr. | Prag SpMV |
+|---:|---:|
+| 1 | 256 |
+| 2 | 512 |
+| 3 | 1.024 |
+| 4 | 2.048 |
+| 5 | 4.096 |
+| 6 | 8.192 |
+| 7 | 16.384 |
+
+Campania pragurilor SpMV urmărește dimensiunile până la:
+
+**N = 10.000.000 de stări.**
+
+Matricea de evaluare a pragurilor este:
+
+| Prag SpMV | N = 1M | N = 10M |
+|---:|---|---|
+| 256 | NOT MEASURED | NOT MEASURED |
+| 512 | NOT MEASURED | NOT MEASURED |
+| 1.024 | NOT MEASURED | NOT MEASURED |
+| 2.048 | NOT MEASURED | NOT MEASURED |
+| 4.096 | CONFIGURATION MEASURED | NOT MEASURED |
+| 8.192 | NOT MEASURED | NOT MEASURED |
+| 16.384 | NOT MEASURED | NOT MEASURED |
+
+Pragul 4.096 este prezent în configurația benchmarkului V2 verificat. Această execuție nu demonstrează evaluarea comparativă a tuturor pragurilor.
+
+Fiecare combinație dimensiune–prag trebuie să aibă măsurători proprii și identificator de execuție.
+
+Dimensiunile de 70M și 100M rămân incluse în campania generală de benchmark, dar nu sunt declarate automat parte a matricei de praguri SpMV până la 10M.
+
+## 4. Configurația paralelă HPC
+
+Campania HPC urmărește paralelismul de la 1 până la 664 de nuclee fizice.
+
+Intervalul de evaluare este:
+
+**1–664 nuclee fizice.**
+
+Configurația include valorile întregi ale numărului de nuclee din interval, în măsura în care acestea sunt disponibile și executate în mediul HPC.
+
+Configurația de referință din repository:
+
+| Parametru | Valoare |
+|---|---:|
+| Noduri de calcul | 16 |
+| Nuclee fizice totale | 664 |
+| RAM totală | 4.096 GiB |
+| RAM per nod | 256 GiB |
+| Noduri cu 42 nuclee | 8 |
+| Noduri cu 41 nuclee | 8 |
+
+Inventarul hardware al fiecărei execuții trebuie să includă:
+
+- producătorul și modelul plăcii de bază;
+- producătorul și modelul procesorului;
+- numărul de socketuri;
+- numărul de nuclee fizice;
+- numărul de procesoare logice;
+- topologia NUMA;
+- memoria RAM;
+- sistemul de operare și kernelul;
+- versiunea Java;
+- versiunea Maven;
+- afinitatea CPU;
+- numărul efectiv de workers;
+- configurația MPI, dacă este utilizată.
+
+Configurația declarată în repository nu reprezintă dovada că toate resursele au fost efectiv utilizate într-o execuție.
+
+## 5. Ultima execuție verificată
+
+| Câmp | Valoare |
 |---|---|
-| Workflow | P3 Validation — Full Evidence and Integrity Chain |
 | RUN_ID | p3-41240843414-1 |
 | Commit | 4ed8a67ee6ff78d7753455128e10788e229700dd |
-| Validation | PASS |
 | Schema | qflpn-benchmark-v2 |
-| Valid CSV records | 81 |
 | Benchmark ID | QFLPN-1M |
-| State dimension | 1,000,000 |
-| Non-zero values | 2,000,000 |
-| Warm-up iterations | 5 |
-| Measured iterations | 10 |
+| Dimensiune N | 1.000.000 |
+| Valori nenule | 2.000.000 |
+| Warm-up | 5 |
+| Iterații măsurate | 10 |
+| Înregistrări CSV validate | 81 |
+| Verdict workflow | PASS |
 
-## 3. Measured V2 results — 1 million states
+## 6. Rezultate experimentale — N = 1.000.000
 
-| Metric | Sequential | Parallel |
+Rezultatele următoare provin din execuția identificată prin RUN_ID `p3-41240843414-1`.
+
+| Indicator | Secvențial | Paralel |
 |---|---:|---:|
-| Mean time (ms) | 3.035330 | 3.792832 |
-| Median time (ms) | 2.688117 | 3.914198 |
-| Standard deviation (ms) | 0.712947 | 0.671135 |
-| Throughput (states/s) | 329453447.931 | 263655203.958 |
-| Oracle error | 0.000000000000e+00 | 0.000000000000e+00 |
+| Timp mediu (ms) | 3.035330 | 3.792832 |
+| Timp median (ms) | 2.688117 | 3.914198 |
+| Deviație standard (ms) | 0.712947 | 0.671135 |
+| Throughput (stări/s) | 329453447.931 | 263655203.958 |
+| Eroare față de oracle | 0.000000000000e+00 | 0.000000000000e+00 |
 
-Measured speedup:
+**Speedup măsurat: 0.800281×.**
 
-0.800281×
+În această execuție, varianta paralelă este mai lentă decât varianta secvențială.
 
-The parallel execution is slower than the sequential execution
-for this measured configuration.
+**Eroarea absolută maximă: 0.000000000000e+00.**
 
-Maximum absolute numerical error:
+Aceste rezultate sunt valabile pentru configurația executată. Nu demonstrează scalabilitate la alte dimensiuni sau pe alte configurații hardware.
 
-0.000000000000e+00
+## 7. Tabelul rezultatelor pentru dimensiunile campaniei
 
-The CSV row and JSON validation report were matched using the
-exact RUN_ID.
+| N | Timp secvențial | Timp paralel | Speedup | Throughput | Eroare numerică | Statut |
+|---:|---|---|---|---|---|---|
+| 1.000.000 | 3.035330 ms | 3.792832 ms | 0.800281× | Măsurat | 0 | MEASURED |
+| 10.000.000 | NOT MEASURED | NOT MEASURED | NOT MEASURED | NOT MEASURED | NOT MEASURED | NOT MEASURED |
+| 70.000.000 | NOT MEASURED | NOT MEASURED | NOT MEASURED | NOT MEASURED | NOT MEASURED | NOT MEASURED |
+| 100.000.000 | NOT MEASURED | NOT MEASURED | NOT MEASURED | NOT MEASURED | NOT MEASURED | NOT MEASURED |
 
-## 4. Required state-dimension campaign
+## 8. Matricea campaniei HPC
 
-| State dimension | Sequential benchmark | Parallel benchmark | Speedup | Numerical error | Status |
-|---:|---|---|---|---|---|
-| 1,000,000 | 3.035330 ms mean | 3.792832 ms mean | 0.800281× | 0 | MEASURED |
-| 10,000,000 | Pending | Pending | Pending | Pending | NOT MEASURED |
-| 70,000,000 | Pending | Pending | Pending | Pending | NOT MEASURED |
-| 100,000,000 | Pending | Pending | Pending | Pending | NOT MEASURED |
+Fiecare dimensiune trebuie evaluată cu configurațiile de paralelism executate efectiv.
 
-Each dimension must be benchmarked independently.
-Results must not be extrapolated from the 1-million-state run.
-
-## 5. Parallelism campaign — 1 to 664 physical cores
-
-The following table defines the reporting structure.
-Every row requires an actual execution and hardware inventory.
-
-| Physical cores | 1M states | 10M states | 70M states | 100M states |
+| Nuclee fizice | 1M | 10M | 70M | 100M |
 |---:|---|---|---|---|
-| 1 | Pending | Pending | Pending | Pending |
-| 2 | Pending | Pending | Pending | Pending |
-| 4 | Pending | Pending | Pending | Pending |
-| 8 | Pending | Pending | Pending | Pending |
-| 16 | Pending | Pending | Pending | Pending |
-| 32 | Pending | Pending | Pending | Pending |
-| 64 | Pending | Pending | Pending | Pending |
-| 128 | Pending | Pending | Pending | Pending |
-| 256 | Pending | Pending | Pending | Pending |
-| 512 | Pending | Pending | Pending | Pending |
-| 640 | Pending | Pending | Pending | Pending |
-| 664 | Pending | Pending | Pending | Pending |
+| 1 | NOT MEASURED | NOT MEASURED | NOT MEASURED | NOT MEASURED |
+| 2 | CONFIGURATION MEASURED | NOT MEASURED | NOT MEASURED | NOT MEASURED |
+| 4 | NOT MEASURED | NOT MEASURED | NOT MEASURED | NOT MEASURED |
+| 8 | NOT MEASURED | NOT MEASURED | NOT MEASURED | NOT MEASURED |
+| 16 | NOT MEASURED | NOT MEASURED | NOT MEASURED | NOT MEASURED |
+| 32 | NOT MEASURED | NOT MEASURED | NOT MEASURED | NOT MEASURED |
+| 64 | NOT MEASURED | NOT MEASURED | NOT MEASURED | NOT MEASURED |
+| 128 | NOT MEASURED | NOT MEASURED | NOT MEASURED | NOT MEASURED |
+| 256 | NOT MEASURED | NOT MEASURED | NOT MEASURED | NOT MEASURED |
+| 512 | NOT MEASURED | NOT MEASURED | NOT MEASURED | NOT MEASURED |
+| 640 | NOT MEASURED | NOT MEASURED | NOT MEASURED | NOT MEASURED |
+| 664 | NOT MEASURED | NOT MEASURED | NOT MEASURED | NOT MEASURED |
 
-Intermediate core counts may be included in the complete
-machine-readable benchmark inventory when actually executed.
+Acest tabel prezintă configurații de referință, nu toate valorile intermediare. Fiecare configurație executată în intervalul 1–664 trebuie păstrată individual în fișierele brute.
 
-No result may be assigned to a core count that was not measured.
+Numărul de workers nu trebuie confundat cu numărul de nuclee fizice utilizate.
 
-## 6. SpMV threshold campaign
+## 9. Indicatori obligatorii
 
-The following thresholds must be evaluated:
-
-| SpMV threshold | 1M states | 10M states | 70M states | 100M states |
-|---:|---|---|---|---|
-| 256 | Pending | Pending | Pending | Pending |
-| 512 | Pending | Pending | Pending | Pending |
-| 1,024 | Pending | Pending | Pending | Pending |
-| 2,048 | Pending | Pending | Pending | Pending |
-| 4,096 | Pending | Pending | Pending | Pending |
-| 8,192 | Pending | Pending | Pending | Pending |
-| 16,384 | Pending | Pending | Pending | Pending |
-
-Each threshold must be evaluated against the same input,
-hardware configuration, and measurement protocol.
-
-## 7. Required performance metrics
-
-Every valid benchmark configuration must record:
-
-| Metric | Definition |
+| Indicator | Definiție |
 |---|---|
-| Sequential mean | Arithmetic mean of sequential measurements |
-| Sequential median | Median sequential execution time |
-| Parallel mean | Arithmetic mean of parallel measurements |
-| Parallel median | Median parallel execution time |
-| Standard deviation | Measurement dispersion |
-| Speedup | T_sequential / T_parallel |
-| Parallel efficiency | Speedup / number of workers |
-| Throughput | Processed states per second |
-| Memory consumption | Measured peak resident memory |
-| Numerical error | Maximum absolute deviation from oracle |
-| Physical cores | Verified physical-core inventory |
-| Worker count | Actual workers used |
-| SpMV threshold | Actual threshold used |
-| RUN_ID | Unique workflow execution identity |
+| Timp secvențial | Durata execuției secvențiale |
+| Timp paralel | Durata execuției paralele |
+| Speedup | Timp secvențial / timp paralel |
+| Eficiență paralelă | Speedup / număr workers |
+| Throughput | Stări procesate pe secundă |
+| Deviație standard | Dispersia măsurătorilor |
+| Memorie | Consum maxim de memorie |
+| Eroare numerică | Abaterea față de oracle |
+| N | Dimensiunea spațiului de stări |
+| NNZ | Numărul de valori nenule |
+| Prag SpMV | Pragul utilizat efectiv |
+| Workers | Numărul efectiv de workers |
+| Nuclee fizice | Numărul verificat de nuclee fizice |
+| RUN_ID | Identificator unic al execuției |
 
-Minimum experimental protocol:
+Protocolul pentru campania finală:
 
-- At least 5 warm-up iterations.
-- At least 30 valid measured iterations for the final HPC campaign.
-- Identical input data for sequential and parallel comparisons.
-- Numerical equivalence verification.
-- Explicit recording of failed and incomplete configurations.
+- minimum 5 iterații de warm-up;
+- minimum 30 de iterații măsurate;
+- aceleași date de intrare pentru comparația secvențială și paralelă;
+- verificarea echivalenței numerice;
+- păstrarea tuturor rezultatelor brute;
+- raportarea configurațiilor eșuate și incomplete.
 
-## 8. Hardware and environment evidence
+## 10. Artefacte și dovezi
 
-A physical-core scaling claim requires evidence from the
-actual execution environment.
+Fiecare execuție trebuie să păstreze:
 
-Required inventory:
-
-- CPU model and architecture.
-- Physical cores and logical processors.
-- NUMA topology.
-- RAM capacity.
-- Operating system and kernel.
-- Java runtime.
-- Maven version.
-- Compiler and runtime options.
-- Worker count.
-- Process affinity and CPU allocation.
-- Benchmark RUN_ID and source commit.
-
-The proposed 664-core reference configuration is not,
-by itself, proof of an available HPC system.
-
-## 9. Required evidence artifacts
-
-Every benchmark campaign must preserve:
-
-| Artifact | Requirement |
+| Artefact | Rol |
 |---|---|
-| benchmark_results_v2.csv | Raw V2 measurements |
-| benchmark_results_v3.csv | V3 configuration measurements |
-| benchmark-report.md | Human-readable benchmark report |
-| benchmark-report.json | Machine-readable benchmark report |
-| benchmark-report.txt | Plain-text report |
-| validation-report.json | Validation result |
-| environment.json | Runtime and hardware metadata |
-| benchmark logs | Execution logs |
-| checksums | File integrity evidence |
-| MANIFEST.txt | Global evidence inventory |
-| SHA256SUMS.txt | SHA-256 integrity verification |
+| benchmark CSV | Măsurători brute |
+| benchmark JSON | Rezultate structurate |
+| benchmark-report.md | Raport lizibil |
+| benchmark-report.txt | Raport text |
+| validation-report.json | Rezultatul validării |
+| environment.json | Mediul de execuție |
+| hardware inventory | Inventarul hardware |
+| benchmark logs | Jurnalele execuției |
+| MANIFEST.txt | Inventarul global |
+| SHA256SUMS.txt | Integritatea fișierelor |
 
-All artifacts must be connected to the same `p3_validation`
-execution identity.
+Toate rezultatele trebuie asociate RUN_ID-ului corespunzător.
 
-## 10. Current evidence-based verdict
+## 11. Integrarea în p3_validation
 
-| Validation item | Result |
+Lanțul obligatoriu de validare:
+
+`benchmark CSV/JSON/MD/TXT`
+→ `p3_validation`
+→ `validation-report.json`
+→ `environment.json`
+→ `hardware inventory`
+→ `MANIFEST.txt`
+→ `SHA256SUMS.txt`
+→ verificarea independentă a pachetului
+→ `P3_ACCEPTED`
+
+`MANIFEST.txt` trebuie să inventarieze toate artefactele relevante.
+
+`SHA256SUMS.txt` trebuie să permită verificarea independentă a integrității.
+
+Un rezultat nu este considerat validat dacă nu poate fi asociat unei execuții reale și unui RUN_ID verificabil.
+
+## 12. Verdict pentru RUN_ID analizat
+
+RUN_ID: `p3-41240843414-1`
+
+| Element | Verdict |
 |---|---|
-| Latest V2 benchmark | PASS |
-| V2 numerical oracle | PASS |
-| V2 CSV/JSON RUN_ID consistency | PASS |
-| V3 validation stage | PASS |
-| MPI validation stage | PASS |
-| MANIFEST generation | PASS |
-| SHA256SUMS generation | PASS |
-| Final package verification | PASS |
-| 1M-state benchmark | MEASURED |
-| 10M-state benchmark | NOT MEASURED |
-| 70M-state benchmark | NOT MEASURED |
-| 100M-state benchmark | NOT MEASURED |
-| Full 1–664 physical-core campaign | NOT DEMONSTRATED |
+| Workflow p3_validation | PASS |
+| Benchmark V2 | PASS |
+| CSV V2 | VALIDATED |
+| Corelare CSV/JSON prin RUN_ID | PASS |
+| Verificare numerică V2 | PASS |
+| Etapa de validare V3 | PASS |
+| Etapa de validare MPI | PASS |
+| Generare MANIFEST.txt | PASS |
+| Generare SHA256SUMS.txt | PASS |
+| Verificarea pachetului final | PASS |
+| N = 1.000.000 | MEASURED |
+| N = 10.000.000 | NOT MEASURED |
+| N = 70.000.000 | NOT MEASURED |
+| N = 100.000.000 | NOT MEASURED |
+| Campania completă SpMV până la N = 10M | NOT DEMONSTRATED |
+| Campania HPC 1–664 nuclee | NOT DEMONSTRATED |
+| Scalabilitate HPC | NOT DEMONSTRATED |
 
-The latest `p3_validation` execution passed its configured
-validation gates.
+**Campania HPC 1–664 nuclee — NEDEMONSTRATĂ în dovezile acestui RUN_ID.**
 
-This PASS does not establish that the complete large-scale
-HPC campaign has been executed.
+**Dimensiunile până la N = 10.000.000 — NEDEMONSTRATE în dovezile acestui RUN_ID.**
 
-The four required state dimensions and the physical-core
-scaling campaign remain separate experimental obligations.
+**Dimensiunile N = 70.000.000 și N = 100.000.000 — NEDEMONSTRATE în dovezile acestui RUN_ID.**
+
+Nu se declară scalabilitate HPC, speedup la 664 de nuclee sau performanță la dimensiuni nemăsurate fără rezultate experimentale reale.
+
+PASS-ul workflow-ului `p3_validation` confirmă trecerea porților configurate în execuția respectivă. Nu demonstrează automat executarea tuturor dimensiunilor, pragurilor SpMV sau configurațiilor HPC definite în acest raport.
+
+Raportul separă rezultatele măsurate de configurațiile planificate și de experimentele încă nedemonstrate.
