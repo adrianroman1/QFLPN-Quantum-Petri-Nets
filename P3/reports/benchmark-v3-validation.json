@@ -2,7 +2,7 @@
   "schema": "qflpn-benchmark-v3-validation-v2",
   "validation": "PASS",
   "all_records_valid": true,
-  "historical_runs_validated": 35,
+  "historical_runs_validated": 36,
   "run_contracts": {
     "p3-40428526749-1": {
       "contract": "AB_192",
@@ -423,28 +423,40 @@
         "41244944682",
         "43cb07312dc8c42812817dbb82d2ad054bd26341"
       ]
+    },
+    "p3-41245327491-1": {
+      "contract": "AB_192",
+      "rows": 192,
+      "policies": [
+        "BINARY_NNZ_SPLIT",
+        "ROW_BOUNDARY_SCAN"
+      ],
+      "identity": [
+        "41245327491",
+        "7207a0f040af3a1820179b77182dd0289daa2e1c"
+      ]
     }
   },
   "expected_records": 192,
   "validated_records": 192,
   "configuration_matrix_complete": true,
   "run_contract": "AB_192",
-  "run_id": "p3-41244944682-1",
-  "workflow_run_id": "41244944682",
-  "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+  "run_id": "p3-41245327491-1",
+  "workflow_run_id": "41245327491",
+  "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
   "split_policies": [
     "BINARY_NNZ_SPLIT",
     "ROW_BOUNDARY_SCAN"
   ],
   "verdict_counts": {
     "REGRESSION": 190,
-    "NEUTRAL": 1,
-    "IMPROVEMENT": 1
+    "NEUTRAL": 2,
+    "IMPROVEMENT": 0
   },
   "maximum_absolute_error": 0.0,
   "records": [
     {
-      "row": 6529,
+      "row": 6721,
       "key": [
         "UNIFORM_2",
         "ROW_BOUNDARY_SCAN",
@@ -457,17 +469,17 @@
         1024
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 8192,
-      "speedup": 0.08581255007992,
+      "speedup": 0.1150811122733,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6530,
+      "row": 6722,
       "key": [
         "UNIFORM_2",
         "ROW_BOUNDARY_SCAN",
@@ -480,17 +492,17 @@
         2048
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 8192,
-      "speedup": 0.2783570169719,
+      "speedup": 0.2886270174184,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6531,
+      "row": 6723,
       "key": [
         "UNIFORM_2",
         "ROW_BOUNDARY_SCAN",
@@ -503,17 +515,17 @@
         4096
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 8192,
-      "speedup": 1.261566182027,
-      "verdict": "IMPROVEMENT",
+      "speedup": 0.4724917087686,
+      "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6532,
+      "row": 6724,
       "key": [
         "UNIFORM_2",
         "ROW_BOUNDARY_SCAN",
@@ -526,17 +538,17 @@
         8192
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 8192,
-      "speedup": 0.3614576409289,
+      "speedup": 0.3116050042101,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6533,
+      "row": 6725,
       "key": [
         "UNIFORM_2",
         "ROW_BOUNDARY_SCAN",
@@ -549,17 +561,17 @@
         1024
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 8192,
-      "speedup": 0.1307449912657,
+      "speedup": 0.08965613091565,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6534,
+      "row": 6726,
       "key": [
         "UNIFORM_2",
         "ROW_BOUNDARY_SCAN",
@@ -572,17 +584,17 @@
         2048
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 8192,
-      "speedup": 0.2147155876556,
+      "speedup": 0.191631234959,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6535,
+      "row": 6727,
       "key": [
         "UNIFORM_2",
         "ROW_BOUNDARY_SCAN",
@@ -595,17 +607,17 @@
         4096
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 8192,
-      "speedup": 0.1487694145759,
+      "speedup": 0.2255044227391,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6536,
+      "row": 6728,
       "key": [
         "UNIFORM_2",
         "ROW_BOUNDARY_SCAN",
@@ -618,17 +630,17 @@
         8192
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 8192,
-      "speedup": 0.2533126545953,
+      "speedup": 0.3413378228793,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6537,
+      "row": 6729,
       "key": [
         "UNIFORM_2",
         "ROW_BOUNDARY_SCAN",
@@ -641,17 +653,17 @@
         1024
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 8192,
-      "speedup": 0.203549469832,
+      "speedup": 0.2059582768124,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6538,
+      "row": 6730,
       "key": [
         "UNIFORM_2",
         "ROW_BOUNDARY_SCAN",
@@ -664,17 +676,17 @@
         2048
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 8192,
-      "speedup": 0.233312624276,
+      "speedup": 0.2081046775718,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6539,
+      "row": 6731,
       "key": [
         "UNIFORM_2",
         "ROW_BOUNDARY_SCAN",
@@ -687,17 +699,17 @@
         4096
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 8192,
-      "speedup": 0.3864346738904,
+      "speedup": 0.3040839052182,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6540,
+      "row": 6732,
       "key": [
         "UNIFORM_2",
         "ROW_BOUNDARY_SCAN",
@@ -710,17 +722,17 @@
         8192
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 8192,
-      "speedup": 0.3135552617803,
+      "speedup": 0.1634427591939,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6541,
+      "row": 6733,
       "key": [
         "UNIFORM_2",
         "ROW_BOUNDARY_SCAN",
@@ -733,17 +745,17 @@
         1024
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 8192,
-      "speedup": 0.1742575267596,
+      "speedup": 0.08896427328455,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6542,
+      "row": 6734,
       "key": [
         "UNIFORM_2",
         "ROW_BOUNDARY_SCAN",
@@ -756,17 +768,17 @@
         2048
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 8192,
-      "speedup": 0.2535302804649,
+      "speedup": 0.2506133644431,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6543,
+      "row": 6735,
       "key": [
         "UNIFORM_2",
         "ROW_BOUNDARY_SCAN",
@@ -779,17 +791,17 @@
         4096
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 8192,
-      "speedup": 0.3327463256219,
+      "speedup": 0.293510922317,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6544,
+      "row": 6736,
       "key": [
         "UNIFORM_2",
         "ROW_BOUNDARY_SCAN",
@@ -802,17 +814,17 @@
         8192
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 8192,
-      "speedup": 0.3731159054152,
+      "speedup": 0.3566085572105,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6545,
+      "row": 6737,
       "key": [
         "UNIFORM_2",
         "BINARY_NNZ_SPLIT",
@@ -825,17 +837,17 @@
         1024
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 8192,
-      "speedup": 0.3235129754809,
+      "speedup": 0.3016980839924,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6546,
+      "row": 6738,
       "key": [
         "UNIFORM_2",
         "BINARY_NNZ_SPLIT",
@@ -848,17 +860,17 @@
         2048
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 8192,
-      "speedup": 0.3073430381826,
+      "speedup": 0.2719574902157,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6547,
+      "row": 6739,
       "key": [
         "UNIFORM_2",
         "BINARY_NNZ_SPLIT",
@@ -871,17 +883,17 @@
         4096
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 8192,
-      "speedup": 0.3841178075293,
+      "speedup": 0.3080125389346,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6548,
+      "row": 6740,
       "key": [
         "UNIFORM_2",
         "BINARY_NNZ_SPLIT",
@@ -894,17 +906,17 @@
         8192
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 8192,
-      "speedup": 0.4210427912014,
+      "speedup": 0.2212956188393,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6549,
+      "row": 6741,
       "key": [
         "UNIFORM_2",
         "BINARY_NNZ_SPLIT",
@@ -917,17 +929,17 @@
         1024
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 8192,
-      "speedup": 0.2130526865694,
+      "speedup": 0.2018441890055,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6550,
+      "row": 6742,
       "key": [
         "UNIFORM_2",
         "BINARY_NNZ_SPLIT",
@@ -940,17 +952,17 @@
         2048
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 8192,
-      "speedup": 0.2378520102728,
+      "speedup": 0.1887024831902,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6551,
+      "row": 6743,
       "key": [
         "UNIFORM_2",
         "BINARY_NNZ_SPLIT",
@@ -963,17 +975,17 @@
         4096
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 8192,
-      "speedup": 0.2914660288288,
+      "speedup": 0.27636668036,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6552,
+      "row": 6744,
       "key": [
         "UNIFORM_2",
         "BINARY_NNZ_SPLIT",
@@ -986,17 +998,17 @@
         8192
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 8192,
-      "speedup": 0.4608248947523,
+      "speedup": 0.2940520365696,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6553,
+      "row": 6745,
       "key": [
         "UNIFORM_2",
         "BINARY_NNZ_SPLIT",
@@ -1009,17 +1021,17 @@
         1024
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 8192,
-      "speedup": 0.2578967003814,
+      "speedup": 0.2807859136526,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6554,
+      "row": 6746,
       "key": [
         "UNIFORM_2",
         "BINARY_NNZ_SPLIT",
@@ -1032,17 +1044,17 @@
         2048
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 8192,
-      "speedup": 0.281100080821,
+      "speedup": 0.2656502206887,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6555,
+      "row": 6747,
       "key": [
         "UNIFORM_2",
         "BINARY_NNZ_SPLIT",
@@ -1055,17 +1067,17 @@
         4096
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 8192,
-      "speedup": 0.3516992740249,
+      "speedup": 0.5133173178872,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6556,
+      "row": 6748,
       "key": [
         "UNIFORM_2",
         "BINARY_NNZ_SPLIT",
@@ -1078,17 +1090,17 @@
         8192
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 8192,
-      "speedup": 0.3141949263618,
+      "speedup": 0.294651587342,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6557,
+      "row": 6749,
       "key": [
         "UNIFORM_2",
         "BINARY_NNZ_SPLIT",
@@ -1101,17 +1113,17 @@
         1024
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 8192,
-      "speedup": 0.3074808196625,
+      "speedup": 0.2492084798734,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6558,
+      "row": 6750,
       "key": [
         "UNIFORM_2",
         "BINARY_NNZ_SPLIT",
@@ -1124,17 +1136,17 @@
         2048
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 8192,
-      "speedup": 0.4490149927454,
+      "speedup": 0.2310655824167,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6559,
+      "row": 6751,
       "key": [
         "UNIFORM_2",
         "BINARY_NNZ_SPLIT",
@@ -1147,17 +1159,17 @@
         4096
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 8192,
-      "speedup": 0.2555811887553,
+      "speedup": 0.3178785089738,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6560,
+      "row": 6752,
       "key": [
         "UNIFORM_2",
         "BINARY_NNZ_SPLIT",
@@ -1170,17 +1182,17 @@
         8192
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 8192,
-      "speedup": 0.4879930792638,
+      "speedup": 0.3181548172638,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6561,
+      "row": 6753,
       "key": [
         "UNIFORM_20",
         "ROW_BOUNDARY_SCAN",
@@ -1193,17 +1205,17 @@
         1024
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 81920,
-      "speedup": 0.5483642517083,
+      "speedup": 0.4334649953304,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6562,
+      "row": 6754,
       "key": [
         "UNIFORM_20",
         "ROW_BOUNDARY_SCAN",
@@ -1216,17 +1228,17 @@
         2048
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 81920,
-      "speedup": 0.4063062650962,
+      "speedup": 0.5832858441447,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6563,
+      "row": 6755,
       "key": [
         "UNIFORM_20",
         "ROW_BOUNDARY_SCAN",
@@ -1239,17 +1251,17 @@
         4096
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 81920,
-      "speedup": 0.4385055178833,
+      "speedup": 0.6069254980088,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6564,
+      "row": 6756,
       "key": [
         "UNIFORM_20",
         "ROW_BOUNDARY_SCAN",
@@ -1262,17 +1274,17 @@
         8192
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 81920,
-      "speedup": 0.437937029137,
+      "speedup": 0.5051473367954,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6565,
+      "row": 6757,
       "key": [
         "UNIFORM_20",
         "ROW_BOUNDARY_SCAN",
@@ -1285,17 +1297,17 @@
         1024
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 81920,
-      "speedup": 0.3931638091563,
+      "speedup": 0.4268719163005,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6566,
+      "row": 6758,
       "key": [
         "UNIFORM_20",
         "ROW_BOUNDARY_SCAN",
@@ -1308,17 +1320,17 @@
         2048
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 81920,
-      "speedup": 0.4283837978799,
+      "speedup": 0.5346382705335,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6567,
+      "row": 6759,
       "key": [
         "UNIFORM_20",
         "ROW_BOUNDARY_SCAN",
@@ -1331,17 +1343,17 @@
         4096
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 81920,
-      "speedup": 0.4065869158099,
+      "speedup": 0.6914324904868,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6568,
+      "row": 6760,
       "key": [
         "UNIFORM_20",
         "ROW_BOUNDARY_SCAN",
@@ -1354,17 +1366,17 @@
         8192
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 81920,
-      "speedup": 0.4249538144813,
+      "speedup": 0.4503501943924,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6569,
+      "row": 6761,
       "key": [
         "UNIFORM_20",
         "ROW_BOUNDARY_SCAN",
@@ -1377,17 +1389,17 @@
         1024
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 81920,
-      "speedup": 0.2232437736062,
+      "speedup": 0.423612642226,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6570,
+      "row": 6762,
       "key": [
         "UNIFORM_20",
         "ROW_BOUNDARY_SCAN",
@@ -1400,17 +1412,17 @@
         2048
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 81920,
-      "speedup": 0.4293559324974,
+      "speedup": 0.539791840891,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6571,
+      "row": 6763,
       "key": [
         "UNIFORM_20",
         "ROW_BOUNDARY_SCAN",
@@ -1423,17 +1435,17 @@
         4096
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 81920,
-      "speedup": 0.4278160948493,
+      "speedup": 0.4708192455818,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6572,
+      "row": 6764,
       "key": [
         "UNIFORM_20",
         "ROW_BOUNDARY_SCAN",
@@ -1446,17 +1458,17 @@
         8192
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 81920,
-      "speedup": 0.3690905519374,
+      "speedup": 0.4164095411411,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6573,
+      "row": 6765,
       "key": [
         "UNIFORM_20",
         "ROW_BOUNDARY_SCAN",
@@ -1469,17 +1481,17 @@
         1024
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 81920,
-      "speedup": 0.3725848883625,
+      "speedup": 0.2628632946732,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6574,
+      "row": 6766,
       "key": [
         "UNIFORM_20",
         "ROW_BOUNDARY_SCAN",
@@ -1492,17 +1504,17 @@
         2048
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 81920,
-      "speedup": 0.5846858363735,
+      "speedup": 0.4967493251137,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6575,
+      "row": 6767,
       "key": [
         "UNIFORM_20",
         "ROW_BOUNDARY_SCAN",
@@ -1515,17 +1527,17 @@
         4096
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 81920,
-      "speedup": 0.4413951211001,
+      "speedup": 0.4518961382843,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6576,
+      "row": 6768,
       "key": [
         "UNIFORM_20",
         "ROW_BOUNDARY_SCAN",
@@ -1538,17 +1550,17 @@
         8192
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 81920,
-      "speedup": 0.4269977408743,
+      "speedup": 0.4652219108741,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6577,
+      "row": 6769,
       "key": [
         "UNIFORM_20",
         "BINARY_NNZ_SPLIT",
@@ -1561,17 +1573,17 @@
         1024
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 81920,
-      "speedup": 0.4287600332154,
+      "speedup": 0.4481052101881,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6578,
+      "row": 6770,
       "key": [
         "UNIFORM_20",
         "BINARY_NNZ_SPLIT",
@@ -1584,17 +1596,17 @@
         2048
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 81920,
-      "speedup": 0.3910980171806,
+      "speedup": 0.5175691709317,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6579,
+      "row": 6771,
       "key": [
         "UNIFORM_20",
         "BINARY_NNZ_SPLIT",
@@ -1607,17 +1619,17 @@
         4096
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 81920,
-      "speedup": 0.516684129211,
+      "speedup": 0.5058694941601,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6580,
+      "row": 6772,
       "key": [
         "UNIFORM_20",
         "BINARY_NNZ_SPLIT",
@@ -1630,17 +1642,17 @@
         8192
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 81920,
-      "speedup": 0.4360817939885,
+      "speedup": 0.4771959985148,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6581,
+      "row": 6773,
       "key": [
         "UNIFORM_20",
         "BINARY_NNZ_SPLIT",
@@ -1653,17 +1665,17 @@
         1024
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 81920,
-      "speedup": 0.44464425291,
+      "speedup": 0.4309421165249,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6582,
+      "row": 6774,
       "key": [
         "UNIFORM_20",
         "BINARY_NNZ_SPLIT",
@@ -1676,17 +1688,17 @@
         2048
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 81920,
-      "speedup": 0.4573484311545,
+      "speedup": 0.4493408343519,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6583,
+      "row": 6775,
       "key": [
         "UNIFORM_20",
         "BINARY_NNZ_SPLIT",
@@ -1699,17 +1711,17 @@
         4096
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 81920,
-      "speedup": 0.4415230332362,
+      "speedup": 0.4756352532644,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6584,
+      "row": 6776,
       "key": [
         "UNIFORM_20",
         "BINARY_NNZ_SPLIT",
@@ -1722,17 +1734,17 @@
         8192
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 81920,
-      "speedup": 0.424949228756,
+      "speedup": 0.4635519780349,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6585,
+      "row": 6777,
       "key": [
         "UNIFORM_20",
         "BINARY_NNZ_SPLIT",
@@ -1745,17 +1757,17 @@
         1024
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 81920,
-      "speedup": 0.3556728308508,
+      "speedup": 0.5423225534346,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6586,
+      "row": 6778,
       "key": [
         "UNIFORM_20",
         "BINARY_NNZ_SPLIT",
@@ -1768,17 +1780,17 @@
         2048
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 81920,
-      "speedup": 0.4852000394569,
+      "speedup": 0.5775774805626,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6587,
+      "row": 6779,
       "key": [
         "UNIFORM_20",
         "BINARY_NNZ_SPLIT",
@@ -1791,17 +1803,17 @@
         4096
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 81920,
-      "speedup": 0.6201270381045,
+      "speedup": 0.609343925922,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6588,
+      "row": 6780,
       "key": [
         "UNIFORM_20",
         "BINARY_NNZ_SPLIT",
@@ -1814,17 +1826,17 @@
         8192
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 81920,
-      "speedup": 0.6037295821044,
+      "speedup": 0.3850025100626,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6589,
+      "row": 6781,
       "key": [
         "UNIFORM_20",
         "BINARY_NNZ_SPLIT",
@@ -1837,17 +1849,17 @@
         1024
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 81920,
-      "speedup": 0.4061727875493,
+      "speedup": 0.5297261107386,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6590,
+      "row": 6782,
       "key": [
         "UNIFORM_20",
         "BINARY_NNZ_SPLIT",
@@ -1860,17 +1872,17 @@
         2048
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 81920,
-      "speedup": 0.4221755675688,
+      "speedup": 0.583336603744,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6591,
+      "row": 6783,
       "key": [
         "UNIFORM_20",
         "BINARY_NNZ_SPLIT",
@@ -1883,17 +1895,17 @@
         4096
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 81920,
-      "speedup": 0.4300651576059,
+      "speedup": 0.6267312895728,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6592,
+      "row": 6784,
       "key": [
         "UNIFORM_20",
         "BINARY_NNZ_SPLIT",
@@ -1906,17 +1918,17 @@
         8192
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 81920,
-      "speedup": 0.3932499159157,
+      "speedup": 0.5833768283468,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6593,
+      "row": 6785,
       "key": [
         "UNIFORM_100",
         "ROW_BOUNDARY_SCAN",
@@ -1929,17 +1941,17 @@
         1024
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 409600,
-      "speedup": 0.5406403608371,
+      "speedup": 0.6107316169432,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6594,
+      "row": 6786,
       "key": [
         "UNIFORM_100",
         "ROW_BOUNDARY_SCAN",
@@ -1952,17 +1964,17 @@
         2048
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 409600,
-      "speedup": 0.542772170237,
+      "speedup": 0.6163761905108,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6595,
+      "row": 6787,
       "key": [
         "UNIFORM_100",
         "ROW_BOUNDARY_SCAN",
@@ -1975,17 +1987,17 @@
         4096
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 409600,
-      "speedup": 0.5059403231225,
+      "speedup": 0.62815482504,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6596,
+      "row": 6788,
       "key": [
         "UNIFORM_100",
         "ROW_BOUNDARY_SCAN",
@@ -1998,17 +2010,17 @@
         8192
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 409600,
-      "speedup": 0.5664100850761,
+      "speedup": 0.6143887657784,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6597,
+      "row": 6789,
       "key": [
         "UNIFORM_100",
         "ROW_BOUNDARY_SCAN",
@@ -2021,17 +2033,17 @@
         1024
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 409600,
-      "speedup": 0.5779955419183,
+      "speedup": 0.766212505855,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6598,
+      "row": 6790,
       "key": [
         "UNIFORM_100",
         "ROW_BOUNDARY_SCAN",
@@ -2044,17 +2056,17 @@
         2048
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 409600,
-      "speedup": 0.6525441235757,
+      "speedup": 0.6805300644476,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6599,
+      "row": 6791,
       "key": [
         "UNIFORM_100",
         "ROW_BOUNDARY_SCAN",
@@ -2067,17 +2079,17 @@
         4096
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 409600,
-      "speedup": 0.5634155969392,
+      "speedup": 0.6463267735962,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6600,
+      "row": 6792,
       "key": [
         "UNIFORM_100",
         "ROW_BOUNDARY_SCAN",
@@ -2090,17 +2102,17 @@
         8192
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 409600,
-      "speedup": 0.5611609983348,
+      "speedup": 0.6267642400933,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6601,
+      "row": 6793,
       "key": [
         "UNIFORM_100",
         "ROW_BOUNDARY_SCAN",
@@ -2113,388 +2125,20 @@
         1024
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 409600,
-      "speedup": 0.6292684575668,
-      "verdict": "REGRESSION",
-      "max_absolute_error": 0.0
-    },
-    {
-      "row": 6602,
-      "key": [
-        "UNIFORM_100",
-        "ROW_BOUNDARY_SCAN",
-        4,
-        2048
-      ],
-      "legacy_key": [
-        "UNIFORM_100",
-        4,
-        2048
-      ],
-      "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
-      "dimension": 4096,
-      "nnz": 409600,
-      "speedup": 0.4237906759871,
-      "verdict": "REGRESSION",
-      "max_absolute_error": 0.0
-    },
-    {
-      "row": 6603,
-      "key": [
-        "UNIFORM_100",
-        "ROW_BOUNDARY_SCAN",
-        4,
-        4096
-      ],
-      "legacy_key": [
-        "UNIFORM_100",
-        4,
-        4096
-      ],
-      "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
-      "dimension": 4096,
-      "nnz": 409600,
-      "speedup": 0.654957867969,
-      "verdict": "REGRESSION",
-      "max_absolute_error": 0.0
-    },
-    {
-      "row": 6604,
-      "key": [
-        "UNIFORM_100",
-        "ROW_BOUNDARY_SCAN",
-        4,
-        8192
-      ],
-      "legacy_key": [
-        "UNIFORM_100",
-        4,
-        8192
-      ],
-      "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
-      "dimension": 4096,
-      "nnz": 409600,
-      "speedup": 0.5778536553033,
-      "verdict": "REGRESSION",
-      "max_absolute_error": 0.0
-    },
-    {
-      "row": 6605,
-      "key": [
-        "UNIFORM_100",
-        "ROW_BOUNDARY_SCAN",
-        8,
-        1024
-      ],
-      "legacy_key": [
-        "UNIFORM_100",
-        8,
-        1024
-      ],
-      "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
-      "dimension": 4096,
-      "nnz": 409600,
-      "speedup": 0.7555689185585,
-      "verdict": "REGRESSION",
-      "max_absolute_error": 0.0
-    },
-    {
-      "row": 6606,
-      "key": [
-        "UNIFORM_100",
-        "ROW_BOUNDARY_SCAN",
-        8,
-        2048
-      ],
-      "legacy_key": [
-        "UNIFORM_100",
-        8,
-        2048
-      ],
-      "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
-      "dimension": 4096,
-      "nnz": 409600,
-      "speedup": 0.7764978017509,
-      "verdict": "REGRESSION",
-      "max_absolute_error": 0.0
-    },
-    {
-      "row": 6607,
-      "key": [
-        "UNIFORM_100",
-        "ROW_BOUNDARY_SCAN",
-        8,
-        4096
-      ],
-      "legacy_key": [
-        "UNIFORM_100",
-        8,
-        4096
-      ],
-      "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
-      "dimension": 4096,
-      "nnz": 409600,
-      "speedup": 0.573389580221,
-      "verdict": "REGRESSION",
-      "max_absolute_error": 0.0
-    },
-    {
-      "row": 6608,
-      "key": [
-        "UNIFORM_100",
-        "ROW_BOUNDARY_SCAN",
-        8,
-        8192
-      ],
-      "legacy_key": [
-        "UNIFORM_100",
-        8,
-        8192
-      ],
-      "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
-      "dimension": 4096,
-      "nnz": 409600,
-      "speedup": 0.5730960942492,
-      "verdict": "REGRESSION",
-      "max_absolute_error": 0.0
-    },
-    {
-      "row": 6609,
-      "key": [
-        "UNIFORM_100",
-        "BINARY_NNZ_SPLIT",
-        1,
-        1024
-      ],
-      "legacy_key": [
-        "UNIFORM_100",
-        1,
-        1024
-      ],
-      "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
-      "dimension": 4096,
-      "nnz": 409600,
-      "speedup": 0.5672948136368,
-      "verdict": "REGRESSION",
-      "max_absolute_error": 0.0
-    },
-    {
-      "row": 6610,
-      "key": [
-        "UNIFORM_100",
-        "BINARY_NNZ_SPLIT",
-        1,
-        2048
-      ],
-      "legacy_key": [
-        "UNIFORM_100",
-        1,
-        2048
-      ],
-      "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
-      "dimension": 4096,
-      "nnz": 409600,
-      "speedup": 0.5701069753282,
-      "verdict": "REGRESSION",
-      "max_absolute_error": 0.0
-    },
-    {
-      "row": 6611,
-      "key": [
-        "UNIFORM_100",
-        "BINARY_NNZ_SPLIT",
-        1,
-        4096
-      ],
-      "legacy_key": [
-        "UNIFORM_100",
-        1,
-        4096
-      ],
-      "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
-      "dimension": 4096,
-      "nnz": 409600,
-      "speedup": 0.5805439340319,
-      "verdict": "REGRESSION",
-      "max_absolute_error": 0.0
-    },
-    {
-      "row": 6612,
-      "key": [
-        "UNIFORM_100",
-        "BINARY_NNZ_SPLIT",
-        1,
-        8192
-      ],
-      "legacy_key": [
-        "UNIFORM_100",
-        1,
-        8192
-      ],
-      "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
-      "dimension": 4096,
-      "nnz": 409600,
-      "speedup": 0.5723250012016,
-      "verdict": "REGRESSION",
-      "max_absolute_error": 0.0
-    },
-    {
-      "row": 6613,
-      "key": [
-        "UNIFORM_100",
-        "BINARY_NNZ_SPLIT",
-        2,
-        1024
-      ],
-      "legacy_key": [
-        "UNIFORM_100",
-        2,
-        1024
-      ],
-      "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
-      "dimension": 4096,
-      "nnz": 409600,
-      "speedup": 0.7822021255004,
-      "verdict": "REGRESSION",
-      "max_absolute_error": 0.0
-    },
-    {
-      "row": 6614,
-      "key": [
-        "UNIFORM_100",
-        "BINARY_NNZ_SPLIT",
-        2,
-        2048
-      ],
-      "legacy_key": [
-        "UNIFORM_100",
-        2,
-        2048
-      ],
-      "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
-      "dimension": 4096,
-      "nnz": 409600,
-      "speedup": 0.7746472096529,
-      "verdict": "REGRESSION",
-      "max_absolute_error": 0.0
-    },
-    {
-      "row": 6615,
-      "key": [
-        "UNIFORM_100",
-        "BINARY_NNZ_SPLIT",
-        2,
-        4096
-      ],
-      "legacy_key": [
-        "UNIFORM_100",
-        2,
-        4096
-      ],
-      "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
-      "dimension": 4096,
-      "nnz": 409600,
-      "speedup": 0.5699189323182,
-      "verdict": "REGRESSION",
-      "max_absolute_error": 0.0
-    },
-    {
-      "row": 6616,
-      "key": [
-        "UNIFORM_100",
-        "BINARY_NNZ_SPLIT",
-        2,
-        8192
-      ],
-      "legacy_key": [
-        "UNIFORM_100",
-        2,
-        8192
-      ],
-      "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
-      "dimension": 4096,
-      "nnz": 409600,
-      "speedup": 0.5717236298724,
-      "verdict": "REGRESSION",
-      "max_absolute_error": 0.0
-    },
-    {
-      "row": 6617,
-      "key": [
-        "UNIFORM_100",
-        "BINARY_NNZ_SPLIT",
-        4,
-        1024
-      ],
-      "legacy_key": [
-        "UNIFORM_100",
-        4,
-        1024
-      ],
-      "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
-      "dimension": 4096,
-      "nnz": 409600,
-      "speedup": 0.8114987640662,
+      "speedup": 0.8091276595321,
       "verdict": "NEUTRAL",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6618,
+      "row": 6794,
       "key": [
         "UNIFORM_100",
-        "BINARY_NNZ_SPLIT",
+        "ROW_BOUNDARY_SCAN",
         4,
         2048
       ],
@@ -2503,21 +2147,21 @@
         4,
         2048
       ],
-      "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "policy": "ROW_BOUNDARY_SCAN",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 409600,
-      "speedup": 0.6721828110591,
+      "speedup": 0.7890262165007,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6619,
+      "row": 6795,
       "key": [
         "UNIFORM_100",
-        "BINARY_NNZ_SPLIT",
+        "ROW_BOUNDARY_SCAN",
         4,
         4096
       ],
@@ -2526,21 +2170,21 @@
         4,
         4096
       ],
-      "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "policy": "ROW_BOUNDARY_SCAN",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 409600,
-      "speedup": 0.5568127068419,
+      "speedup": 0.6313408324704,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6620,
+      "row": 6796,
       "key": [
         "UNIFORM_100",
-        "BINARY_NNZ_SPLIT",
+        "ROW_BOUNDARY_SCAN",
         4,
         8192
       ],
@@ -2549,21 +2193,21 @@
         4,
         8192
       ],
-      "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "policy": "ROW_BOUNDARY_SCAN",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 409600,
-      "speedup": 0.5686105314865,
+      "speedup": 0.6275412770317,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6621,
+      "row": 6797,
       "key": [
         "UNIFORM_100",
-        "BINARY_NNZ_SPLIT",
+        "ROW_BOUNDARY_SCAN",
         8,
         1024
       ],
@@ -2572,21 +2216,21 @@
         8,
         1024
       ],
-      "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "policy": "ROW_BOUNDARY_SCAN",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 409600,
-      "speedup": 0.7732478675292,
+      "speedup": 0.7305460605762,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6622,
+      "row": 6798,
       "key": [
         "UNIFORM_100",
-        "BINARY_NNZ_SPLIT",
+        "ROW_BOUNDARY_SCAN",
         8,
         2048
       ],
@@ -2595,21 +2239,21 @@
         8,
         2048
       ],
-      "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "policy": "ROW_BOUNDARY_SCAN",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 409600,
-      "speedup": 0.7424300839789,
-      "verdict": "REGRESSION",
+      "speedup": 0.8544612160339,
+      "verdict": "NEUTRAL",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6623,
+      "row": 6799,
       "key": [
         "UNIFORM_100",
-        "BINARY_NNZ_SPLIT",
+        "ROW_BOUNDARY_SCAN",
         8,
         4096
       ],
@@ -2618,21 +2262,21 @@
         8,
         4096
       ],
-      "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "policy": "ROW_BOUNDARY_SCAN",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 409600,
-      "speedup": 0.5665528087491,
+      "speedup": 0.6295053735046,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6624,
+      "row": 6800,
       "key": [
         "UNIFORM_100",
-        "BINARY_NNZ_SPLIT",
+        "ROW_BOUNDARY_SCAN",
         8,
         8192
       ],
@@ -2641,18 +2285,386 @@
         8,
         8192
       ],
-      "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "policy": "ROW_BOUNDARY_SCAN",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 409600,
-      "speedup": 0.5682423486281,
+      "speedup": 0.6303002139967,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6625,
+      "row": 6801,
+      "key": [
+        "UNIFORM_100",
+        "BINARY_NNZ_SPLIT",
+        1,
+        1024
+      ],
+      "legacy_key": [
+        "UNIFORM_100",
+        1,
+        1024
+      ],
+      "policy": "BINARY_NNZ_SPLIT",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
+      "dimension": 4096,
+      "nnz": 409600,
+      "speedup": 0.6275649937816,
+      "verdict": "REGRESSION",
+      "max_absolute_error": 0.0
+    },
+    {
+      "row": 6802,
+      "key": [
+        "UNIFORM_100",
+        "BINARY_NNZ_SPLIT",
+        1,
+        2048
+      ],
+      "legacy_key": [
+        "UNIFORM_100",
+        1,
+        2048
+      ],
+      "policy": "BINARY_NNZ_SPLIT",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
+      "dimension": 4096,
+      "nnz": 409600,
+      "speedup": 0.6345153540011,
+      "verdict": "REGRESSION",
+      "max_absolute_error": 0.0
+    },
+    {
+      "row": 6803,
+      "key": [
+        "UNIFORM_100",
+        "BINARY_NNZ_SPLIT",
+        1,
+        4096
+      ],
+      "legacy_key": [
+        "UNIFORM_100",
+        1,
+        4096
+      ],
+      "policy": "BINARY_NNZ_SPLIT",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
+      "dimension": 4096,
+      "nnz": 409600,
+      "speedup": 0.6325017374622,
+      "verdict": "REGRESSION",
+      "max_absolute_error": 0.0
+    },
+    {
+      "row": 6804,
+      "key": [
+        "UNIFORM_100",
+        "BINARY_NNZ_SPLIT",
+        1,
+        8192
+      ],
+      "legacy_key": [
+        "UNIFORM_100",
+        1,
+        8192
+      ],
+      "policy": "BINARY_NNZ_SPLIT",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
+      "dimension": 4096,
+      "nnz": 409600,
+      "speedup": 0.6274889892478,
+      "verdict": "REGRESSION",
+      "max_absolute_error": 0.0
+    },
+    {
+      "row": 6805,
+      "key": [
+        "UNIFORM_100",
+        "BINARY_NNZ_SPLIT",
+        2,
+        1024
+      ],
+      "legacy_key": [
+        "UNIFORM_100",
+        2,
+        1024
+      ],
+      "policy": "BINARY_NNZ_SPLIT",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
+      "dimension": 4096,
+      "nnz": 409600,
+      "speedup": 0.7385497575848,
+      "verdict": "REGRESSION",
+      "max_absolute_error": 0.0
+    },
+    {
+      "row": 6806,
+      "key": [
+        "UNIFORM_100",
+        "BINARY_NNZ_SPLIT",
+        2,
+        2048
+      ],
+      "legacy_key": [
+        "UNIFORM_100",
+        2,
+        2048
+      ],
+      "policy": "BINARY_NNZ_SPLIT",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
+      "dimension": 4096,
+      "nnz": 409600,
+      "speedup": 0.7733020563018,
+      "verdict": "REGRESSION",
+      "max_absolute_error": 0.0
+    },
+    {
+      "row": 6807,
+      "key": [
+        "UNIFORM_100",
+        "BINARY_NNZ_SPLIT",
+        2,
+        4096
+      ],
+      "legacy_key": [
+        "UNIFORM_100",
+        2,
+        4096
+      ],
+      "policy": "BINARY_NNZ_SPLIT",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
+      "dimension": 4096,
+      "nnz": 409600,
+      "speedup": 0.6070236023439,
+      "verdict": "REGRESSION",
+      "max_absolute_error": 0.0
+    },
+    {
+      "row": 6808,
+      "key": [
+        "UNIFORM_100",
+        "BINARY_NNZ_SPLIT",
+        2,
+        8192
+      ],
+      "legacy_key": [
+        "UNIFORM_100",
+        2,
+        8192
+      ],
+      "policy": "BINARY_NNZ_SPLIT",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
+      "dimension": 4096,
+      "nnz": 409600,
+      "speedup": 0.6146557600205,
+      "verdict": "REGRESSION",
+      "max_absolute_error": 0.0
+    },
+    {
+      "row": 6809,
+      "key": [
+        "UNIFORM_100",
+        "BINARY_NNZ_SPLIT",
+        4,
+        1024
+      ],
+      "legacy_key": [
+        "UNIFORM_100",
+        4,
+        1024
+      ],
+      "policy": "BINARY_NNZ_SPLIT",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
+      "dimension": 4096,
+      "nnz": 409600,
+      "speedup": 0.7320143884892,
+      "verdict": "REGRESSION",
+      "max_absolute_error": 0.0
+    },
+    {
+      "row": 6810,
+      "key": [
+        "UNIFORM_100",
+        "BINARY_NNZ_SPLIT",
+        4,
+        2048
+      ],
+      "legacy_key": [
+        "UNIFORM_100",
+        4,
+        2048
+      ],
+      "policy": "BINARY_NNZ_SPLIT",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
+      "dimension": 4096,
+      "nnz": 409600,
+      "speedup": 0.7497067848068,
+      "verdict": "REGRESSION",
+      "max_absolute_error": 0.0
+    },
+    {
+      "row": 6811,
+      "key": [
+        "UNIFORM_100",
+        "BINARY_NNZ_SPLIT",
+        4,
+        4096
+      ],
+      "legacy_key": [
+        "UNIFORM_100",
+        4,
+        4096
+      ],
+      "policy": "BINARY_NNZ_SPLIT",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
+      "dimension": 4096,
+      "nnz": 409600,
+      "speedup": 0.6255469793495,
+      "verdict": "REGRESSION",
+      "max_absolute_error": 0.0
+    },
+    {
+      "row": 6812,
+      "key": [
+        "UNIFORM_100",
+        "BINARY_NNZ_SPLIT",
+        4,
+        8192
+      ],
+      "legacy_key": [
+        "UNIFORM_100",
+        4,
+        8192
+      ],
+      "policy": "BINARY_NNZ_SPLIT",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
+      "dimension": 4096,
+      "nnz": 409600,
+      "speedup": 0.5249028137817,
+      "verdict": "REGRESSION",
+      "max_absolute_error": 0.0
+    },
+    {
+      "row": 6813,
+      "key": [
+        "UNIFORM_100",
+        "BINARY_NNZ_SPLIT",
+        8,
+        1024
+      ],
+      "legacy_key": [
+        "UNIFORM_100",
+        8,
+        1024
+      ],
+      "policy": "BINARY_NNZ_SPLIT",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
+      "dimension": 4096,
+      "nnz": 409600,
+      "speedup": 0.7403578183901,
+      "verdict": "REGRESSION",
+      "max_absolute_error": 0.0
+    },
+    {
+      "row": 6814,
+      "key": [
+        "UNIFORM_100",
+        "BINARY_NNZ_SPLIT",
+        8,
+        2048
+      ],
+      "legacy_key": [
+        "UNIFORM_100",
+        8,
+        2048
+      ],
+      "policy": "BINARY_NNZ_SPLIT",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
+      "dimension": 4096,
+      "nnz": 409600,
+      "speedup": 0.7594942592267,
+      "verdict": "REGRESSION",
+      "max_absolute_error": 0.0
+    },
+    {
+      "row": 6815,
+      "key": [
+        "UNIFORM_100",
+        "BINARY_NNZ_SPLIT",
+        8,
+        4096
+      ],
+      "legacy_key": [
+        "UNIFORM_100",
+        8,
+        4096
+      ],
+      "policy": "BINARY_NNZ_SPLIT",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
+      "dimension": 4096,
+      "nnz": 409600,
+      "speedup": 0.6375619118454,
+      "verdict": "REGRESSION",
+      "max_absolute_error": 0.0
+    },
+    {
+      "row": 6816,
+      "key": [
+        "UNIFORM_100",
+        "BINARY_NNZ_SPLIT",
+        8,
+        8192
+      ],
+      "legacy_key": [
+        "UNIFORM_100",
+        8,
+        8192
+      ],
+      "policy": "BINARY_NNZ_SPLIT",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
+      "dimension": 4096,
+      "nnz": 409600,
+      "speedup": 0.6260067241297,
+      "verdict": "REGRESSION",
+      "max_absolute_error": 0.0
+    },
+    {
+      "row": 6817,
       "key": [
         "BANDED",
         "ROW_BOUNDARY_SCAN",
@@ -2665,17 +2677,17 @@
         1024
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 20480,
-      "speedup": 0.4482664622435,
+      "speedup": 0.2751664965104,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6626,
+      "row": 6818,
       "key": [
         "BANDED",
         "ROW_BOUNDARY_SCAN",
@@ -2688,17 +2700,17 @@
         2048
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 20480,
-      "speedup": 0.364856381384,
+      "speedup": 0.2993551815618,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6627,
+      "row": 6819,
       "key": [
         "BANDED",
         "ROW_BOUNDARY_SCAN",
@@ -2711,17 +2723,17 @@
         4096
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 20480,
-      "speedup": 0.3985997952769,
+      "speedup": 0.3287598837327,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6628,
+      "row": 6820,
       "key": [
         "BANDED",
         "ROW_BOUNDARY_SCAN",
@@ -2734,17 +2746,17 @@
         8192
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 20480,
-      "speedup": 0.3958596209543,
+      "speedup": 0.3428136863915,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6629,
+      "row": 6821,
       "key": [
         "BANDED",
         "ROW_BOUNDARY_SCAN",
@@ -2757,17 +2769,17 @@
         1024
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 20480,
-      "speedup": 0.3458488084789,
+      "speedup": 0.3321900451422,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6630,
+      "row": 6822,
       "key": [
         "BANDED",
         "ROW_BOUNDARY_SCAN",
@@ -2780,17 +2792,17 @@
         2048
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 20480,
-      "speedup": 0.3991556294781,
+      "speedup": 0.2404130611641,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6631,
+      "row": 6823,
       "key": [
         "BANDED",
         "ROW_BOUNDARY_SCAN",
@@ -2803,17 +2815,17 @@
         4096
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 20480,
-      "speedup": 0.4554911067432,
+      "speedup": 0.3619483914023,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6632,
+      "row": 6824,
       "key": [
         "BANDED",
         "ROW_BOUNDARY_SCAN",
@@ -2826,17 +2838,17 @@
         8192
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 20480,
-      "speedup": 0.6110975331843,
+      "speedup": 0.3577800678114,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6633,
+      "row": 6825,
       "key": [
         "BANDED",
         "ROW_BOUNDARY_SCAN",
@@ -2849,17 +2861,17 @@
         1024
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 20480,
-      "speedup": 0.3644363970341,
+      "speedup": 0.3581548899958,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6634,
+      "row": 6826,
       "key": [
         "BANDED",
         "ROW_BOUNDARY_SCAN",
@@ -2872,17 +2884,17 @@
         2048
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 20480,
-      "speedup": 0.5222450218646,
+      "speedup": 0.404676320732,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6635,
+      "row": 6827,
       "key": [
         "BANDED",
         "ROW_BOUNDARY_SCAN",
@@ -2895,17 +2907,17 @@
         4096
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 20480,
-      "speedup": 0.4131869835456,
+      "speedup": 0.3537421699354,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6636,
+      "row": 6828,
       "key": [
         "BANDED",
         "ROW_BOUNDARY_SCAN",
@@ -2918,17 +2930,17 @@
         8192
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 20480,
-      "speedup": 0.3123836120037,
+      "speedup": 0.3835563279688,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6637,
+      "row": 6829,
       "key": [
         "BANDED",
         "ROW_BOUNDARY_SCAN",
@@ -2941,17 +2953,17 @@
         1024
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 20480,
-      "speedup": 0.3417245703478,
+      "speedup": 0.2739216086268,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6638,
+      "row": 6830,
       "key": [
         "BANDED",
         "ROW_BOUNDARY_SCAN",
@@ -2964,17 +2976,17 @@
         2048
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 20480,
-      "speedup": 0.4442203464196,
+      "speedup": 0.3617104072398,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6639,
+      "row": 6831,
       "key": [
         "BANDED",
         "ROW_BOUNDARY_SCAN",
@@ -2987,17 +2999,17 @@
         4096
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 20480,
-      "speedup": 0.5634133013696,
+      "speedup": 0.368186762461,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6640,
+      "row": 6832,
       "key": [
         "BANDED",
         "ROW_BOUNDARY_SCAN",
@@ -3010,17 +3022,17 @@
         8192
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 20480,
-      "speedup": 0.4014293476727,
+      "speedup": 0.3246742347277,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6641,
+      "row": 6833,
       "key": [
         "BANDED",
         "BINARY_NNZ_SPLIT",
@@ -3033,17 +3045,17 @@
         1024
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 20480,
-      "speedup": 0.3940810023824,
+      "speedup": 0.06893366679375,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6642,
+      "row": 6834,
       "key": [
         "BANDED",
         "BINARY_NNZ_SPLIT",
@@ -3056,17 +3068,17 @@
         2048
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 20480,
-      "speedup": 0.4097425806193,
+      "speedup": 0.3372550284394,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6643,
+      "row": 6835,
       "key": [
         "BANDED",
         "BINARY_NNZ_SPLIT",
@@ -3079,17 +3091,17 @@
         4096
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 20480,
-      "speedup": 0.4021235531576,
+      "speedup": 0.3173206946838,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6644,
+      "row": 6836,
       "key": [
         "BANDED",
         "BINARY_NNZ_SPLIT",
@@ -3102,17 +3114,17 @@
         8192
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 20480,
-      "speedup": 0.4507677774279,
+      "speedup": 0.4274267739716,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6645,
+      "row": 6837,
       "key": [
         "BANDED",
         "BINARY_NNZ_SPLIT",
@@ -3125,17 +3137,17 @@
         1024
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 20480,
-      "speedup": 0.3967515800179,
+      "speedup": 0.2656631264649,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6646,
+      "row": 6838,
       "key": [
         "BANDED",
         "BINARY_NNZ_SPLIT",
@@ -3148,17 +3160,17 @@
         2048
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 20480,
-      "speedup": 0.4335638650061,
+      "speedup": 0.243754907173,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6647,
+      "row": 6839,
       "key": [
         "BANDED",
         "BINARY_NNZ_SPLIT",
@@ -3171,17 +3183,17 @@
         4096
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 20480,
-      "speedup": 0.3823733605988,
+      "speedup": 0.3113584857837,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6648,
+      "row": 6840,
       "key": [
         "BANDED",
         "BINARY_NNZ_SPLIT",
@@ -3194,17 +3206,17 @@
         8192
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 20480,
-      "speedup": 0.4624544600939,
+      "speedup": 0.3411199211393,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6649,
+      "row": 6841,
       "key": [
         "BANDED",
         "BINARY_NNZ_SPLIT",
@@ -3217,17 +3229,17 @@
         1024
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 20480,
-      "speedup": 0.3508268905842,
+      "speedup": 0.3234507023381,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6650,
+      "row": 6842,
       "key": [
         "BANDED",
         "BINARY_NNZ_SPLIT",
@@ -3240,17 +3252,17 @@
         2048
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 20480,
-      "speedup": 0.3166886818012,
+      "speedup": 0.3092674616695,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6651,
+      "row": 6843,
       "key": [
         "BANDED",
         "BINARY_NNZ_SPLIT",
@@ -3263,17 +3275,17 @@
         4096
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 20480,
-      "speedup": 0.4152303527909,
+      "speedup": 0.3317867315921,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6652,
+      "row": 6844,
       "key": [
         "BANDED",
         "BINARY_NNZ_SPLIT",
@@ -3286,17 +3298,17 @@
         8192
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 20480,
-      "speedup": 0.4675333102212,
+      "speedup": 0.3298696585431,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6653,
+      "row": 6845,
       "key": [
         "BANDED",
         "BINARY_NNZ_SPLIT",
@@ -3309,17 +3321,17 @@
         1024
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 20480,
-      "speedup": 0.3183199282644,
+      "speedup": 0.253347701629,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6654,
+      "row": 6846,
       "key": [
         "BANDED",
         "BINARY_NNZ_SPLIT",
@@ -3332,17 +3344,17 @@
         2048
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 20480,
-      "speedup": 0.4424893031182,
+      "speedup": 0.2790624891331,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6655,
+      "row": 6847,
       "key": [
         "BANDED",
         "BINARY_NNZ_SPLIT",
@@ -3355,17 +3367,17 @@
         4096
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 20480,
-      "speedup": 0.3340055248209,
+      "speedup": 0.3502632213216,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6656,
+      "row": 6848,
       "key": [
         "BANDED",
         "BINARY_NNZ_SPLIT",
@@ -3378,17 +3390,17 @@
         8192
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 20480,
-      "speedup": 0.4399204690744,
+      "speedup": 0.3729608961088,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6657,
+      "row": 6849,
       "key": [
         "BLOCK",
         "ROW_BOUNDARY_SCAN",
@@ -3401,17 +3413,17 @@
         1024
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 32768,
-      "speedup": 0.3745115255191,
+      "speedup": 0.3298541468211,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6658,
+      "row": 6850,
       "key": [
         "BLOCK",
         "ROW_BOUNDARY_SCAN",
@@ -3424,17 +3436,17 @@
         2048
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 32768,
-      "speedup": 0.4042275381242,
+      "speedup": 0.3476308175157,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6659,
+      "row": 6851,
       "key": [
         "BLOCK",
         "ROW_BOUNDARY_SCAN",
@@ -3447,17 +3459,17 @@
         4096
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 32768,
-      "speedup": 0.4379103442838,
+      "speedup": 0.375520121676,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6660,
+      "row": 6852,
       "key": [
         "BLOCK",
         "ROW_BOUNDARY_SCAN",
@@ -3470,17 +3482,17 @@
         8192
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 32768,
-      "speedup": 0.4026022171292,
+      "speedup": 0.4488470729541,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6661,
+      "row": 6853,
       "key": [
         "BLOCK",
         "ROW_BOUNDARY_SCAN",
@@ -3493,17 +3505,17 @@
         1024
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 32768,
-      "speedup": 0.4659514003639,
+      "speedup": 0.2529996448154,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6662,
+      "row": 6854,
       "key": [
         "BLOCK",
         "ROW_BOUNDARY_SCAN",
@@ -3516,17 +3528,17 @@
         2048
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 32768,
-      "speedup": 0.2984628158213,
+      "speedup": 0.2746959585104,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6663,
+      "row": 6855,
       "key": [
         "BLOCK",
         "ROW_BOUNDARY_SCAN",
@@ -3539,17 +3551,17 @@
         4096
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 32768,
-      "speedup": 0.3427655125029,
+      "speedup": 0.3707377065055,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6664,
+      "row": 6856,
       "key": [
         "BLOCK",
         "ROW_BOUNDARY_SCAN",
@@ -3562,17 +3574,17 @@
         8192
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 32768,
-      "speedup": 0.297864201053,
+      "speedup": 0.4052055716079,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6665,
+      "row": 6857,
       "key": [
         "BLOCK",
         "ROW_BOUNDARY_SCAN",
@@ -3585,17 +3597,17 @@
         1024
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 32768,
-      "speedup": 0.08399472485982,
+      "speedup": 0.2624925555146,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6666,
+      "row": 6858,
       "key": [
         "BLOCK",
         "ROW_BOUNDARY_SCAN",
@@ -3608,17 +3620,17 @@
         2048
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 32768,
-      "speedup": 0.3074895805165,
+      "speedup": 0.2959725980643,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6667,
+      "row": 6859,
       "key": [
         "BLOCK",
         "ROW_BOUNDARY_SCAN",
@@ -3631,17 +3643,17 @@
         4096
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 32768,
-      "speedup": 0.4004071815041,
+      "speedup": 0.421764165572,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6668,
+      "row": 6860,
       "key": [
         "BLOCK",
         "ROW_BOUNDARY_SCAN",
@@ -3654,17 +3666,17 @@
         8192
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 32768,
-      "speedup": 0.5437527621267,
+      "speedup": 0.3844317367447,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6669,
+      "row": 6861,
       "key": [
         "BLOCK",
         "ROW_BOUNDARY_SCAN",
@@ -3677,17 +3689,17 @@
         1024
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 32768,
-      "speedup": 0.2893533161163,
+      "speedup": 0.2614401129093,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6670,
+      "row": 6862,
       "key": [
         "BLOCK",
         "ROW_BOUNDARY_SCAN",
@@ -3700,17 +3712,17 @@
         2048
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 32768,
-      "speedup": 0.4094682895194,
+      "speedup": 0.2962656567885,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6671,
+      "row": 6863,
       "key": [
         "BLOCK",
         "ROW_BOUNDARY_SCAN",
@@ -3723,17 +3735,17 @@
         4096
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 32768,
-      "speedup": 0.4624091486262,
+      "speedup": 0.4087094557502,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6672,
+      "row": 6864,
       "key": [
         "BLOCK",
         "ROW_BOUNDARY_SCAN",
@@ -3746,17 +3758,17 @@
         8192
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 32768,
-      "speedup": 0.4479939790972,
+      "speedup": 0.3875279662069,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6673,
+      "row": 6865,
       "key": [
         "BLOCK",
         "BINARY_NNZ_SPLIT",
@@ -3769,17 +3781,17 @@
         1024
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 32768,
-      "speedup": 0.2895537917049,
+      "speedup": 0.3748948774014,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6674,
+      "row": 6866,
       "key": [
         "BLOCK",
         "BINARY_NNZ_SPLIT",
@@ -3792,17 +3804,17 @@
         2048
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 32768,
-      "speedup": 0.4227955476284,
+      "speedup": 0.3807490883053,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6675,
+      "row": 6867,
       "key": [
         "BLOCK",
         "BINARY_NNZ_SPLIT",
@@ -3815,17 +3827,17 @@
         4096
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 32768,
-      "speedup": 0.4625509543837,
+      "speedup": 0.3634049105929,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6676,
+      "row": 6868,
       "key": [
         "BLOCK",
         "BINARY_NNZ_SPLIT",
@@ -3838,17 +3850,17 @@
         8192
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 32768,
-      "speedup": 0.4534370312693,
+      "speedup": 0.3782087767351,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6677,
+      "row": 6869,
       "key": [
         "BLOCK",
         "BINARY_NNZ_SPLIT",
@@ -3861,17 +3873,17 @@
         1024
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 32768,
-      "speedup": 0.3260726474605,
+      "speedup": 0.3271277692974,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6678,
+      "row": 6870,
       "key": [
         "BLOCK",
         "BINARY_NNZ_SPLIT",
@@ -3884,17 +3896,17 @@
         2048
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 32768,
-      "speedup": 0.3904931914103,
+      "speedup": 0.332807325584,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6679,
+      "row": 6871,
       "key": [
         "BLOCK",
         "BINARY_NNZ_SPLIT",
@@ -3907,17 +3919,17 @@
         4096
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 32768,
-      "speedup": 0.4312162388015,
+      "speedup": 0.3788811417903,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6680,
+      "row": 6872,
       "key": [
         "BLOCK",
         "BINARY_NNZ_SPLIT",
@@ -3930,17 +3942,17 @@
         8192
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 32768,
-      "speedup": 0.4407146200152,
+      "speedup": 0.3781140500602,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6681,
+      "row": 6873,
       "key": [
         "BLOCK",
         "BINARY_NNZ_SPLIT",
@@ -3953,17 +3965,17 @@
         1024
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 32768,
-      "speedup": 0.2761117429742,
+      "speedup": 0.3149302310055,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6682,
+      "row": 6874,
       "key": [
         "BLOCK",
         "BINARY_NNZ_SPLIT",
@@ -3976,17 +3988,17 @@
         2048
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 32768,
-      "speedup": 0.3443458361309,
+      "speedup": 0.3163589976925,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6683,
+      "row": 6875,
       "key": [
         "BLOCK",
         "BINARY_NNZ_SPLIT",
@@ -3999,17 +4011,17 @@
         4096
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 32768,
-      "speedup": 0.4303982439537,
+      "speedup": 0.3710106194511,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6684,
+      "row": 6876,
       "key": [
         "BLOCK",
         "BINARY_NNZ_SPLIT",
@@ -4022,17 +4034,17 @@
         8192
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 32768,
-      "speedup": 0.4263395684668,
+      "speedup": 0.3758935107879,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6685,
+      "row": 6877,
       "key": [
         "BLOCK",
         "BINARY_NNZ_SPLIT",
@@ -4045,17 +4057,17 @@
         1024
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 32768,
-      "speedup": 0.3259826121103,
+      "speedup": 0.2458753612712,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6686,
+      "row": 6878,
       "key": [
         "BLOCK",
         "BINARY_NNZ_SPLIT",
@@ -4068,17 +4080,17 @@
         2048
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 32768,
-      "speedup": 0.3532365727418,
+      "speedup": 0.3730493790908,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6687,
+      "row": 6879,
       "key": [
         "BLOCK",
         "BINARY_NNZ_SPLIT",
@@ -4091,17 +4103,17 @@
         4096
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 32768,
-      "speedup": 0.602701850177,
+      "speedup": 0.5461704580809,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6688,
+      "row": 6880,
       "key": [
         "BLOCK",
         "BINARY_NNZ_SPLIT",
@@ -4114,17 +4126,17 @@
         8192
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 32768,
-      "speedup": 0.4278780946666,
+      "speedup": 0.3644225556477,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6689,
+      "row": 6881,
       "key": [
         "POWERLAW",
         "ROW_BOUNDARY_SCAN",
@@ -4137,17 +4149,17 @@
         1024
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 5737,
-      "speedup": 0.2577879477741,
+      "speedup": 0.3367699084747,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6690,
+      "row": 6882,
       "key": [
         "POWERLAW",
         "ROW_BOUNDARY_SCAN",
@@ -4160,17 +4172,17 @@
         2048
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 5737,
-      "speedup": 0.3922285431807,
+      "speedup": 0.2512689235115,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6691,
+      "row": 6883,
       "key": [
         "POWERLAW",
         "ROW_BOUNDARY_SCAN",
@@ -4183,17 +4195,17 @@
         4096
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 5737,
-      "speedup": 0.3449291477038,
+      "speedup": 0.3097759511746,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6692,
+      "row": 6884,
       "key": [
         "POWERLAW",
         "ROW_BOUNDARY_SCAN",
@@ -4206,17 +4218,17 @@
         8192
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 5737,
-      "speedup": 0.3028791343205,
+      "speedup": 0.3167760661849,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6693,
+      "row": 6885,
       "key": [
         "POWERLAW",
         "ROW_BOUNDARY_SCAN",
@@ -4229,17 +4241,17 @@
         1024
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 5737,
-      "speedup": 0.2445398543961,
+      "speedup": 0.212609020559,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6694,
+      "row": 6886,
       "key": [
         "POWERLAW",
         "ROW_BOUNDARY_SCAN",
@@ -4252,17 +4264,17 @@
         2048
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 5737,
-      "speedup": 0.2607554428168,
+      "speedup": 0.2600011260567,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6695,
+      "row": 6887,
       "key": [
         "POWERLAW",
         "ROW_BOUNDARY_SCAN",
@@ -4275,17 +4287,17 @@
         4096
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 5737,
-      "speedup": 0.3042160964804,
+      "speedup": 0.346524886484,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6696,
+      "row": 6888,
       "key": [
         "POWERLAW",
         "ROW_BOUNDARY_SCAN",
@@ -4298,17 +4310,17 @@
         8192
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 5737,
-      "speedup": 0.3091366221505,
+      "speedup": 0.383571896342,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6697,
+      "row": 6889,
       "key": [
         "POWERLAW",
         "ROW_BOUNDARY_SCAN",
@@ -4321,17 +4333,17 @@
         1024
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 5737,
-      "speedup": 0.2002460504825,
+      "speedup": 0.1586194499371,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6698,
+      "row": 6890,
       "key": [
         "POWERLAW",
         "ROW_BOUNDARY_SCAN",
@@ -4344,17 +4356,17 @@
         2048
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 5737,
-      "speedup": 0.2308644979063,
+      "speedup": 0.2084584625716,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6699,
+      "row": 6891,
       "key": [
         "POWERLAW",
         "ROW_BOUNDARY_SCAN",
@@ -4367,17 +4379,17 @@
         4096
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 5737,
-      "speedup": 0.3527946569548,
+      "speedup": 0.3198150231597,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6700,
+      "row": 6892,
       "key": [
         "POWERLAW",
         "ROW_BOUNDARY_SCAN",
@@ -4390,17 +4402,17 @@
         8192
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 5737,
-      "speedup": 0.3392473510324,
+      "speedup": 0.3996132751569,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6701,
+      "row": 6893,
       "key": [
         "POWERLAW",
         "ROW_BOUNDARY_SCAN",
@@ -4413,17 +4425,17 @@
         1024
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 5737,
-      "speedup": 0.1758825270582,
+      "speedup": 0.1804885897402,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6702,
+      "row": 6894,
       "key": [
         "POWERLAW",
         "ROW_BOUNDARY_SCAN",
@@ -4436,17 +4448,17 @@
         2048
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 5737,
-      "speedup": 0.2274899511633,
+      "speedup": 0.168042826724,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6703,
+      "row": 6895,
       "key": [
         "POWERLAW",
         "ROW_BOUNDARY_SCAN",
@@ -4459,17 +4471,17 @@
         4096
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 5737,
-      "speedup": 0.3433132037224,
+      "speedup": 0.306794124633,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6704,
+      "row": 6896,
       "key": [
         "POWERLAW",
         "ROW_BOUNDARY_SCAN",
@@ -4482,17 +4494,17 @@
         8192
       ],
       "policy": "ROW_BOUNDARY_SCAN",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 5737,
-      "speedup": 0.3163593925043,
+      "speedup": 0.3068484588793,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6705,
+      "row": 6897,
       "key": [
         "POWERLAW",
         "BINARY_NNZ_SPLIT",
@@ -4505,17 +4517,17 @@
         1024
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 5737,
-      "speedup": 0.3166562197276,
+      "speedup": 0.2822610177843,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6706,
+      "row": 6898,
       "key": [
         "POWERLAW",
         "BINARY_NNZ_SPLIT",
@@ -4528,17 +4540,17 @@
         2048
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 5737,
-      "speedup": 0.3346210897765,
+      "speedup": 0.3025965972673,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6707,
+      "row": 6899,
       "key": [
         "POWERLAW",
         "BINARY_NNZ_SPLIT",
@@ -4551,17 +4563,17 @@
         4096
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 5737,
-      "speedup": 0.3546308282801,
+      "speedup": 0.3158485795032,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6708,
+      "row": 6900,
       "key": [
         "POWERLAW",
         "BINARY_NNZ_SPLIT",
@@ -4574,17 +4586,17 @@
         8192
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 5737,
-      "speedup": 0.3353234216597,
+      "speedup": 0.323372477024,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6709,
+      "row": 6901,
       "key": [
         "POWERLAW",
         "BINARY_NNZ_SPLIT",
@@ -4597,17 +4609,17 @@
         1024
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 5737,
-      "speedup": 0.2519009418926,
+      "speedup": 0.2704385810351,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6710,
+      "row": 6902,
       "key": [
         "POWERLAW",
         "BINARY_NNZ_SPLIT",
@@ -4620,17 +4632,17 @@
         2048
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 5737,
-      "speedup": 0.2577265714428,
+      "speedup": 0.2312091570144,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6711,
+      "row": 6903,
       "key": [
         "POWERLAW",
         "BINARY_NNZ_SPLIT",
@@ -4643,17 +4655,17 @@
         4096
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 5737,
-      "speedup": 0.3718106599424,
+      "speedup": 0.3450491010078,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6712,
+      "row": 6904,
       "key": [
         "POWERLAW",
         "BINARY_NNZ_SPLIT",
@@ -4666,17 +4678,17 @@
         8192
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 5737,
-      "speedup": 0.4427958965673,
+      "speedup": 0.3305604498824,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6713,
+      "row": 6905,
       "key": [
         "POWERLAW",
         "BINARY_NNZ_SPLIT",
@@ -4689,17 +4701,17 @@
         1024
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 5737,
-      "speedup": 0.2779775922358,
+      "speedup": 0.2774266190239,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6714,
+      "row": 6906,
       "key": [
         "POWERLAW",
         "BINARY_NNZ_SPLIT",
@@ -4712,17 +4724,17 @@
         2048
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 5737,
-      "speedup": 0.1715103057965,
+      "speedup": 0.2660298011526,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6715,
+      "row": 6907,
       "key": [
         "POWERLAW",
         "BINARY_NNZ_SPLIT",
@@ -4735,17 +4747,17 @@
         4096
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 5737,
-      "speedup": 0.3437635070885,
+      "speedup": 0.3147140371059,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6716,
+      "row": 6908,
       "key": [
         "POWERLAW",
         "BINARY_NNZ_SPLIT",
@@ -4758,17 +4770,17 @@
         8192
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 5737,
-      "speedup": 0.3273604355032,
+      "speedup": 0.3411228197674,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6717,
+      "row": 6909,
       "key": [
         "POWERLAW",
         "BINARY_NNZ_SPLIT",
@@ -4781,17 +4793,17 @@
         1024
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 5737,
-      "speedup": 0.2145589659208,
+      "speedup": 0.230601165098,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6718,
+      "row": 6910,
       "key": [
         "POWERLAW",
         "BINARY_NNZ_SPLIT",
@@ -4804,17 +4816,17 @@
         2048
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 5737,
-      "speedup": 0.2644184859561,
+      "speedup": 0.2603187188253,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6719,
+      "row": 6911,
       "key": [
         "POWERLAW",
         "BINARY_NNZ_SPLIT",
@@ -4827,17 +4839,17 @@
         4096
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 5737,
-      "speedup": 0.3438490612906,
+      "speedup": 0.3090949949076,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     },
     {
-      "row": 6720,
+      "row": 6912,
       "key": [
         "POWERLAW",
         "BINARY_NNZ_SPLIT",
@@ -4850,12 +4862,12 @@
         8192
       ],
       "policy": "BINARY_NNZ_SPLIT",
-      "run_id": "p3-41244944682-1",
-      "workflow_run_id": "41244944682",
-      "commit_sha": "43cb07312dc8c42812817dbb82d2ad054bd26341",
+      "run_id": "p3-41245327491-1",
+      "workflow_run_id": "41245327491",
+      "commit_sha": "7207a0f040af3a1820179b77182dd0289daa2e1c",
       "dimension": 4096,
       "nnz": 5737,
-      "speedup": 0.3215341803166,
+      "speedup": 0.3140702951132,
       "verdict": "REGRESSION",
       "max_absolute_error": 0.0
     }
