@@ -1,5 +1,7 @@
 package hpc.csr.harness;
 
+import hpc.csr.MultiplyTask;
+import hpc.csr.PlannedForkJoinSpmvStrategy;
 import hpc.csr.SparseMatrixCSR;
 import hpc.csr.SpmvStrategies;
 import hpc.csr.SpmvStrategy;
@@ -35,7 +37,10 @@ import java.util.concurrent.RecursiveAction;
  *   mode=preflight n=.. workload=..
  *   mode=child     run=.. commit=.. fork=.. n=.. workload=.. p=1,2,4
  *                  strategies=SEQ,FJ_PLAN,STATIC warmup=.. iterations=..
+ *                  thresholds=4096[,...] thresholdMode=ROW_THRESHOLD|NNZ_THRESHOLD
  *                  raw=<csv> forks=<csv>
+ *
+ * FJ_PLAN is reported once per threshold under the label FJ_PLAN_T<threshold>.
  *   mode=stream    run=.. p=1,2,4 reps=.. out=<csv>
  */
 public final class ParallelSpmvHarness {
@@ -231,6 +236,16 @@ public final class ParallelSpmvHarness {
             }
         }
 
+        List<Integer> thresholds = new ArrayList<>();
+
+        for (String token : a.getOrDefault("thresholds", "4096").split(",")) {
+            thresholds.add(Integer.parseInt(token.trim()));
+        }
+
+        MultiplyTask.ThresholdMode thresholdMode =
+                MultiplyTask.ThresholdMode.valueOf(
+                        a.getOrDefault("thresholdMode", "ROW_THRESHOLD"));
+
         List<String> strategyNames = Arrays.asList(
                 req(a, "strategies").toUpperCase(Locale.ROOT).split(","));
 
@@ -269,6 +284,19 @@ public final class ParallelSpmvHarness {
                     strategies.add(SpmvStrategies.create(name, matrix, 1));
                     labels.add(name);
                     labelP.add(1);
+                    continue;
+                }
+
+                if ("FJ_PLAN".equals(name)) {
+                    for (int p : parallelisms) {
+                        for (int threshold : thresholds) {
+                            strategies.add(new PlannedForkJoinSpmvStrategy(
+                                    matrix, p, threshold,
+                                    thresholdMode, null));
+                            labels.add("FJ_PLAN_T" + threshold);
+                            labelP.add(p);
+                        }
+                    }
                     continue;
                 }
 
