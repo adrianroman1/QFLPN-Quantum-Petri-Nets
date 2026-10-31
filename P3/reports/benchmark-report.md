@@ -15,7 +15,7 @@ Evaluarea urmărește:
 - corectitudinea numerică;
 - reproductibilitatea și integritatea rezultatelor.
 
-Toate rezultatele experimentale trebuie să provină din execuții reale, identificabile prin RUN_ID și susținute de fișiere brute.
+Toate rezultatele experimentale trebuie să provină din execuții reale, identificabile prin "RUN_ID" și susținute de fișiere brute.
 
 Nu se completează tabelele cu valori interpolate, estimate sau simulate.
 
@@ -31,7 +31,7 @@ Nr.| Dimensiunea spațiului de stări N| Statut în RUN_ID analizat
 
 Aceste patru valori reprezintă dimensiuni ale spațiului de stări, nu praguri SpMV.
 
-Fiecare dimensiune trebuie executată independent și identificată prin RUN_ID.
+Fiecare dimensiune trebuie executată independent și identificată prin "RUN_ID".
 
 Rezultatele pentru o dimensiune nu pot fi extrapolate la altă dimensiune.
 
@@ -64,17 +64,15 @@ Pragurile SpMV sunt parametri de configurare ai algoritmului și sunt independen
 
 Valorile pragurilor reprezintă seria de planificare. Statutul MEASURED se acordă numai după executarea și validarea configurației respective.
 
-Pentru fiecare prag utilizat trebuie păstrate măsurătorile brute, configurația efectivă și identificatorul RUN_ID.
+Pentru fiecare prag utilizat trebuie păstrate măsurătorile brute, configurația efectivă și identificatorul "RUN_ID".
 
 4. Configurația paralelă HPC
 
 Campania HPC urmărește paralelismul de la 1 până la 664 de nuclee fizice.
 
-Intervalul de evaluare este:
+Intervalul de evaluare: 1–664 nuclee fizice.
 
-1–664 nuclee fizice.
-
-Configurația include valorile întregi ale numărului de nuclee din interval, în măsura în care acestea sunt disponibile și executate în mediul HPC.
+Configurația campaniei include valorile întregi ale numărului de nuclee din interval, în măsura în care acestea sunt disponibile și executate în mediul HPC.
 
 Configurația de referință din repository:
 
@@ -122,7 +120,7 @@ Verdict workflow| PASS
 
 6. Rezultate experimentale — N = 1.000.000
 
-Rezultatele următoare provin din execuția identificată prin RUN_ID "p3-41240843414-1".
+Rezultatele următoare provin din execuția identificată prin "RUN_ID" "p3-41240843414-1".
 
 Indicator| Secvențial| Paralel
 Timp mediu (ms)| 3.035330| 3.792832
@@ -210,27 +208,44 @@ benchmark logs| Jurnalele execuției
 MANIFEST.txt| Inventarul global
 SHA256SUMS.txt| Integritatea fișierelor
 
-Toate rezultatele trebuie asociate RUN_ID-ului corespunzător.
+Toate rezultatele trebuie asociate "RUN_ID"-ului corespunzător.
 
 11. Integrarea în p3_validation
 
 Lanțul obligatoriu de validare:
 
-"benchmark CSV/JSON/MD/TXT"
-→ "p3_validation"
-→ "validation-report.json"
-→ "environment.json"
-→ "hardware inventory"
-→ "MANIFEST.txt"
-→ "SHA256SUMS.txt"
-→ verificarea independentă a pachetului
-→ "P3_ACCEPTED"
+benchmark CSV/JSON/MD/TXT
+          |
+          v
+    p3_validation
+          |
+          v
+ validation-report.json
+          |
+          v
+   environment.json
+          |
+          v
+   hardware inventory
+          |
+          v
+     MANIFEST.txt
+          |
+          v
+    SHA256SUMS.txt
+          |
+          v
+verificarea independentă
+     a pachetului
+          |
+          v
+     P3_ACCEPTED
 
 "MANIFEST.txt" trebuie să inventarieze toate artefactele relevante.
 
 "SHA256SUMS.txt" trebuie să permită verificarea independentă a integrității.
 
-Un rezultat nu este considerat validat dacă nu poate fi asociat unei execuții reale și unui RUN_ID verificabil.
+Un rezultat nu este considerat validat dacă nu poate fi asociat unei execuții reale și unui "RUN_ID" verificabil.
 
 12. Sinteza campaniei HPC și SpMV și verdictul RUN_ID analizat
 
