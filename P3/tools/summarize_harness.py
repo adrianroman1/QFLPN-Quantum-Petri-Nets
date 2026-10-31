@@ -17,6 +17,15 @@ Output (written into the same directory):
 Nothing is invented: a criterion that cannot be evaluated on the machine
 that produced the data (for example speedup with a single core) is reported
 as NOT_EVALUATED, never as PASS.
+
+Fail-closed rules:
+    - no observations, a missing or malformed raw file, non-numeric or
+      non-positive timings, or duplicated observations -> C0 FAIL;
+    - a configuration declared in environment.json (and not skipped with a
+      reason) that has no observations -> C8 FAIL;
+    - without environment.json completeness cannot be proven -> C8
+      NOT_EVALUATED, so the overall verdict can never be PASS;
+    - exit status 2 when the input data are absent or invalid.
 """
 
 from __future__ import annotations
@@ -26,6 +35,7 @@ import csv
 import json
 import math
 import random
+import re
 import statistics
 import sys
 from collections import defaultdict
@@ -38,6 +48,9 @@ BOOTSTRAP_RESAMPLES = 2000
 BOOTSTRAP_SEED = 20261029
 LARGE_N = 1_000_000
 SPEEDUP_N = 10_000_000
+
+RAW_FIELDS = ["run_id", "commit_sha", "fork", "iteration", "workload", "n",
+              "nnz", "strategy", "parallelism", "elapsed_ms"]
 
 SUMMARY_FIELDS = [
     "run_id", "workload", "n", "nnz", "strategy", "parallelism",
@@ -121,20 +134,67 @@ def summarize(run_dir: Path) -> dict[str, Any]:
     skipped = read_csv(run_dir / "harness_skipped.csv")
     preflight = read_csv(run_dir / "harness_preflight.csv")
 
+    env = read_environment(run_dir)
+    problems: list[str] = []
+
+    if not (run_dir / "harness_raw_iterations.csv").is_file():
+        problems.append("harness_raw_iterations.csv is missing")
+    elif raw:
+        missing_cols = [c for c in RAW_FIELDS if c not in raw[0]]
+        if missing_cols:
+            problems.append(f"raw CSV lacks columns {missing_cols}")
+            raw = []
+
     if not raw:
-        raise SystemExit(f"No raw iteration data in {run_dir}")
+        if not problems:
+            problems.append("no raw iteration observations")
+        return {
+            "rows": [],
+            "verdict": evaluate([], forks, stream, skipped, preflight,
+                                problems=problems, env=env, observed=set()),
+            "stream": stream, "skipped": skipped, "preflight": preflight,
+            "forks": forks,
+        }
 
     rng = random.Random(BOOTSTRAP_SEED)
 
     groups: dict[tuple, dict[tuple, float]] = defaultdict(dict)
     meta: dict[tuple, dict[str, Any]] = {}
+    seen: set[tuple] = set()
 
-    for row in raw:
-        key = (row["workload"], int(row["n"]), row["strategy"],
-               int(row["parallelism"]))
-        slot = (int(row["fork"]), int(row["iteration"]))
-        groups[key][slot] = float(row["elapsed_ms"])
-        meta[key] = {"run_id": row["run_id"], "nnz": int(row["nnz"])}
+    for line, row in enumerate(raw, start=2):
+        try:
+            key = (row["workload"], int(row["n"]), row["strategy"],
+                   int(row["parallelism"]))
+            slot = (int(row["fork"]), int(row["iteration"]))
+            elapsed = float(row["elapsed_ms"])
+            nnz = int(row["nnz"])
+        except (TypeError, ValueError):
+            problems.append(f"raw line {line}: non-numeric field")
+            continue
+
+        if not math.isfinite(elapsed) or elapsed <= 0.0:
+            problems.append(f"raw line {line}: invalid elapsed_ms {elapsed}")
+            continue
+
+        identity = key + slot
+        if identity in seen:
+            problems.append(f"raw line {line}: duplicate observation {identity}")
+            continue
+
+        seen.add(identity)
+        groups[key][slot] = elapsed
+        meta[key] = {"run_id": row["run_id"], "nnz": nnz}
+
+    if not groups:
+        problems.append("no valid observation remained after validation")
+        return {
+            "rows": [],
+            "verdict": evaluate([], forks, stream, skipped, preflight,
+                                problems=problems, env=env, observed=set()),
+            "stream": stream, "skipped": skipped, "preflight": preflight,
+            "forks": forks,
+        }
 
     bit_exact: dict[tuple, bool] = defaultdict(lambda: True)
     for row in forks:
@@ -217,7 +277,8 @@ def summarize(run_dir: Path) -> dict[str, Any]:
             "bit_exact": bit_exact[key] if forks else "",
         })
 
-    verdict = evaluate(rows, forks, stream, skipped, preflight)
+    verdict = evaluate(rows, forks, stream, skipped, preflight,
+                       problems=problems, env=env, observed=set(groups))
 
     return {
         "rows": rows,
@@ -229,24 +290,114 @@ def summarize(run_dir: Path) -> dict[str, Any]:
     }
 
 
+def read_environment(run_dir: Path) -> dict[str, Any] | None:
+    path = run_dir / "environment.json"
+    if not path.is_file():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def expected_configurations(
+    env: dict[str, Any], skipped: list[dict[str, str]]
+) -> set[tuple]:
+    """Configurations the run declared and did not skip with a reason."""
+    skipped_n: set[int] = set()
+    skipped_nw: set[tuple[int, str]] = set()
+
+    for row in skipped:
+        item = row.get("item", "")
+        n_match = re.search(r"n=(\d+)", item)
+        w_match = re.search(r"workload=(\w+)", item)
+        if n_match and w_match:
+            skipped_nw.add((int(n_match.group(1)), w_match.group(1)))
+        elif n_match:
+            skipped_n.add(int(n_match.group(1)))
+
+    sizes = [int(t) for t in str(env.get("sizes", "")).split()]
+    workloads = str(env.get("workloads", "")).split()
+    strategies = str(env.get("strategies", "")).upper().split()
+    parallelisms = [int(t) for t in
+                    str(env.get("parallelisms_run", "")).split(",") if t]
+    thresholds = str(env.get("thresholds", "4096")).split() or ["4096"]
+
+    expected: set[tuple] = set()
+    for n in sizes:
+        for w in workloads:
+            if n in skipped_n or (n, w) in skipped_nw:
+                continue
+            for strategy in strategies:
+                if strategy == "SEQ":
+                    expected.add((w, n, "SEQ", 1))
+                elif strategy == "FJ_PLAN":
+                    for p in parallelisms:
+                        for t in thresholds:
+                            expected.add((w, n, f"FJ_PLAN_T{t}", p))
+                else:
+                    for p in parallelisms:
+                        expected.add((w, n, strategy, p))
+    return expected
+
+
 def evaluate(
     rows: list[dict[str, Any]],
     forks: list[dict[str, str]],
     stream: list[dict[str, str]],
     skipped: list[dict[str, str]],
     preflight: list[dict[str, str]],
+    problems: list[str] | None = None,
+    env: dict[str, Any] | None = None,
+    observed: set[tuple] | None = None,
 ) -> dict[str, Any]:
     criteria: list[dict[str, str]] = []
+    problems = problems or []
+    observed = observed if observed is not None else {
+        (r["workload"], r["n"], r["strategy"], r["parallelism"])
+        for r in rows}
 
     def add(cid: str, status: str, detail: str) -> None:
         criteria.append({"id": cid, "status": status, "detail": detail})
 
-    # C1: sample size
+    # C0: input present and valid (fail-closed)
+    if not rows or problems:
+        shown = "; ".join(problems[:5]) if problems else "no observations"
+        more = f" (+{len(problems) - 5} more)" if len(problems) > 5 else ""
+        add("C0_INPUT_DATA_PRESENT_AND_VALID", "FAIL", shown + more)
+    else:
+        add("C0_INPUT_DATA_PRESENT_AND_VALID", "PASS",
+            f"{len(rows)} configuration(s), all observations valid, "
+            "no duplicates")
+
+    # C1: sample size (an empty data set is never a PASS)
     short = [r for r in rows if r["samples"] < MIN_SAMPLES]
-    add("C1_SAMPLES_AT_LEAST_30",
-        "FAIL" if short else "PASS",
-        f"{len(short)} configuration(s) below {MIN_SAMPLES} samples"
-        if short else f"all configurations have >= {MIN_SAMPLES} samples")
+    if not rows:
+        add("C1_SAMPLES_AT_LEAST_30", "FAIL", "no configuration has data")
+    else:
+        add("C1_SAMPLES_AT_LEAST_30",
+            "FAIL" if short else "PASS",
+            f"{len(short)} configuration(s) below {MIN_SAMPLES} samples"
+            if short else f"all configurations have >= {MIN_SAMPLES} samples")
+
+    # C8: every declared configuration is present
+    if env is None:
+        add("C8_DECLARED_CONFIGURATIONS_COMPLETE", "NOT_EVALUATED",
+            "environment.json missing or unreadable: completeness cannot "
+            "be proven")
+    else:
+        expected = expected_configurations(env, skipped)
+        absent = sorted(expected - observed)
+        if not expected:
+            add("C8_DECLARED_CONFIGURATIONS_COMPLETE", "FAIL",
+                "environment.json declares no configuration")
+        elif absent:
+            add("C8_DECLARED_CONFIGURATIONS_COMPLETE", "FAIL",
+                f"{len(absent)} of {len(expected)} declared configuration(s) "
+                f"have no observations, e.g. {absent[:3]}")
+        else:
+            add("C8_DECLARED_CONFIGURATIONS_COMPLETE", "PASS",
+                f"all {len(expected)} declared configuration(s) observed")
 
     # C2: bit-exact reproducibility
     if forks:
@@ -435,13 +586,33 @@ def write_outputs(run_dir: Path, result: dict[str, Any]) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("run_dir", type=Path)
+    parser.add_argument("--strict", action="store_true",
+                        help="exit with status 1 unless the verdict is PASS")
     args = parser.parse_args(argv)
 
     result = summarize(args.run_dir)
-    write_outputs(args.run_dir, result)
-    print(f"overall verdict: {result['verdict']['overall']}")
-    for c in result["verdict"]["criteria"]:
+
+    if result["rows"]:
+        write_outputs(args.run_dir, result)
+    else:
+        (args.run_dir).mkdir(parents=True, exist_ok=True)
+        (args.run_dir / "harness_verdict.json").write_text(
+            json.dumps(result["verdict"], indent=2) + "\n", encoding="utf-8")
+
+    verdict = result["verdict"]
+    print(f"overall verdict: {verdict['overall']}")
+    for c in verdict["criteria"]:
         print(f"  [{c['status']}] {c['id']}: {c['detail']}")
+
+    status = {c["id"]: c["status"] for c in verdict["criteria"]}
+    if status.get("C0_INPUT_DATA_PRESENT_AND_VALID") == "FAIL":
+        print("INPUT_DATA_INVALID: no verdict can be derived from these data",
+              file=sys.stderr)
+        return 2
+
+    if args.strict and verdict["overall"] != "PASS":
+        return 1
+
     return 0
 
 

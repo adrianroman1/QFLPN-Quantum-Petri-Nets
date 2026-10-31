@@ -303,6 +303,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--results-dir", type=Path, default=p3 / "results")
     parser.add_argument("--write-results-md", action="store_true",
                         help="also overwrite P3/results/Results.md")
+    parser.add_argument("--no-latest-copy", action="store_true",
+                        help="do not write P3/results/Results.generated.md "
+                             "(used inside p3_validation so that nothing is "
+                             "created outside the committed run directory)")
     args = parser.parse_args(argv)
 
     summary = read_csv(args.harness / "harness_summary.csv")
@@ -326,11 +330,13 @@ def main(argv: list[str] | None = None) -> int:
     (args.harness / "article_tables.tex").write_text(
         render_article_tex(summary, v2), encoding="utf-8")
 
-    args.results_dir.mkdir(parents=True, exist_ok=True)
-    (args.results_dir / "Results.generated.md").write_text(
-        results_md, encoding="utf-8")
+    if not args.no_latest_copy:
+        args.results_dir.mkdir(parents=True, exist_ok=True)
+        (args.results_dir / "Results.generated.md").write_text(
+            results_md, encoding="utf-8")
 
     if args.write_results_md:
+        args.results_dir.mkdir(parents=True, exist_ok=True)
         (args.results_dir / "Results.md").write_text(
             results_md, encoding="utf-8")
 
