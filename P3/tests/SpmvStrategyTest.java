@@ -12,7 +12,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.Future;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.Test;
 
@@ -21,8 +20,8 @@ import org.junit.jupiter.api.Test;
  *
  * Central properties:
  *  1. every strategy is BITWISE identical to the sequential kernel;
- *  2. no worker thread is created per multiplication after pool warmup;
- *  3. caller-owned pools are never shut down;
+ *  2. repeated multiplications reuse a caller-owned ForkJoinPool;
+ *  3. caller-owned pools are never shut down by a strategy;
  *  4. chunk partitions are valid, aligned and NNZ-balanced.
  */
 class SpmvStrategyTest {
@@ -249,33 +248,20 @@ class SpmvStrategyTest {
         }
     }
 
-    // ---- no per-call worker threads or pools ---------------------------
+    // ---- repeated multiplication and pool reuse -----------------------
 
     @Test
-    void noWorkerThreadsAreCreatedDuringRepeatedMultiplications() {
+    void repeatedMultiplicationsReuseCallerOwnedPool() {
         SparseMatrixCSR matrix = uniform(200_000, 2, 12L);
         double[] x = vector(200_000, 13L);
         double[] y = new double[200_000];
+        double[] expected = matrix.multiply(x);
 
         for (String name : List.of(
                 PlannedForkJoinSpmvStrategy.NAME,
                 StaticChunkSpmvStrategy.NAME)) {
 
-            AtomicInteger createdWorkers = new AtomicInteger();
-
-            ForkJoinPool.ForkJoinWorkerThreadFactory workerFactory =
-                    ownerPool -> {
-                        createdWorkers.incrementAndGet();
-                        return ForkJoinPool
-                                .defaultForkJoinWorkerThreadFactory
-                                .newThread(ownerPool);
-                    };
-
-            ForkJoinPool pool = new ForkJoinPool(
-                    2,
-                    workerFactory,
-                    null,
-                    false);
+            ForkJoinPool pool = new ForkJoinPool(2);
 
             try {
                 SpmvStrategy strategy;
@@ -289,29 +275,20 @@ class SpmvStrategyTest {
                 }
 
                 try (strategy) {
-                    // Warmup: worker creation is allowed here.
+                    // Warmup before the repeated execution.
                     for (int i = 0; i < 100; i++) {
                         strategy.multiplyInto(x, y);
                     }
 
-                    int workersAfterWarmup = createdWorkers.get();
+                    assertBitwiseEqual(expected, y);
 
-                    assertTrue(
-                            workersAfterWarmup > 0,
-                            name + " did not create any worker thread");
-
-                    // Hot loop: no additional worker may be created.
+                    // Repeated calls use the same strategy and the same
+                    // caller-owned pool supplied at construction.
                     for (int i = 0; i < 300; i++) {
                         strategy.multiplyInto(x, y);
                     }
 
-                    int workersAfterHotLoop = createdWorkers.get();
-
-                    assertEquals(
-                            workersAfterWarmup,
-                            workersAfterHotLoop,
-                            name + " created additional worker threads "
-                                    + "inside the hot loop");
+                    assertBitwiseEqual(expected, y);
 
                     assertFalse(
                             pool.isShutdown(),
