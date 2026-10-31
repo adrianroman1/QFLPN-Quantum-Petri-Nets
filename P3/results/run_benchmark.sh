@@ -1,20 +1,22 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# QFLPN P3 — reproducible benchmark execution.
+# QFLPN P3 — reproducible benchmark V2 execution.
 #
-# The current RUN_ID owns all run-specific evidence:
-#   execution-identity.txt
-#   benchmark-report.json
-#   benchmark-report.txt
-#   benchmark-report.md
-#   validation-report.json
-#   SHA256SUMS.txt
+# This script is part of the p3_validation evidence chain.
+# It does not modify P1.
 #
-# A pre-created directory is accepted only when its execution identity
-# matches the current p3_validation execution.
+# Canonical timed dimensions:
+#   QFLPN-1M
+#   QFLPN-10M
+#   QFLPN-70M
+#   QFLPN-100M
 #
-# Existing evidence from another execution is never overwritten.
+# QFLPN-12 is a correctness fixture, not a timed benchmark.
+# QFLPN-30M is not part of the canonical catalog.
+#
+# The Java BenchmarkRunner performs the authoritative heap preflight
+# before allocating the benchmark matrix and vectors.
 
 N="${N:-1000000}"
 WARMUP="${WARMUP:-5}"
@@ -32,83 +34,111 @@ RAW="$P3_DIR/results/raw"
 VALIDATOR="$P3_DIR/results/validate_benchmark.py"
 SUMMARY_GENERATOR="$P3_DIR/results/generate_benchmark_summary.py"
 
+fail() {
+    echo "ERROR: $*" >&2
+    exit 1
+}
+
+require_regular_file() {
+    local path="$1"
+    local description="$2"
+
+    [[ ! -L "$path" ]] ||
+        fail "$description must not be a symlink."
+
+    [[ -f "$path" ]] ||
+        fail "$description is missing or is not a regular file."
+}
+
+require_executable() {
+    local executable="$1"
+
+    command -v "$executable" >/dev/null 2>&1 ||
+        fail "Missing executable: $executable"
+}
+
 for executable in java mvn python3 git sha256sum; do
-    if ! command -v "$executable" >/dev/null 2>&1; then
-        echo "ERROR: Missing executable: $executable" >&2
-        exit 1
-    fi
+    require_executable "$executable"
 done
 
-if [[ ! -f "$VALIDATOR" || -L "$VALIDATOR" ]]; then
-    echo "ERROR: Benchmark validator is missing or is a symlink." >&2
-    exit 1
-fi
+require_regular_file "$VALIDATOR" "Benchmark validator"
+require_regular_file "$SUMMARY_GENERATOR" "Benchmark summary generator"
 
-if [[ ! -f "$SUMMARY_GENERATOR" || -L "$SUMMARY_GENERATOR" ]]; then
-    echo "ERROR: Benchmark summary generator is missing or is a symlink." >&2
-    exit 1
-fi
+# ---------------------------------------------------------------------
+# 1. Validate configuration before Maven tests or benchmark execution.
+# ---------------------------------------------------------------------
 
-if [[ ! "$N" =~ ^[1-9][0-9]*$ \
-   || ! "$WARMUP" =~ ^[0-9]+$ \
-   || ! "$ITERATIONS" =~ ^[1-9][0-9]*$ \
-   || ! "$THRESHOLD" =~ ^[1-9][0-9]*$ \
-   || ! "$PARALLELISM" =~ ^[1-9][0-9]*$ ]]; then
-    echo "ERROR: Invalid benchmark configuration." >&2
-    exit 1
-fi
+[[ "$N" =~ ^[1-9][0-9]*$ ]] ||
+    fail "N must be a positive integer."
+
+[[ "$WARMUP" =~ ^[0-9]+$ ]] ||
+    fail "WARMUP must be a nonnegative integer."
+
+[[ "$ITERATIONS" =~ ^[1-9][0-9]*$ ]] ||
+    fail "ITERATIONS must be a positive integer."
+
+[[ "$THRESHOLD" =~ ^[1-9][0-9]*$ ]] ||
+    fail "THRESHOLD must be a positive integer."
+
+[[ "$PARALLELISM" =~ ^[1-9][0-9]*$ ]] ||
+    fail "PARALLELISM must be a positive integer."
+
+# Fail-closed shell-level guard.
+# BenchmarkScale in Java remains the authoritative catalog.
+case "$N" in
+    1000000|10000000|70000000|100000000)
+        ;;
+    12)
+        fail "N=12 is a correctness fixture, not a timed benchmark."
+        ;;
+    30000000)
+        fail "N=30000000 is unsupported. QFLPN-30M is not in BenchmarkScale."
+        ;;
+    *)
+        fail "Unsupported timed dimension N=$N. Allowed: 1000000, 10000000, 70000000, 100000000."
+        ;;
+esac
 
 if [[ -z "$RUN_ID" ]]; then
     COMMIT_ID="$(git -C "$ROOT_DIR" rev-parse --short HEAD)"
     RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-${COMMIT_ID}-$$"
 fi
 
-if [[ ! "$RUN_ID" =~ ^[A-Za-z0-9._-]+$ ]]; then
-    echo "ERROR: RUN_ID contains unsupported characters." >&2
-    exit 2
-fi
+[[ "$RUN_ID" =~ ^[A-Za-z0-9._-]+$ ]] ||
+    fail "RUN_ID contains unsupported characters."
 
 export RUN_ID
 
-RUN_DIR="$RAW/$RUN_ID"
-IDENTITY_FILE="$RUN_DIR/execution-identity.txt"
+# ---------------------------------------------------------------------
+# 2. Resolve and validate execution provenance.
+# ---------------------------------------------------------------------
 
-# Resolve execution provenance.
 SOURCE_COMMIT="${SOURCE_COMMIT:-${P3_SOURCE_COMMIT:-$(git -C "$ROOT_DIR" rev-parse HEAD)}}"
 WORKFLOW_RUN_ID="${P3_WORKFLOW_RUN_ID:-${GITHUB_RUN_ID:-local}}"
 V3_DIMENSION="${P3_V3_DIMENSION:-4096}"
 
-if [[ ! "$SOURCE_COMMIT" =~ ^[A-Fa-f0-9]{7,64}$ ]]; then
-    echo "ERROR: SOURCE_COMMIT is missing or invalid." >&2
-    exit 1
-fi
+[[ "$SOURCE_COMMIT" =~ ^[A-Fa-f0-9]{7,64}$ ]] ||
+    fail "SOURCE_COMMIT is missing or invalid."
 
-if [[ ! "$WORKFLOW_RUN_ID" =~ ^[A-Za-z0-9._-]+$ ]]; then
-    echo "ERROR: Workflow run ID is invalid." >&2
-    exit 1
-fi
+[[ "$WORKFLOW_RUN_ID" =~ ^[A-Za-z0-9._-]+$ ]] ||
+    fail "Workflow run ID is invalid."
 
-if [[ ! "$V3_DIMENSION" =~ ^[1-9][0-9]*$ ]]; then
-    echo "ERROR: P3_V3_DIMENSION is invalid." >&2
-    exit 1
-fi
+[[ "$V3_DIMENSION" =~ ^[1-9][0-9]*$ ]] ||
+    fail "P3_V3_DIMENSION is invalid."
 
 export SOURCE_COMMIT
 
 mkdir -p "$RAW" "$P3_DIR/benchmarks"
 
-if [[ -L "$RAW" || ! -d "$RAW" ]]; then
-    echo "ERROR: Raw evidence directory must be a real directory." >&2
-    exit 1
-fi
+[[ ! -L "$RAW" && -d "$RAW" ]] ||
+    fail "Raw evidence directory must be a real directory."
 
-if [[ -L "$RUN_DIR" ]]; then
-    echo "ERROR: RUN_ID directory must not be a symlink." >&2
-    exit 1
-fi
+RUN_DIR="$RAW/$RUN_ID"
+IDENTITY_FILE="$RUN_DIR/execution-identity.txt"
 
-# This format must match the identity written by p3_environment
-# in .github/workflows/p3-validation.yml.
+[[ ! -L "$RUN_DIR" ]] ||
+    fail "RUN_ID directory must not be a symlink."
+
 EXPECTED_IDENTITY="$(
     printf '%s\n' \
         "P3_RUN_ID=$RUN_ID" \
@@ -119,40 +149,26 @@ EXPECTED_IDENTITY="$(
 )"
 
 if [[ -e "$RUN_DIR" ]]; then
-    if [[ ! -d "$RUN_DIR" ]]; then
-        echo "ERROR: RUN_ID output path exists and is not a directory." >&2
-        exit 1
-    fi
+    [[ -d "$RUN_DIR" ]] ||
+        fail "RUN_ID output path exists and is not a directory."
 
-    if [[ -L "$IDENTITY_FILE" || ! -f "$IDENTITY_FILE" ]]; then
-        echo "ERROR: Existing RUN_ID directory has no valid execution identity." >&2
-        echo "Refusing to reuse unverified evidence." >&2
-        exit 1
-    fi
+    require_regular_file "$IDENTITY_FILE" \
+        "Existing execution identity"
 
     ACTUAL_IDENTITY="$(cat "$IDENTITY_FILE")"
 
-    if [[ "$ACTUAL_IDENTITY" != "$EXPECTED_IDENTITY" ]]; then
-        echo "ERROR: Existing RUN_ID identity does not match this execution." >&2
-        echo "Refusing to overwrite evidence from another execution." >&2
-        exit 1
-    fi
+    [[ "$ACTUAL_IDENTITY" == "$EXPECTED_IDENTITY" ]] ||
+        fail "Existing RUN_ID identity does not match this execution. Refusing to overwrite evidence."
 
-    echo "PASS: pre-created RUN_ID directory matches p3_validation identity."
+    echo "PASS: existing RUN_ID identity matches this p3_validation execution."
 else
-    # Atomic directory creation prevents two executions from claiming
-    # the same RUN_ID.
-    if ! mkdir "$RUN_DIR"; then
-        echo "ERROR: Could not exclusively create RUN_ID directory." >&2
-        exit 1
-    fi
+    mkdir "$RUN_DIR" ||
+        fail "Could not exclusively create RUN_ID directory."
 
     IDENTITY_TMP="$RUN_DIR/.execution-identity.tmp"
 
-    if [[ -e "$IDENTITY_TMP" || -L "$IDENTITY_TMP" ]]; then
-        echo "ERROR: Temporary identity path already exists." >&2
-        exit 1
-    fi
+    [[ ! -e "$IDENTITY_TMP" && ! -L "$IDENTITY_TMP" ]] ||
+        fail "Temporary identity path already exists."
 
     printf '%s\n' "$EXPECTED_IDENTITY" > "$IDENTITY_TMP"
     mv "$IDENTITY_TMP" "$IDENTITY_FILE"
@@ -160,27 +176,20 @@ else
     echo "PASS: new RUN_ID directory and execution identity created."
 fi
 
-# Recheck identity immediately before running the benchmark.
-if [[ -L "$IDENTITY_FILE" || ! -f "$IDENTITY_FILE" ]]; then
-    echo "ERROR: execution-identity.txt is missing or unsafe." >&2
-    exit 1
-fi
+require_regular_file "$IDENTITY_FILE" "Execution identity"
 
-ACTUAL_IDENTITY="$(cat "$IDENTITY_FILE")"
+[[ "$(cat "$IDENTITY_FILE")" == "$EXPECTED_IDENTITY" ]] ||
+    fail "Execution identity changed during initialization."
 
-if [[ "$ACTUAL_IDENTITY" != "$EXPECTED_IDENTITY" ]]; then
-    echo "ERROR: Execution identity changed during initialization." >&2
-    exit 1
-fi
+# ---------------------------------------------------------------------
+# 3. Validate the existing CSV path.
+# ---------------------------------------------------------------------
 
-if [[ -L "$CSV" ]]; then
-    echo "ERROR: Benchmark CSV must not be a symlink." >&2
-    exit 1
-fi
+[[ ! -L "$CSV" ]] ||
+    fail "Benchmark CSV must not be a symlink."
 
 if [[ -e "$CSV" && ! -f "$CSV" ]]; then
-    echo "ERROR: Benchmark CSV is not a regular file." >&2
-    exit 1
+    fail "Benchmark CSV is not a regular file."
 fi
 
 echo "P3 benchmark configuration"
@@ -193,22 +202,36 @@ echo "ITERATIONS=$ITERATIONS"
 echo "THRESHOLD=$THRESHOLD"
 echo "PARALLELISM=$PARALLELISM"
 
-# Run the complete Maven test suite before measuring performance.
+# ---------------------------------------------------------------------
+# 4. Execute the complete Maven test suite.
+# ---------------------------------------------------------------------
+
 cd "$ROOT_DIR"
+
 mvn -B -f "$P3_DIR/pom.xml" clean test
 
-# Record the CSV row count before this execution.
+# ---------------------------------------------------------------------
+# 5. Record the CSV row count before this benchmark execution.
+# ---------------------------------------------------------------------
+
 before=0
 
 if [[ -f "$CSV" ]]; then
-    before="$(($(wc -l < "$CSV") - 1))"
-    if (( before < 0 )); then
-        echo "ERROR: Benchmark CSV has an invalid line count." >&2
-        exit 1
-    fi
+    line_count="$(wc -l < "$CSV")"
+
+    [[ "$line_count" =~ ^[0-9]+$ ]] ||
+        fail "Unable to determine CSV line count."
+
+    (( line_count >= 1 )) ||
+        fail "Existing benchmark CSV is empty."
+
+    before=$((line_count - 1))
 fi
 
-# Execute Java benchmark with the exact RUN_ID exported above.
+# ---------------------------------------------------------------------
+# 6. Run the Java benchmark with the exact RUN_ID.
+# ---------------------------------------------------------------------
+
 cd "$P3_DIR"
 
 java \
@@ -220,20 +243,22 @@ java \
     "--threshold=$THRESHOLD" \
     "--parallelism=$PARALLELISM"
 
-if [[ ! -f "$CSV" || -L "$CSV" ]]; then
-    echo "ERROR: Benchmark CSV was not produced as a regular file." >&2
-    exit 1
-fi
+require_regular_file "$CSV" "Benchmark CSV"
 
-after="$(($(wc -l < "$CSV") - 1))"
+after_line_count="$(wc -l < "$CSV")"
 
-if [[ "$after" -ne "$((before + 1))" ]]; then
-    echo "ERROR: Expected exactly one new V2 CSV record." >&2
-    echo "Before: $before; after: $after" >&2
-    exit 1
-fi
+[[ "$after_line_count" =~ ^[0-9]+$ ]] ||
+    fail "Unable to determine CSV line count after benchmark."
 
-# Produce validation-report.json for this exact RUN_ID.
+after=$((after_line_count - 1))
+
+[[ "$after" -eq "$((before + 1))" ]] ||
+    fail "Expected exactly one new V2 CSV record. Before=$before; after=$after."
+
+# ---------------------------------------------------------------------
+# 7. Validate the complete CSV against the requested configuration.
+# ---------------------------------------------------------------------
+
 VALIDATION_REPORT="$RUN_DIR/validation-report.json"
 
 python3 "$VALIDATOR" \
@@ -245,12 +270,56 @@ python3 "$VALIDATOR" \
     --parallelism "$PARALLELISM" \
     --report-json "$VALIDATION_REPORT"
 
-if [[ ! -s "$VALIDATION_REPORT" || -L "$VALIDATION_REPORT" ]]; then
-    echo "ERROR: Current-run validation report is missing, empty, or a symlink." >&2
-    exit 1
-fi
+require_regular_file "$VALIDATION_REPORT" "Validation report"
 
-# Generate the Markdown summary from the exact CSV row and JSON report.
+[[ -s "$VALIDATION_REPORT" ]] ||
+    fail "Validation report is empty."
+
+# ---------------------------------------------------------------------
+# 8. Verify the exact current-run record in the validation report.
+# ---------------------------------------------------------------------
+
+python3 - "$VALIDATION_REPORT" "$RUN_ID" "$N" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+report_path = Path(sys.argv[1])
+expected_run_id = sys.argv[2]
+expected_dimension = int(sys.argv[3])
+
+try:
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+    raise SystemExit(f"ERROR: Invalid validation JSON: {exc}")
+
+if report.get("schema") != "qflpn-benchmark-v2":
+    raise SystemExit("ERROR: Unexpected validation schema.")
+
+if report.get("validation") != "PASS":
+    raise SystemExit("ERROR: Validation did not return PASS.")
+
+if report.get("all_records_valid") is not True:
+    raise SystemExit("ERROR: Not all CSV records are valid.")
+
+latest = report.get("latest_record")
+
+if not isinstance(latest, dict):
+    raise SystemExit("ERROR: Missing latest_record object.")
+
+if latest.get("run_id") != expected_run_id:
+    raise SystemExit("ERROR: Latest CSV record belongs to another RUN_ID.")
+
+if latest.get("dimension") != expected_dimension:
+    raise SystemExit("ERROR: Latest CSV record has the wrong dimension.")
+
+print("PASS: validation report identifies the exact current RUN_ID and dimension.")
+PY
+
+# ---------------------------------------------------------------------
+# 9. Generate the Markdown report from the validated CSV evidence.
+# ---------------------------------------------------------------------
+
 python3 "$SUMMARY_GENERATOR" \
     --csv "$CSV" \
     --report "$VALIDATION_REPORT" \
@@ -259,16 +328,21 @@ python3 "$SUMMARY_GENERATOR" \
     --overwrite \
     --strict-output
 
-# Verify that all reports belong to this exact RUN_ID.
-python3 - "$RUN_DIR" "$RUN_ID" <<'PY'
+# ---------------------------------------------------------------------
+# 10. Verify all run-specific reports and execution identity.
+# ---------------------------------------------------------------------
+
+python3 - "$RUN_DIR" "$RUN_ID" "$N" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 run_dir = Path(sys.argv[1])
 expected_run_id = sys.argv[2]
+expected_dimension = int(sys.argv[3])
 
 required = (
+    "execution-identity.txt",
     "benchmark-report.json",
     "benchmark-report.txt",
     "benchmark-report.md",
@@ -282,80 +356,74 @@ for filename in required:
         raise SystemExit(f"ERROR: {filename} must not be a symlink.")
 
     if not path.is_file():
-        raise SystemExit(f"ERROR: Missing run-specific report: {filename}")
+        raise SystemExit(f"ERROR: Missing report: {filename}")
 
     if path.stat().st_size == 0:
-        raise SystemExit(f"ERROR: Empty run-specific report: {filename}")
-
-benchmark_json_path = run_dir / "benchmark-report.json"
-validation_json_path = run_dir / "validation-report.json"
-benchmark_text_path = run_dir / "benchmark-report.txt"
-benchmark_markdown_path = run_dir / "benchmark-report.md"
+        raise SystemExit(f"ERROR: Empty report: {filename}")
 
 try:
     benchmark_json = json.loads(
-        benchmark_json_path.read_text(encoding="utf-8")
+        (run_dir / "benchmark-report.json").read_text(encoding="utf-8")
     )
     validation_json = json.loads(
-        validation_json_path.read_text(encoding="utf-8")
+        (run_dir / "validation-report.json").read_text(encoding="utf-8")
     )
 except (OSError, UnicodeError, json.JSONDecodeError) as exc:
     raise SystemExit(f"ERROR: Invalid run-specific JSON: {exc}")
 
 if benchmark_json.get("run_id") != expected_run_id:
-    raise SystemExit(
-        "ERROR: benchmark-report.json RUN_ID does not match current execution."
-    )
+    raise SystemExit("ERROR: Benchmark JSON RUN_ID mismatch.")
+
+if benchmark_json.get("dimension") != expected_dimension:
+    raise SystemExit("ERROR: Benchmark JSON dimension mismatch.")
 
 if benchmark_json.get("validation") != "PASS":
-    raise SystemExit(
-        "ERROR: benchmark-report.json does not declare VALIDATION=PASS."
-    )
+    raise SystemExit("ERROR: Benchmark JSON does not declare PASS.")
 
 if validation_json.get("validation") != "PASS":
-    raise SystemExit(
-        "ERROR: validation-report.json does not declare VALIDATION=PASS."
-    )
+    raise SystemExit("ERROR: Validation JSON does not declare PASS.")
 
 latest = validation_json.get("latest_record")
 
 if not isinstance(latest, dict):
-    raise SystemExit(
-        "ERROR: validation-report.json has no latest_record object."
-    )
+    raise SystemExit("ERROR: Missing latest_record.")
 
 if latest.get("run_id") != expected_run_id:
-    raise SystemExit(
-        "ERROR: validation-report.json RUN_ID does not match current execution."
-    )
+    raise SystemExit("ERROR: Validation JSON RUN_ID mismatch.")
 
-text_content = benchmark_text_path.read_text(encoding="utf-8")
-markdown_content = benchmark_markdown_path.read_text(encoding="utf-8")
+if latest.get("dimension") != expected_dimension:
+    raise SystemExit("ERROR: Validation JSON dimension mismatch.")
+
+text_content = (
+    run_dir / "benchmark-report.txt"
+).read_text(encoding="utf-8")
+
+markdown_content = (
+    run_dir / "benchmark-report.md"
+).read_text(encoding="utf-8")
 
 if f"RUN_ID={expected_run_id}" not in text_content:
-    raise SystemExit(
-        "ERROR: benchmark-report.txt is not associated with current RUN_ID."
-    )
+    raise SystemExit("ERROR: TXT report RUN_ID mismatch.")
 
 if expected_run_id not in markdown_content:
-    raise SystemExit(
-        "ERROR: benchmark-report.md is not associated with current RUN_ID."
-    )
+    raise SystemExit("ERROR: Markdown report RUN_ID mismatch.")
 
 if "Validation: **PASS**" not in markdown_content:
-    raise SystemExit(
-        "ERROR: benchmark-report.md does not declare successful validation."
-    )
+    raise SystemExit("ERROR: Markdown report does not declare PASS.")
 
-print("PASS: all run-specific reports are associated with RUN_ID.")
+print("PASS: all run-specific reports match RUN_ID and dimension.")
 PY
 
-# Generate run-specific checksums only after all evidence files exist.
+# ---------------------------------------------------------------------
+# 11. Generate and verify run-specific SHA-256 checksums.
+# ---------------------------------------------------------------------
+
 (
     cd "$P3_DIR"
 
     sha256sum \
         "benchmarks/benchmark_results_v2.csv" \
+        "results/raw/$RUN_ID/execution-identity.txt" \
         "results/raw/$RUN_ID/benchmark-report.json" \
         "results/raw/$RUN_ID/benchmark-report.md" \
         "results/raw/$RUN_ID/benchmark-report.txt" \
@@ -363,16 +431,20 @@ PY
         > "results/raw/$RUN_ID/SHA256SUMS.txt"
 )
 
-if [[ ! -s "$RUN_DIR/SHA256SUMS.txt" || -L "$RUN_DIR/SHA256SUMS.txt" ]]; then
-    echo "ERROR: Run-specific SHA256SUMS.txt was not generated correctly." >&2
-    exit 1
-fi
+require_regular_file "$RUN_DIR/SHA256SUMS.txt" \
+    "Run-specific SHA256SUMS.txt"
 
-# Verify run-specific checksums.
+[[ -s "$RUN_DIR/SHA256SUMS.txt" ]] ||
+    fail "Run-specific SHA256SUMS.txt is empty."
+
 (
     cd "$P3_DIR"
     sha256sum --check "results/raw/$RUN_ID/SHA256SUMS.txt"
 )
+
+# ---------------------------------------------------------------------
+# 12. Publish the p3_validation GitHub Actions step summary.
+# ---------------------------------------------------------------------
 
 SUMMARY_TEXT="$(
     cat <<EOF
@@ -380,13 +452,16 @@ SUMMARY_TEXT="$(
 
 - Run ID: \`$RUN_ID\`
 - Validation: **PASS**
-- Dimension: $N
-- Warm-up / iterations: $WARMUP / $ITERATIONS
+- Benchmark dimension: $N
+- Warm-up / measured iterations: $WARMUP / $ITERATIONS
+- Parallelism: $PARALLELISM
+- Threshold: $THRESHOLD
 - CSV: \`P3/benchmarks/benchmark_results_v2.csv\`
-- Run-specific reports: \`P3/results/raw/$RUN_ID/\`
+- Run-specific evidence: \`P3/results/raw/$RUN_ID/\`
 - Execution identity: \`P3/results/raw/$RUN_ID/execution-identity.txt\`
-- Markdown producer: \`P3/results/generate_benchmark_summary.py\`
-- Run-specific checksums: \`P3/results/raw/$RUN_ID/SHA256SUMS.txt\`
+- Validation report: \`P3/results/raw/$RUN_ID/validation-report.json\`
+- Markdown report: \`P3/results/raw/$RUN_ID/benchmark-report.md\`
+- SHA-256: \`P3/results/raw/$RUN_ID/SHA256SUMS.txt\`
 
 EOF
 )"
@@ -396,4 +471,5 @@ if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
 fi
 
 printf '%s\n' "$SUMMARY_TEXT"
+
 echo "P3 benchmark evidence generated successfully: $RUN_ID"
