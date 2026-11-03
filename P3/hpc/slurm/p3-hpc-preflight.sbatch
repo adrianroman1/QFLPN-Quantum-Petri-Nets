@@ -9,36 +9,46 @@
 
 # QFLPN P3 — HPC reference-cluster preflight.
 #
-# Contracte canonice:
-#   Target:    qflpn-p3-hpc-target-v1
-#   Inventory: qflpn-p3-hpc-node-inventory-v1
+# Canonical target:
+#   P3/hpc/config/hpc-target.json
+#   qflpn-p3-hpc-target-v2
 #
-# Colector:
-#   collect_hpc_inventory.py collect
-#   collect_hpc_inventory.py validate TARGET INVENTORY...
+# Node inventory:
+#   qflpn-p3-hpc-node-inventory-v1
 #
-# Acest script:
-#   - verifică alocarea Slurm;
-#   - colectează un inventar independent pe fiecare nod;
-#   - validează inventarele față de hpc-664.json;
-#   - verifică apartenența inventarelor la același job Slurm.
+# Aggregate inventory:
+#   qflpn-p3-hpc-cluster-inventory-v1
 #
-# Nu execută benchmark SpMV.
-# Nu validează scalarea MPI.
-# Nu declară P3_ACCEPTED.
+# This script:
+#   1. validates the canonical target configuration;
+#   2. validates the Slurm allocation;
+#   3. collects one inventory per allocated compute node;
+#   4. checks inventory provenance and Slurm job membership;
+#   5. validates all inventories using collect_hpc_inventory.py;
+#   6. writes an explicit PASS / DEFERRED / FAIL summary.
 #
-# Lansare din rădăcina repository-ului:
+# It does NOT:
+#   - execute SpMV;
+#   - measure performance or DRAM bandwidth;
+#   - demonstrate 664-worker execution;
+#   - demonstrate dimension 10,000,000 execution;
+#   - declare P3_ACCEPTED.
+#
+# The target is a proposed reference configuration, not evidence of
+# an already existing or verified 16-node cluster.
+#
+# Launch from repository root:
 #   sbatch P3/hpc/slurm/p3-hpc-preflight.sbatch
 #
-# Director opțional:
+# Optional output directory:
 #   sbatch --export=ALL,P3_HPC_OUTPUT_DIR=/shared/p3/preflight \
 #     P3/hpc/slurm/p3-hpc-preflight.sbatch
 #
-# Coduri de ieșire:
-#   0 — preflight PASS; acceptarea clusterului rămâne neevaluată;
-#   2 — comandă, fișier sau configurație invalidă;
-#   3 — alocare Slurm sau inventar invalid;
-#   4 — eroare neașteptată de execuție.
+# Exit codes:
+#   0 — preflight completed; result may be PASS or DEFERRED;
+#   2 — invalid command, file, or target configuration;
+#   3 — invalid Slurm allocation or inventory;
+#   4 — unexpected execution error.
 
 set -Eeuo pipefail
 IFS=$'\n\t'
@@ -46,7 +56,7 @@ umask 027
 
 readonly EXPECTED_NODES=16
 readonly EXPECTED_TASKS=664
-readonly TARGET_SCHEMA="qflpn-p3-hpc-target-v1"
+readonly TARGET_SCHEMA="qflpn-p3-hpc-target-v2"
 readonly INVENTORY_SCHEMA="qflpn-p3-hpc-node-inventory-v1"
 
 log() {
@@ -84,36 +94,42 @@ require_file() {
 require_command python3
 require_command srun
 require_command scontrol
+require_command find
+require_command sort
 
 [[ -n "${SLURM_JOB_ID:-}" ]] \
-    || fail "Nu există SLURM_JOB_ID; scriptul trebuie executat prin sbatch." 3
+    || fail "SLURM_JOB_ID absent; scriptul trebuie lansat prin sbatch." 3
 
 [[ -n "${SLURM_JOB_NODELIST:-}" ]] \
-    || fail "SLURM_JOB_NODELIST nu este definit." 3
+    || fail "SLURM_JOB_NODELIST absent." 3
 
 [[ -n "${SLURM_NNODES:-}" ]] \
-    || fail "SLURM_NNODES nu este definit." 3
+    || fail "SLURM_NNODES absent." 3
 
 [[ -n "${SLURM_NTASKS:-}" ]] \
-    || fail "SLURM_NTASKS nu este definit." 3
+    || fail "SLURM_NTASKS absent." 3
 
 readonly REPOSITORY_ROOT="${SLURM_SUBMIT_DIR:-$PWD}"
-readonly CONFIG="${REPOSITORY_ROOT}/P3/hpc/config/hpc-664.json"
+readonly CONFIG="${REPOSITORY_ROOT}/P3/hpc/config/hpc-target.json"
 readonly COLLECTOR="${REPOSITORY_ROOT}/P3/hpc/tools/collect_hpc_inventory.py"
 
 require_file "$CONFIG"
 require_file "$COLLECTOR"
 
 readonly OUTPUT_DIR="${P3_HPC_OUTPUT_DIR:-${REPOSITORY_ROOT}/P3/results/hpc/preflight-${SLURM_JOB_ID}}"
+readonly INVENTORY_DIR="${OUTPUT_DIR}/node-inventories"
 
 mkdir -p "$OUTPUT_DIR"
+mkdir -p "$INVENTORY_DIR"
+
 [[ -d "$OUTPUT_DIR" && -w "$OUTPUT_DIR" ]] \
     || fail "Directorul de rezultate nu permite scrierea: ${OUTPUT_DIR}" 2
 
-readonly INVENTORY_DIR="${OUTPUT_DIR}/node-inventories"
-mkdir -p "$INVENTORY_DIR"
+[[ -d "$INVENTORY_DIR" && -w "$INVENTORY_DIR" ]] \
+    || fail "Directorul inventarelor nu permite scrierea: ${INVENTORY_DIR}" 2
 
 log "Repository: ${REPOSITORY_ROOT}"
+log "Target: ${CONFIG}"
 log "Slurm job: ${SLURM_JOB_ID}"
 log "Node list: ${SLURM_JOB_NODELIST}"
 log "Allocated nodes: ${SLURM_NNODES}"
@@ -121,7 +137,7 @@ log "Allocated tasks: ${SLURM_NTASKS}"
 log "Output: ${OUTPUT_DIR}"
 
 # ---------------------------------------------------------------------------
-# 1. Validarea configurației-țintă canonice.
+# 1. Validarea configurației canonice qflpn-p3-hpc-target-v2.
 # ---------------------------------------------------------------------------
 
 python3 - \
@@ -145,26 +161,35 @@ except Exception as exc:
     raise SystemExit(2)
 
 if not isinstance(target, dict):
-    print("CONFIGURATION_ERROR: rădăcina JSON nu este obiect.", file=sys.stderr)
+    print("CONFIGURATION_ERROR: JSON root must be an object.", file=sys.stderr)
     raise SystemExit(2)
 
 if target.get("schema") != expected_schema:
     print(
-        f"CONFIGURATION_ERROR: schema trebuie să fie {expected_schema}.",
+        f"CONFIGURATION_ERROR: expected schema {expected_schema!r}; "
+        f"received {target.get('schema')!r}.",
         file=sys.stderr,
     )
     raise SystemExit(2)
 
 if target.get("status") != "PROPOSED_REFERENCE_CONFIGURATION_NOT_EVIDENCE":
-    print(
-        "CONFIGURATION_ERROR: statusul configurației-țintă este invalid.",
-        file=sys.stderr,
-    )
+    print("CONFIGURATION_ERROR: invalid target status.", file=sys.stderr)
     raise SystemExit(2)
 
-groups = target.get("node_groups")
+hardware = target.get("hardware_target")
+benchmark = target.get("benchmark")
+
+if not isinstance(hardware, dict):
+    print("CONFIGURATION_ERROR: hardware_target must be an object.", file=sys.stderr)
+    raise SystemExit(2)
+
+if not isinstance(benchmark, dict):
+    print("CONFIGURATION_ERROR: benchmark must be an object.", file=sys.stderr)
+    raise SystemExit(2)
+
+groups = hardware.get("node_groups")
 if not isinstance(groups, list) or not groups:
-    print("CONFIGURATION_ERROR: node_groups absent sau invalid.", file=sys.stderr)
+    print("CONFIGURATION_ERROR: hardware_target.node_groups is invalid.", file=sys.stderr)
     raise SystemExit(2)
 
 try:
@@ -173,28 +198,86 @@ try:
         int(group["nodes"]) * int(group["physical_cores_per_node"])
         for group in groups
     )
-    ram_total = int(target["ram_gib_total"])
-    ram_per_node = int(target["ram_gib_per_node"])
+    configured_nodes = int(hardware["compute_nodes"])
+    configured_cores = int(hardware["physical_cores_total"])
+    ram_total = int(hardware["ram_gib_total"])
+    ram_per_node = int(hardware["ram_gib_per_node"])
 except (KeyError, TypeError, ValueError) as exc:
-    print(f"CONFIGURATION_ERROR: câmp invalid: {exc}", file=sys.stderr)
+    print(f"CONFIGURATION_ERROR: invalid hardware field: {exc}", file=sys.stderr)
     raise SystemExit(2)
 
-if nodes != expected_nodes or target.get("compute_nodes") != expected_nodes:
-    print("CONFIGURATION_ERROR: numărul de noduri nu este 16.", file=sys.stderr)
+if nodes != expected_nodes or configured_nodes != expected_nodes:
+    print("CONFIGURATION_ERROR: compute node count must be 16.", file=sys.stderr)
     raise SystemExit(2)
 
-if cores != expected_cores or target.get("physical_cores_total") != expected_cores:
-    print("CONFIGURATION_ERROR: totalul nucleelor nu este 664.", file=sys.stderr)
+if cores != expected_cores or configured_cores != expected_cores:
+    print("CONFIGURATION_ERROR: physical core total must be 664.", file=sys.stderr)
     raise SystemExit(2)
 
-if ram_per_node <= 0 or ram_total != nodes * ram_per_node:
-    print("CONFIGURATION_ERROR: configurația RAM este inconsistentă.", file=sys.stderr)
+if ram_per_node != 256 or ram_total != 4096:
+    print("CONFIGURATION_ERROR: expected RAM target is 16 x 256 GiB.", file=sys.stderr)
+    raise SystemExit(2)
+
+if ram_total != nodes * ram_per_node:
+    print("CONFIGURATION_ERROR: RAM totals are inconsistent.", file=sys.stderr)
+    raise SystemExit(2)
+
+motherboard = hardware.get("motherboard")
+if not isinstance(motherboard, dict):
+    print("CONFIGURATION_ERROR: motherboard contract is missing.", file=sys.stderr)
+    raise SystemExit(2)
+
+if motherboard.get("collection_required") is not True:
+    print("CONFIGURATION_ERROR: motherboard collection must be required.", file=sys.stderr)
+    raise SystemExit(2)
+
+if motherboard.get("fields") != ["manufacturer", "model", "version"]:
+    print("CONFIGURATION_ERROR: invalid motherboard field contract.", file=sys.stderr)
+    raise SystemExit(2)
+
+if motherboard.get("missing_value") != "UNAVAILABLE":
+    print("CONFIGURATION_ERROR: missing motherboard value must be UNAVAILABLE.", file=sys.stderr)
+    raise SystemExit(2)
+
+if benchmark.get("workload") != "SpMV":
+    print("CONFIGURATION_ERROR: benchmark workload must be SpMV.", file=sys.stderr)
+    raise SystemExit(2)
+
+if benchmark.get("parallelism_target") != 664:
+    print("CONFIGURATION_ERROR: parallelism_target must be 664.", file=sys.stderr)
+    raise SystemExit(2)
+
+if 664 not in benchmark.get("worker_counts", []):
+    print("CONFIGURATION_ERROR: worker_counts must include 664.", file=sys.stderr)
+    raise SystemExit(2)
+
+if benchmark.get("maximum_target_dimension") != 10000000:
+    print("CONFIGURATION_ERROR: maximum_target_dimension must be 10000000.", file=sys.stderr)
+    raise SystemExit(2)
+
+if 10000000 not in benchmark.get("thresholds", []):
+    print("CONFIGURATION_ERROR: thresholds must include 10000000.", file=sys.stderr)
+    raise SystemExit(2)
+
+if benchmark.get("minimum_warmup") != 5:
+    print("CONFIGURATION_ERROR: minimum_warmup must be 5.", file=sys.stderr)
+    raise SystemExit(2)
+
+if benchmark.get("minimum_valid_measurements") != 30:
+    print("CONFIGURATION_ERROR: minimum_valid_measurements must be 30.", file=sys.stderr)
+    raise SystemExit(2)
+
+if benchmark.get("execution_status") != "NOT_EXECUTED":
+    print("CONFIGURATION_ERROR: proposed benchmark must remain NOT_EXECUTED.", file=sys.stderr)
     raise SystemExit(2)
 
 print("CONFIGURATION_STATUS=VALID")
 print(f"TARGET_NODES={nodes}")
 print(f"TARGET_PHYSICAL_CORES={cores}")
 print(f"TARGET_RAM_GIB={ram_total}")
+print("TARGET_PARALLELISM=664")
+print("TARGET_MAXIMUM_DIMENSION=10000000")
+print("BENCHMARK_EXECUTION_STATUS=NOT_EXECUTED")
 PY
 
 # ---------------------------------------------------------------------------
@@ -217,29 +300,43 @@ scontrol show hostnames "$SLURM_JOB_NODELIST" \
     > "${OUTPUT_DIR}/allocated-hosts.txt" \
     || fail "Nu s-a putut obține lista nodurilor alocate." 3
 
-HOST_COUNT="$(
-    python3 - "${OUTPUT_DIR}/allocated-hosts.txt" <<'PY'
+python3 - \
+    "${OUTPUT_DIR}/allocated-hosts.txt" \
+    "$EXPECTED_NODES" <<'PY'
 import sys
 from pathlib import Path
 
+path = Path(sys.argv[1])
+expected = int(sys.argv[2])
+
 hosts = [
     line.strip()
-    for line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines()
+    for line in path.read_text(encoding="utf-8").splitlines()
     if line.strip()
 ]
-print(len(set(hosts)))
-PY
-)"
 
-if [[ "$HOST_COUNT" -ne "$EXPECTED_NODES" ]]; then
-    fail "Slurm a raportat ${HOST_COUNT} noduri unice; sunt necesare ${EXPECTED_NODES}." 3
-fi
+normalized = [host.split(".", 1)[0].lower() for host in hosts]
+
+if len(hosts) != expected:
+    print(
+        f"SLURM_ERROR: expected {expected} host entries; got {len(hosts)}.",
+        file=sys.stderr,
+    )
+    raise SystemExit(3)
+
+if len(set(normalized)) != expected:
+    print("SLURM_ERROR: duplicate allocated hostnames.", file=sys.stderr)
+    raise SystemExit(3)
+
+print(f"SLURM_HOST_COUNT={len(hosts)}")
+print("SLURM_HOST_UNIQUENESS=PASS")
+PY
 
 # ---------------------------------------------------------------------------
-# 3. Colectarea inventarului: un proces pe fiecare nod.
+# 3. Colectarea inventarului: un task pe fiecare nod.
 #
-# Fiecare task scrie într-un fișier distinct. Nu există concurență la
-# scrierea aceluiași fișier JSON.
+# Alocarea rezervă 664 task-uri, dar colectarea inventarului pornește
+# exact 16 task-uri, câte unul pe nod.
 # ---------------------------------------------------------------------------
 
 export P3_HPC_COLLECTOR="$COLLECTOR"
@@ -263,7 +360,7 @@ srun \
         }
 
         [[ -n "${SLURM_JOB_ID:-}" ]] || {
-            echo "SLURM_JOB_ID absent pe nod" >&2
+            echo "SLURM_JOB_ID absent on node" >&2
             exit 3
         }
 
@@ -277,7 +374,7 @@ srun \
     || fail "Colectarea inventarului a eșuat pe cel puțin un nod." 3
 
 # ---------------------------------------------------------------------------
-# 4. Verificarea numărului de inventare, a schemei și a jobului Slurm.
+# 4. Verificarea inventarelor colectate.
 # ---------------------------------------------------------------------------
 
 python3 - \
@@ -291,20 +388,21 @@ from pathlib import Path
 
 directory = Path(sys.argv[1])
 expected_schema = sys.argv[2]
-expected_nodes = int(sys.argv[3])
+expected_count = int(sys.argv[3])
 expected_job_id = str(sys.argv[4])
 
 files = sorted(directory.glob("node-*.json"))
 
-if len(files) != expected_nodes:
+if len(files) != expected_count:
     print(
-        f"INVENTORY_ERROR: {len(files)} inventare; "
-        f"necesare {expected_nodes}.",
+        f"INVENTORY_ERROR: expected {expected_count} inventories; "
+        f"found {len(files)}.",
         file=sys.stderr,
     )
     raise SystemExit(3)
 
 hostnames = []
+process_ids = []
 
 for path in files:
     try:
@@ -313,37 +411,50 @@ for path in files:
         print(f"INVENTORY_ERROR: {path.name}: {exc}", file=sys.stderr)
         raise SystemExit(3)
 
+    if not isinstance(item, dict):
+        print(f"INVENTORY_ERROR: {path.name} root is not an object.", file=sys.stderr)
+        raise SystemExit(3)
+
     if item.get("schema") != expected_schema:
-        print(
-            f"INVENTORY_ERROR: schemă invalidă în {path.name}.",
-            file=sys.stderr,
-        )
+        print(f"INVENTORY_ERROR: invalid schema in {path.name}.", file=sys.stderr)
         raise SystemExit(3)
 
     hostname = item.get("hostname")
     if not isinstance(hostname, str) or not hostname.strip():
-        print(f"INVENTORY_ERROR: hostname absent în {path.name}.", file=sys.stderr)
+        print(f"INVENTORY_ERROR: missing hostname in {path.name}.", file=sys.stderr)
         raise SystemExit(3)
 
-    hostnames.append(hostname)
+    hostnames.append(hostname.strip().split(".", 1)[0].lower())
 
     slurm = item.get("slurm")
     if not isinstance(slurm, dict):
-        print(f"INVENTORY_ERROR: câmpul slurm absent în {path.name}.", file=sys.stderr)
+        print(f"INVENTORY_ERROR: missing slurm object in {path.name}.", file=sys.stderr)
         raise SystemExit(3)
 
     observed_job_id = slurm.get("SLURM_JOB_ID")
     if str(observed_job_id) != expected_job_id:
         print(
-            f"INVENTORY_ERROR: {path.name} aparține jobului "
-            f"{observed_job_id!r}, nu {expected_job_id!r}.",
+            f"INVENTORY_ERROR: {path.name} belongs to job "
+            f"{observed_job_id!r}, expected {expected_job_id!r}.",
             file=sys.stderr,
         )
         raise SystemExit(3)
 
-if len(set(hostnames)) != expected_nodes:
+    try:
+        process_id = int(slurm["SLURM_PROCID"])
+    except (KeyError, TypeError, ValueError):
+        print(f"INVENTORY_ERROR: invalid SLURM_PROCID in {path.name}.", file=sys.stderr)
+        raise SystemExit(3)
+
+    process_ids.append(process_id)
+
+if len(set(hostnames)) != expected_count:
+    print("INVENTORY_ERROR: duplicate inventory hostnames.", file=sys.stderr)
+    raise SystemExit(3)
+
+if sorted(process_ids) != list(range(expected_count)):
     print(
-        "INVENTORY_ERROR: hostname-urile inventarelor nu sunt distincte.",
+        "INVENTORY_ERROR: SLURM_PROCID values must cover 0..15 exactly.",
         file=sys.stderr,
     )
     raise SystemExit(3)
@@ -352,13 +463,17 @@ print("INVENTORY_SCHEMA_STATUS=VALID")
 print(f"INVENTORY_COUNT={len(files)}")
 print(f"DISTINCT_HOST_COUNT={len(set(hostnames))}")
 print("SLURM_JOB_ID_CONSISTENCY=PASS")
+print("SLURM_PROCID_COVERAGE=PASS")
 PY
 
 # ---------------------------------------------------------------------------
-# 5. Validarea targetului cu validatorul canonic al colectorului.
+# 5. Validarea targetului și a inventarelor prin API-ul CLI canonic.
 #
-# Rezultatul JSON este păstrat chiar și în cazul unui verdict DEFERRED/FAIL.
-# Codul de ieșire al colectorului este tratat explicit.
+# Collector contract:
+#   collect_hpc_inventory.py validate TARGET.json NODE.json [...]
+#
+# Rezultatul poate fi PASS, DEFERRED sau FAIL.
+# DEFERRED nu este transformat în PASS.
 # ---------------------------------------------------------------------------
 
 mapfile -t INVENTORY_FILES < <(
@@ -366,10 +481,10 @@ mapfile -t INVENTORY_FILES < <(
 )
 
 if [[ "${#INVENTORY_FILES[@]}" -ne "$EXPECTED_NODES" ]]; then
-    fail "Numărul inventarelor după colectare nu este ${EXPECTED_NODES}." 3
+    fail "Numărul inventarelor nu este ${EXPECTED_NODES}." 3
 fi
 
-log "Validare inventare față de configurația-țintă..."
+log "Validare inventare față de hpc-target.json..."
 
 set +e
 python3 "$COLLECTOR" validate "$CONFIG" "${INVENTORY_FILES[@]}" \
@@ -380,17 +495,29 @@ set -e
 
 if [[ ! -s "${OUTPUT_DIR}/HPC_TARGET_VALIDATION.json" ]]; then
     cat "${OUTPUT_DIR}/HPC_TARGET_VALIDATION.stderr" >&2 || true
-    fail "Validatorul inventarului nu a produs un rezultat JSON." 3
+    fail "Validatorul nu a produs un raport JSON." 3
 fi
 
 if [[ "$VALIDATION_EXIT" -ne 0 ]]; then
-    cat "${OUTPUT_DIR}/HPC_TARGET_VALIDATION.json"
+    cat "${OUTPUT_DIR}/HPC_TARGET_VALIDATION.json" >&2
     cat "${OUTPUT_DIR}/HPC_TARGET_VALIDATION.stderr" >&2 || true
-    fail "Validarea targetului HPC nu a returnat PASS (exit=${VALIDATION_EXIT})." 3
+    fail "Validatorul colectorului a eșuat cu exit=${VALIDATION_EXIT}." 3
 fi
 
 # ---------------------------------------------------------------------------
-# 6. Rezumat explicit. PASS aici înseamnă numai preflight hardware.
+# 6. Rezumatul final.
+#
+# PASS:
+#   toate verificările hardware și de inventar au trecut.
+#
+# DEFERRED:
+#   nu există FAIL, dar una sau mai multe verificări nu pot fi confirmate
+#   (de exemplu, identificarea plăcii de bază este UNAVAILABLE).
+#
+# FAIL:
+#   o verificare obligatorie a eșuat.
+#
+# Niciun rezultat nu reprezintă dovadă de performanță SpMV.
 # ---------------------------------------------------------------------------
 
 python3 - \
@@ -413,32 +540,50 @@ expected_cores = int(sys.argv[5])
 try:
     validation = json.loads(validation_path.read_text(encoding="utf-8"))
 except Exception as exc:
-    print(f"SUMMARY_ERROR: rezultat de validare invalid: {exc}", file=sys.stderr)
+    print(f"SUMMARY_ERROR: invalid validation JSON: {exc}", file=sys.stderr)
     raise SystemExit(3)
 
-if not isinstance(validation, dict) or validation.get("overall") != "PASS":
+if not isinstance(validation, dict):
+    print("SUMMARY_ERROR: validation result must be an object.", file=sys.stderr)
+    raise SystemExit(3)
+
+overall = validation.get("overall")
+
+if overall not in {"PASS", "DEFERRED", "FAIL"}:
     print(
-        "SUMMARY_ERROR: validatorul targetului nu a returnat overall=PASS.",
+        f"SUMMARY_ERROR: unsupported overall status {overall!r}.",
         file=sys.stderr,
     )
     raise SystemExit(3)
 
+if overall == "FAIL":
+    print("SUMMARY_STATUS=FAIL")
+    raise SystemExit(3)
+
 summary = {
-    "schema": "qflpn-p3-hpc-preflight-summary-v1",
-    "status": "PREFLIGHT_PASSED",
+    "schema": "qflpn-p3-hpc-preflight-summary-v2",
+    "status": (
+        "PREFLIGHT_PASSED"
+        if overall == "PASS"
+        else "PREFLIGHT_DEFERRED"
+    ),
+    "validation_status": overall,
     "slurm_job_id": job_id,
-    "target_validation": validation,
     "expected_nodes": expected_nodes,
-    "expected_physical_cores": expected_cores,
+    "expected_allocation_tasks": expected_cores,
+    "target_validation": validation,
     "cluster_acceptance": "NOT_EVALUATED",
     "p3_verdict": "NOT_EVALUATED",
+    "benchmark_execution_status": "NOT_EXECUTED",
     "limitations": [
-        "Preflight-ul verifică inventarele hardware și targetul declarat.",
+        "Preflight-ul verifică inventarele hardware și configurația-țintă.",
         "Preflight-ul nu execută benchmarkul SpMV.",
         "Preflight-ul nu măsoară bandwidth DRAM.",
         "Preflight-ul nu demonstrează scalarea MPI.",
+        "Preflight-ul nu demonstrează execuția cu 664 workeri.",
+        "Preflight-ul nu demonstrează execuția la dimensiunea 10000000.",
         "Preflight-ul nu declară P3_ACCEPTED.",
-        "Dovezile benchmarkului HPC trebuie integrate și verificate prin p3_validation.",
+        "Dovezile benchmarkului trebuie validate separat prin p3_validation.",
     ],
     "validated_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
 }
@@ -450,17 +595,19 @@ temporary.write_text(
 )
 temporary.replace(summary_path)
 
-print("PREFLIGHT_STATUS=PREFLIGHT_PASSED")
+print(f"SUMMARY_STATUS={overall}")
+print(f"PREFLIGHT_STATUS={summary['status']}")
 print(f"EXPECTED_NODES={expected_nodes}")
 print(f"EXPECTED_PHYSICAL_CORES={expected_cores}")
 print("CLUSTER_ACCEPTANCE=NOT_EVALUATED")
 print("P3_VERDICT=NOT_EVALUATED")
+print("BENCHMARK_EXECUTION_STATUS=NOT_EXECUTED")
 print(f"SUMMARY_FILE={summary_path}")
 PY
 
-log "Preflight HPC trecut."
+log "Preflight finalizat: ${OUTPUT_DIR}/PREFLIGHT_SUMMARY.json"
 log "Acceptarea clusterului rămâne NOT_EVALUATED."
-log "P3_ACCEPTED nu poate fi declarat de acest script."
+log "P3_ACCEPTED nu este declarat."
 log "Validarea finală a dovezilor P3 rămâne în p3_validation."
 
 exit 0
