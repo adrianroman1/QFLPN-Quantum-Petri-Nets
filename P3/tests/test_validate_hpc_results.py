@@ -19,6 +19,26 @@ ROOT = Path(__file__).resolve().parents[2]
 TOOL = ROOT / "P3" / "hpc" / "tools" / "validate_hpc_results.py"
 CONFIG = ROOT / "P3" / "hpc" / "config" / "hpc-target.json"
 
+EXPECTED_THRESHOLDS = [
+    256,
+    512,
+    1024,
+    2048,
+    4096,
+    8192,
+    16384,
+    32768,
+    65536,
+    131072,
+    262144,
+    524288,
+    1048576,
+    2097152,
+    4194304,
+    8388608,
+    10000000,
+]
+
 SPEC = importlib.util.spec_from_file_location(
     "qflpn_validate_hpc_results",
     TOOL,
@@ -144,6 +164,14 @@ def test_repository_target_declares_motherboard_collection_contract() -> None:
     assert board["missing_value"] == "UNAVAILABLE"
 
 
+def test_repository_target_declares_exact_17_spmv_thresholds() -> None:
+    benchmark = load_target()["benchmark"]
+
+    assert benchmark["thresholds"] == EXPECTED_THRESHOLDS
+    assert len(benchmark["thresholds"]) == 17
+    assert benchmark["maximum_target_dimension"] == 10_000_000
+
+
 def test_repository_target_declares_spmv_664_and_10m_proposal() -> None:
     benchmark = load_target()["benchmark"]
 
@@ -151,7 +179,6 @@ def test_repository_target_declares_spmv_664_and_10m_proposal() -> None:
     assert benchmark["parallelism_target"] == 664
     assert 664 in benchmark["worker_counts"]
     assert benchmark["maximum_target_dimension"] == 10_000_000
-    assert 10_000_000 in benchmark["thresholds"]
     assert benchmark["minimum_warmup"] == 5
     assert benchmark["minimum_valid_measurements"] == 30
     assert benchmark["execution_status"] == "NOT_EXECUTED"
@@ -228,6 +255,37 @@ def test_configuration_validation_rejects_missing_664_worker_target() -> None:
 def test_configuration_validation_rejects_missing_10m_threshold() -> None:
     target = load_target()
     target["benchmark"]["thresholds"].remove(10_000_000)
+
+    checks, _ = MODULE.validate_configuration(target)
+    by_id = checks_by_id(checks)
+
+    assert by_id["SPMV_BENCHMARK_PROPOSAL"]["status"] == "FAIL"
+
+
+def test_configuration_validation_rejects_missing_intermediate_threshold() -> None:
+    target = load_target()
+    target["benchmark"]["thresholds"].remove(4096)
+
+    checks, _ = MODULE.validate_configuration(target)
+    by_id = checks_by_id(checks)
+
+    assert by_id["SPMV_BENCHMARK_PROPOSAL"]["status"] == "FAIL"
+
+
+def test_configuration_validation_rejects_unapproved_extra_threshold() -> None:
+    target = load_target()
+    target["benchmark"]["thresholds"].append(16_777_216)
+    target["benchmark"]["thresholds"].sort()
+
+    checks, _ = MODULE.validate_configuration(target)
+    by_id = checks_by_id(checks)
+
+    assert by_id["SPMV_BENCHMARK_PROPOSAL"]["status"] == "FAIL"
+
+
+def test_configuration_validation_rejects_reordered_thresholds() -> None:
+    target = load_target()
+    target["benchmark"]["thresholds"].reverse()
 
     checks, _ = MODULE.validate_configuration(target)
     by_id = checks_by_id(checks)
