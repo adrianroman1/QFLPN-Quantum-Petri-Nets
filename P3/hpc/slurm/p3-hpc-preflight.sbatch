@@ -562,10 +562,26 @@ if exit_class == "PASS":
         raise SystemExit(3)
 
 elif exit_class == "DEFERRED_OR_FAIL":
-    if exit_code != 1 or overall not in {"DEFERRED", "FAIL"}:
+    if exit_code != 1:
         print(
-            "VALIDATION_CONTRACT_ERROR: exit code 1 requires "
-            "overall DEFERRED or FAIL.",
+            "VALIDATION_CONTRACT_ERROR: DEFERRED or FAIL requires exit code 1.",
+            file=sys.stderr,
+        )
+        raise SystemExit(3)
+
+    if overall == "DEFERRED":
+        # DEFERRED este un rezultat valid al preflight-ului.
+        # Nu este PASS, dar nici eroare de execuție.
+        pass
+
+    elif overall == "FAIL":
+        # FAIL este un verdict valid al validatorului, dar va bloca
+        # preflight-ul în etapa de sumarizare de mai jos.
+        pass
+
+    else:
+        print(
+            f"VALIDATION_CONTRACT_ERROR: unsupported status for exit code 1: {overall!r}.",
             file=sys.stderr,
         )
         raise SystemExit(3)
