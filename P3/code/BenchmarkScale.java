@@ -4,15 +4,18 @@ package hpc.csr;
  * Canonical benchmark scales for the QFLPN CSR/SpMV implementation.
  *
  * Timed benchmark scales:
- *   1M, 10M, 70M and 100M.
+ *   1M, 10M, 70M, 100M and 300M.
  *
  * QFLPN_12 is retained as a correctness and compatibility fixture.
  *
  * The enum values are the authoritative scale catalog. Do not add
- * dimensions in validators, scripts or workflow configuration.
+ * dimensions independently in validators, scripts or workflow configuration.
  *
  * Resource estimates are conservative models, not measured memory
  * consumption and not evidence that a workload was executed.
+ *
+ * Large scales must pass runtime heap and Java-array-index preflight
+ * before any benchmark matrix or vector allocation.
  */
 public enum BenchmarkScale {
 
@@ -39,6 +42,11 @@ public enum BenchmarkScale {
     QFLPN_100M(
             "QFLPN-100M",
             100_000_000,
+            ScaleRole.TIMED_BENCHMARK),
+
+    QFLPN_300M(
+            "QFLPN-300M",
+            300_000_000,
             ScaleRole.TIMED_BENCHMARK);
 
     public enum ScaleRole {
