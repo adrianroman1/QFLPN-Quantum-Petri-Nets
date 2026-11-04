@@ -19,29 +19,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
-PREFLIGHT = (
-    ROOT
-    / "P3"
-    / "hpc"
-    / "slurm"
-    / "p3-hpc-preflight.sbatch"
-)
-
-TARGET = (
-    ROOT
-    / "P3"
-    / "hpc"
-    / "config"
-    / "hpc-target.json"
-)
-
-COLLECTOR = (
-    ROOT
-    / "P3"
-    / "hpc"
-    / "tools"
-    / "collect_hpc_inventory.py"
-)
+PREFLIGHT = ROOT / "P3" / "hpc" / "slurm" / "p3-hpc-preflight.sbatch"
+TARGET = ROOT / "P3" / "hpc" / "config" / "hpc-target.json"
+COLLECTOR = ROOT / "P3" / "hpc" / "tools" / "collect_hpc_inventory.py"
 
 
 class HpcPreflightContractTests(unittest.TestCase):
@@ -51,7 +31,9 @@ class HpcPreflightContractTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         for path in (PREFLIGHT, TARGET, COLLECTOR):
             if not path.is_file():
-                raise FileNotFoundError(f"Required project file is missing: {path}")
+                raise FileNotFoundError(
+                    f"Required project file is missing: {path}"
+                )
 
         cls.script = PREFLIGHT.read_text(encoding="utf-8")
         cls.target = json.loads(TARGET.read_text(encoding="utf-8"))
@@ -62,10 +44,7 @@ class HpcPreflightContractTests(unittest.TestCase):
         self.assertIn("set -Eeuo pipefail", self.script)
 
     def test_script_uses_canonical_target_path(self) -> None:
-        self.assertIn(
-            'P3/hpc/config/hpc-target.json',
-            self.script,
-        )
+        self.assertIn("P3/hpc/config/hpc-target.json", self.script)
         self.assertIn(
             'readonly CONFIG="${REPOSITORY_ROOT}/P3/hpc/config/hpc-target.json"',
             self.script,
@@ -95,9 +74,7 @@ class HpcPreflightContractTests(unittest.TestCase):
         )
 
     def test_hardware_fields_are_read_from_nested_hardware_target(self) -> None:
-        hardware = self.target.get("hardware_target")
-        self.assertIsInstance(hardware, dict)
-
+        self.assertIsInstance(self.target.get("hardware_target"), dict)
         self.assertIn('hardware = target.get("hardware_target")', self.script)
         self.assertIn('hardware.get("node_groups")', self.script)
         self.assertIn('hardware["compute_nodes"]', self.script)
@@ -119,7 +96,6 @@ class HpcPreflightContractTests(unittest.TestCase):
         self.assertEqual(cores, 664)
         self.assertEqual(hardware["compute_nodes"], 16)
         self.assertEqual(hardware["physical_cores_total"], 664)
-
         self.assertIn("EXPECTED_NODES=16", self.script)
         self.assertIn("EXPECTED_TASKS=664", self.script)
 
@@ -132,7 +108,6 @@ class HpcPreflightContractTests(unittest.TestCase):
             hardware["compute_nodes"] * hardware["ram_gib_per_node"],
             hardware["ram_gib_total"],
         )
-
         self.assertIn("ram_per_node != 256 or ram_total != 4096", self.script)
 
     def test_motherboard_contract_is_checked(self) -> None:
@@ -157,7 +132,10 @@ class HpcPreflightContractTests(unittest.TestCase):
         self.assertIn(664, benchmark["worker_counts"])
 
         self.assertIn('benchmark.get("workload") != "SpMV"', self.script)
-        self.assertIn('benchmark.get("parallelism_target") != 664', self.script)
+        self.assertIn(
+            'benchmark.get("parallelism_target") != 664',
+            self.script,
+        )
         self.assertIn("664 not in benchmark.get", self.script)
 
     def test_spmv_proposal_preserves_10_million_dimension(self) -> None:
@@ -168,7 +146,6 @@ class HpcPreflightContractTests(unittest.TestCase):
             10_000_000,
         )
         self.assertIn(10_000_000, benchmark["thresholds"])
-
         self.assertIn(
             'benchmark.get("maximum_target_dimension") != 10000000',
             self.script,
@@ -180,7 +157,6 @@ class HpcPreflightContractTests(unittest.TestCase):
 
         self.assertEqual(benchmark["minimum_warmup"], 5)
         self.assertEqual(benchmark["minimum_valid_measurements"], 30)
-
         self.assertIn('benchmark.get("minimum_warmup") != 5', self.script)
         self.assertIn(
             'benchmark.get("minimum_valid_measurements") != 30',
@@ -196,13 +172,19 @@ class HpcPreflightContractTests(unittest.TestCase):
             'benchmark.get("execution_status") != "NOT_EXECUTED"',
             self.script,
         )
-        self.assertIn('"benchmark_execution_status": "NOT_EXECUTED"', self.script)
+        self.assertIn(
+            '"benchmark_execution_status": "NOT_EXECUTED"',
+            self.script,
+        )
 
     def test_script_checks_slurm_allocation_size(self) -> None:
         self.assertIn('"${SLURM_NNODES}"', self.script)
         self.assertIn('"${SLURM_NTASKS}"', self.script)
         self.assertIn('scontrol show job "$SLURM_JOB_ID"', self.script)
-        self.assertIn('scontrol show hostnames "$SLURM_JOB_NODELIST"', self.script)
+        self.assertIn(
+            'scontrol show hostnames "$SLURM_JOB_NODELIST"',
+            self.script,
+        )
 
     def test_inventory_collection_uses_one_task_per_node(self) -> None:
         self.assertRegex(
@@ -224,11 +206,7 @@ class HpcPreflightContractTests(unittest.TestCase):
             'python3 "$COLLECTOR" validate "$CONFIG" "${INVENTORY_FILES[@]}"',
             self.script,
         )
-
-        self.assertIn(
-            'subparsers.add_parser("collect"',
-            self.collector,
-        )
+        self.assertIn('subparsers.add_parser("collect"', self.collector)
         self.assertIn(
             'subparsers.add_parser(\n        "validate"',
             self.collector,
@@ -255,7 +233,10 @@ class HpcPreflightContractTests(unittest.TestCase):
         self.assertIn("duplicate inventory hostnames", self.script.lower())
 
     def test_collector_deferred_status_is_not_misreported_as_pass(self) -> None:
-        self.assertIn('overall not in {"PASS", "DEFERRED", "FAIL"}', self.script)
+        self.assertIn(
+            'overall not in {"PASS", "DEFERRED", "FAIL"}',
+            self.script,
+        )
         self.assertIn('if overall == "FAIL":', self.script)
         self.assertIn('"PREFLIGHT_DEFERRED"', self.script)
         self.assertIn('"validation_status": overall', self.script)
@@ -274,7 +255,15 @@ class HpcPreflightContractTests(unittest.TestCase):
             self.script,
         )
         self.assertIn(
-            'if exit_code != 1 or overall not in {"DEFERRED", "FAIL"}:',
+            'if exit_code != 1:',
+            self.script,
+        )
+        self.assertIn(
+            'if overall == "DEFERRED":',
+            self.script,
+        )
+        self.assertIn(
+            'elif overall == "FAIL":',
             self.script,
         )
         self.assertIn(
@@ -282,19 +271,13 @@ class HpcPreflightContractTests(unittest.TestCase):
             self.script,
         )
 
-    def test_deferred_collector_exit_code_is_not_treated_as_execution_failure(self) -> None:
+    def test_deferred_collector_exit_code_is_not_execution_failure(self) -> None:
         self.assertIn(
             '1)\n        EXPECTED_VALIDATION_EXIT_CLASS="DEFERRED_OR_FAIL"',
             self.script,
         )
-        self.assertIn(
-            'overall == "DEFERRED"',
-            self.script,
-        )
-        self.assertIn(
-            '"PREFLIGHT_DEFERRED"',
-            self.script,
-        )
+        self.assertIn('overall == "DEFERRED"', self.script)
+        self.assertIn('"PREFLIGHT_DEFERRED"', self.script)
 
     def test_unexpected_collector_exit_codes_are_rejected(self) -> None:
         self.assertIn(
@@ -307,19 +290,26 @@ class HpcPreflightContractTests(unittest.TestCase):
         )
 
     def test_fail_verdict_still_fails_preflight(self) -> None:
-        self.assertIn(
-            'if overall == "FAIL":',
-            self.script,
-        )
-        self.assertIn(
-            'raise SystemExit(3)',
-            self.script,
-        )
+        self.assertIn('if overall == "FAIL":', self.script)
+        self.assertIn("raise SystemExit(3)", self.script)
 
     def test_summary_distinguishes_preflight_from_cluster_acceptance(self) -> None:
-        self.assertIn('"cluster_acceptance": "NOT_EVALUATED"', self.script)
-        self.assertIn('"p3_verdict": "NOT_EVALUATED"', self.script)
+        self.assertIn(
+            '"cluster_acceptance": "NOT_EVALUATED"',
+            self.script,
+        )
+        self.assertIn(
+            '"p3_verdict": "NOT_EVALUATED"',
+            self.script,
+        )
         self.assertIn('"P3_ACCEPTED"', self.script)
+
+        # The marker is explanatory only; this script must never issue it
+        # as an acceptance verdict.
+        self.assertIn(
+            "'P3_ACCEPTED' is not declared by the preflight",
+            self.script,
+        )
 
     def test_script_does_not_claim_to_execute_spmv(self) -> None:
         self.assertIn("does NOT:", self.script)
