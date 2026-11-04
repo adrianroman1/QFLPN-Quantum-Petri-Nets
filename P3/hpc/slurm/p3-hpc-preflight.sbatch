@@ -470,10 +470,12 @@ PY
 # 5. Validarea targetului și a inventarelor prin API-ul CLI canonic.
 #
 # Collector contract:
-#   collect_hpc_inventory.py validate TARGET.json NODE.json [...]
+#   PASS     -> exit 0
+#   DEFERRED -> exit 1
+#   FAIL     -> exit 1
 #
-# Rezultatul poate fi PASS, DEFERRED sau FAIL.
-# DEFERRED nu este transformat în PASS.
+# DEFERRED este un rezultat valid al validării, nu o eroare de execuție.
+# Nu este transformat în PASS.
 # ---------------------------------------------------------------------------
 
 mapfile -t INVENTORY_FILES < <(
@@ -498,11 +500,87 @@ if [[ ! -s "${OUTPUT_DIR}/HPC_TARGET_VALIDATION.json" ]]; then
     fail "Validatorul nu a produs un raport JSON." 3
 fi
 
-if [[ "$VALIDATION_EXIT" -ne 0 ]]; then
-    cat "${OUTPUT_DIR}/HPC_TARGET_VALIDATION.json" >&2
-    cat "${OUTPUT_DIR}/HPC_TARGET_VALIDATION.stderr" >&2 || true
-    fail "Validatorul colectorului a eșuat cu exit=${VALIDATION_EXIT}." 3
-fi
+# Verificăm atât codul de ieșire, cât și verdictul JSON.
+# Codul 0 este permis exclusiv pentru PASS.
+# Codul 1 este permis exclusiv pentru DEFERRED sau FAIL.
+# Orice alt cod sau combinație este o eroare de validare.
+
+case "$VALIDATION_EXIT" in
+    0)
+        EXPECTED_VALIDATION_EXIT_CLASS="PASS"
+        ;;
+    1)
+        EXPECTED_VALIDATION_EXIT_CLASS="DEFERRED_OR_FAIL"
+        ;;
+    *)
+        cat "${OUTPUT_DIR}/HPC_TARGET_VALIDATION.json" >&2
+        cat "${OUTPUT_DIR}/HPC_TARGET_VALIDATION.stderr" >&2 || true
+        fail "Validatorul colectorului a returnat un cod neașteptat: ${VALIDATION_EXIT}." 3
+        ;;
+esac
+
+python3 - \
+    "${OUTPUT_DIR}/HPC_TARGET_VALIDATION.json" \
+    "$VALIDATION_EXIT" \
+    "$EXPECTED_VALIDATION_EXIT_CLASS" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+report_path = Path(sys.argv[1])
+exit_code = int(sys.argv[2])
+exit_class = sys.argv[3]
+
+try:
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+except Exception as exc:
+    print(f"VALIDATION_CONTRACT_ERROR: invalid JSON: {exc}", file=sys.stderr)
+    raise SystemExit(3)
+
+if not isinstance(report, dict):
+    print(
+        "VALIDATION_CONTRACT_ERROR: validation report must be a JSON object.",
+        file=sys.stderr,
+    )
+    raise SystemExit(3)
+
+overall = report.get("overall")
+
+if overall not in {"PASS", "DEFERRED", "FAIL"}:
+    print(
+        f"VALIDATION_CONTRACT_ERROR: unsupported overall status {overall!r}.",
+        file=sys.stderr,
+    )
+    raise SystemExit(3)
+
+if exit_class == "PASS":
+    if exit_code != 0 or overall != "PASS":
+        print(
+            "VALIDATION_CONTRACT_ERROR: exit code 0 requires overall PASS.",
+            file=sys.stderr,
+        )
+        raise SystemExit(3)
+
+elif exit_class == "DEFERRED_OR_FAIL":
+    if exit_code != 1 or overall not in {"DEFERRED", "FAIL"}:
+        print(
+            "VALIDATION_CONTRACT_ERROR: exit code 1 requires "
+            "overall DEFERRED or FAIL.",
+            file=sys.stderr,
+        )
+        raise SystemExit(3)
+
+else:
+    print(
+        f"VALIDATION_CONTRACT_ERROR: unknown exit class {exit_class!r}.",
+        file=sys.stderr,
+    )
+    raise SystemExit(3)
+
+print(f"COLLECTOR_EXIT_CODE={exit_code}")
+print(f"COLLECTOR_OVERALL_STATUS={overall}")
+print("COLLECTOR_EXIT_STATUS_CONSISTENCY=PASS")
+PY
 
 # ---------------------------------------------------------------------------
 # 6. Rezumatul final.
