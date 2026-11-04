@@ -284,19 +284,19 @@ PY
 # 2. Verificarea alocării Slurm.
 # ---------------------------------------------------------------------------
 
-if [[ "$SLURM_NNODES" -ne "$EXPECTED_NODES" ]]; then
+if [[ "${SLURM_NNODES}" -ne "${EXPECTED_NODES}" ]]; then
     fail "Alocarea are ${SLURM_NNODES} noduri; sunt necesare ${EXPECTED_NODES}." 3
 fi
 
-if [[ "$SLURM_NTASKS" -ne "$EXPECTED_TASKS" ]]; then
+if [[ "${SLURM_NTASKS}" -ne "${EXPECTED_TASKS}" ]]; then
     fail "Alocarea are ${SLURM_NTASKS} task-uri; sunt necesare ${EXPECTED_TASKS}." 3
 fi
 
-scontrol show job "$SLURM_JOB_ID" \
+scontrol show job "${SLURM_JOB_ID}" \
     > "${OUTPUT_DIR}/slurm-job-${SLURM_JOB_ID}.txt" \
     || fail "Nu s-a putut salva descrierea jobului Slurm." 3
 
-scontrol show hostnames "$SLURM_JOB_NODELIST" \
+scontrol show hostnames "${SLURM_JOB_NODELIST}" \
     > "${OUTPUT_DIR}/allocated-hosts.txt" \
     || fail "Nu s-a putut obține lista nodurilor alocate." 3
 
