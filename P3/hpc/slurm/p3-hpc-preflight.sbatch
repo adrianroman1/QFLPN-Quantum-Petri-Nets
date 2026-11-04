@@ -32,7 +32,7 @@
 #   - measure performance or DRAM bandwidth;
 #   - demonstrate 664-worker execution;
 #   - demonstrate dimension 10,000,000 execution;
-#   - declare P3_ACCEPTED.
+#   - emit "P3_ACCEPTED" as a preflight verdict.
 #
 # The target is a proposed reference configuration, not evidence of
 # an already existing or verified 16-node cluster.
@@ -676,7 +676,7 @@ summary = {
         "Preflight-ul nu demonstrează scalarea MPI.",
         "Preflight-ul nu demonstrează execuția cu 664 workeri.",
         "Preflight-ul nu demonstrează execuția la dimensiunea 10000000.",
-        "Preflight-ul nu declară P3_ACCEPTED.",
+        "'P3_ACCEPTED' is not declared by the preflight",
         "Dovezile benchmarkului trebuie validate separat prin p3_validation.",
     ],
     "validated_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
