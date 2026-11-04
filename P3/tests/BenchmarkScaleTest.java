@@ -62,6 +62,15 @@ class BenchmarkScaleTest {
                 200_000_000L);
     }
 
+    @Test
+    void shouldDefineQflpn300MAsTimedBenchmarkSubjectToPreflight() {
+        assertTimedScale(
+                BenchmarkScale.QFLPN_300M,
+                "QFLPN-300M",
+                300_000_000,
+                600_000_000L);
+    }
+
     private static void assertTimedScale(
             BenchmarkScale scale,
             String benchmarkId,
@@ -82,16 +91,17 @@ class BenchmarkScaleTest {
     }
 
     @Test
-    void shouldExposeExactlyTheExistingCanonicalScales() {
+    void shouldExposeExactlyTheCanonicalScales() {
         BenchmarkScale[] scales = BenchmarkScale.values();
 
-        assertEquals(5, scales.length);
+        assertEquals(6, scales.length);
 
         assertEquals(BenchmarkScale.QFLPN_12, scales[0]);
         assertEquals(BenchmarkScale.QFLPN_1M, scales[1]);
         assertEquals(BenchmarkScale.QFLPN_10M, scales[2]);
         assertEquals(BenchmarkScale.QFLPN_70M, scales[3]);
         assertEquals(BenchmarkScale.QFLPN_100M, scales[4]);
+        assertEquals(BenchmarkScale.QFLPN_300M, scales[5]);
     }
 
     @Test
@@ -126,6 +136,10 @@ class BenchmarkScaleTest {
         assertEquals(
                 BenchmarkScale.QFLPN_100M,
                 BenchmarkScale.fromBenchmarkId("QFLPN-100M"));
+
+        assertEquals(
+                BenchmarkScale.QFLPN_300M,
+                BenchmarkScale.fromBenchmarkId("qflpn-300m"));
     }
 
     @Test
@@ -149,6 +163,10 @@ class BenchmarkScaleTest {
         assertEquals(
                 BenchmarkScale.QFLPN_100M,
                 BenchmarkScale.fromBenchmarkId(" QFLPN-100M "));
+
+        assertEquals(
+                BenchmarkScale.QFLPN_300M,
+                BenchmarkScale.fromBenchmarkId(" QFLPN-300M "));
     }
 
     @Test
@@ -199,6 +217,10 @@ class BenchmarkScaleTest {
         assertEquals(
                 BenchmarkScale.QFLPN_100M,
                 BenchmarkScale.fromDimension(100_000_000));
+
+        assertEquals(
+                BenchmarkScale.QFLPN_300M,
+                BenchmarkScale.fromDimension(300_000_000));
     }
 
     @Test
@@ -241,6 +263,10 @@ class BenchmarkScaleTest {
         assertEquals(
                 BenchmarkScale.QFLPN_100M,
                 BenchmarkScale.fromTimedDimension(100_000_000));
+
+        assertEquals(
+                BenchmarkScale.QFLPN_300M,
+                BenchmarkScale.fromTimedDimension(300_000_000));
     }
 
     @Test
@@ -259,6 +285,7 @@ class BenchmarkScaleTest {
         assertEquals(20_000_000L, BenchmarkScale.QFLPN_10M.nonZeroCount());
         assertEquals(140_000_000L, BenchmarkScale.QFLPN_70M.nonZeroCount());
         assertEquals(200_000_000L, BenchmarkScale.QFLPN_100M.nonZeroCount());
+        assertEquals(600_000_000L, BenchmarkScale.QFLPN_300M.nonZeroCount());
     }
 
     @Test
@@ -297,6 +324,13 @@ class BenchmarkScaleTest {
     }
 
     @Test
+    void shouldCalculateCsrArrayPayloadForThreeHundredMillionRows() {
+        assertEquals(
+                8_400_000_004L,
+                BenchmarkScale.QFLPN_300M.estimatedCsrArrayBytes());
+    }
+
+    @Test
     void shouldCalculateFourBenchmarkVectors() {
         assertEquals(
                 32L * 1_000_000L,
@@ -305,6 +339,10 @@ class BenchmarkScaleTest {
         assertEquals(
                 32L * 100_000_000L,
                 BenchmarkScale.QFLPN_100M.estimatedVectorBytes());
+
+        assertEquals(
+                9_600_000_000L,
+                BenchmarkScale.QFLPN_300M.estimatedVectorBytes());
     }
 
     @Test
@@ -322,6 +360,14 @@ class BenchmarkScaleTest {
     }
 
     @Test
+    void shouldCalculateThreeHundredMillionPeakArrayPayload() {
+        assertEquals(
+                26_400_000_016L,
+                BenchmarkScale.QFLPN_300M
+                        .estimatedPeakArrayPayloadBytes());
+    }
+
+    @Test
     void shouldAddSafetyMarginAndFixedReserveToHeapRequirement() {
         BenchmarkScale scale = BenchmarkScale.QFLPN_1M;
 
@@ -333,6 +379,13 @@ class BenchmarkScaleTest {
 
         assertEquals(expected, scale.requiredHeapBytes());
         assertTrue(scale.requiredHeapBytes() > payload);
+    }
+
+    @Test
+    void shouldCalculateThreeHundredMillionHeapRequirement() {
+        assertEquals(
+                33_067_108_884L,
+                BenchmarkScale.QFLPN_300M.requiredHeapBytes());
     }
 
     @Test
@@ -412,6 +465,44 @@ class BenchmarkScaleTest {
     }
 
     @Test
+    void shouldRejectThreeHundredMillionWhenHeapIsInsufficient() {
+        BenchmarkScale scale = BenchmarkScale.QFLPN_300M;
+
+        long simulatedMaxHeap = 32L * 1024L * 1024L * 1024L;
+        long simulatedUsedHeap = 128L * 1024L * 1024L;
+
+        assertFalse(
+                scale.hasSufficientHeap(
+                        simulatedMaxHeap,
+                        simulatedUsedHeap));
+
+        IllegalStateException exception = assertThrows(
+                IllegalStateException.class,
+                () -> scale.requirePreflight(
+                        simulatedMaxHeap,
+                        simulatedUsedHeap));
+
+        assertTrue(
+                exception.getMessage().contains(
+                        "MEMORY_PREFLIGHT_FAILED"));
+    }
+
+    @Test
+    void shouldPassThreeHundredMillionPreflightAtRequiredCapacity() {
+        BenchmarkScale scale = BenchmarkScale.QFLPN_300M;
+
+        long required = scale.requiredHeapBytes();
+        long simulatedMaxHeap = required + 128L * 1024L * 1024L;
+
+        assertTrue(
+                scale.hasSufficientHeap(
+                        simulatedMaxHeap,
+                        0L));
+
+        scale.requirePreflight(simulatedMaxHeap, 0L);
+    }
+
+    @Test
     void shouldKeepAllScaleEstimatesPositiveAndMonotonic() {
         BenchmarkScale previous = null;
 
@@ -460,6 +551,21 @@ class BenchmarkScaleTest {
          * This value is a theoretical payload estimate for CSR arrays.
          * It is not measured heap use, peak resident memory, or proof
          * that a 100M workload can execute on a particular runner.
+         */
+        assertTrue(payload > 0L);
+    }
+
+    @Test
+    void shouldDistinguishThreeHundredMillionEstimateFromMeasuredMemory() {
+        long payload =
+                BenchmarkScale.QFLPN_300M.estimatedCsrArrayBytes();
+
+        assertEquals(8_400_000_004L, payload);
+
+        /*
+         * This value is a theoretical payload estimate for CSR arrays.
+         * It is not measured heap use, peak resident memory, or proof
+         * that a 300M workload can execute on a particular machine.
          */
         assertTrue(payload > 0L);
     }
