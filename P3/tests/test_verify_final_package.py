@@ -9,7 +9,8 @@ P3/tools/verify_final_package.py:
 - integrity-generation and final-verification stages are not required
   as entries in ci-outcomes.json;
 - RUN_ID, source_commit and workflow_run_id are bound explicitly;
-- evidence consistency uses qflpn-p3-evidence-consistency-v2;
+- evidence consistency uses qflqn-p3-evidence-consistency-v2;
+- the canonical benchmark report must be present, nonempty and checksummed;
 - global MANIFEST.txt and SHA256SUMS.txt are independently verified.
 """
 
@@ -60,7 +61,7 @@ WRONG_SOURCE_COMMIT = "b" * 40
 WORKFLOW_RUN_ID = "12345"
 
 CI_SCHEMA = "qflpn-p3-ci-outcomes-v1"
-EVIDENCE_SCHEMA = "qflpn-p3-evidence-consistency-v2"
+EVIDENCE_SCHEMA = "qflqn-p3-evidence-consistency-v2"
 
 EXPECTED = {
     "dimension": 1_000_000,
@@ -69,6 +70,12 @@ EXPECTED = {
     "threshold": 4096,
     "parallelism": 2,
 }
+
+CANONICAL_REPORT = MODULE.CANONICAL_BENCHMARK_REPORT
+CANONICAL_REPORT_CONTENT = (
+    "# P3 canonical benchmark report\n\n"
+    "Test fixture only; not production benchmark evidence.\n"
+)
 
 EVIDENCE_ITEMS = (
     "environment",
@@ -137,7 +144,10 @@ def make_required_files(root: Path) -> None:
         path = root / relative
 
         if not path.exists():
-            write_text(path, "test fixture\n")
+            if relative == CANONICAL_REPORT:
+                write_text(path, CANONICAL_REPORT_CONTENT)
+            else:
+                write_text(path, "test fixture\n")
 
 
 # ---------------------------------------------------------------------------
@@ -427,6 +437,207 @@ def make_global_integrity(root: Path) -> None:
         checksums_path,
         checksum_content,
     )
+
+
+# ---------------------------------------------------------------------------
+# Canonical report integrity fixtures
+# ---------------------------------------------------------------------------
+
+def canonical_report_path(root: Path) -> Path:
+    return root / CANONICAL_REPORT
+
+
+def refresh_global_integrity(root: Path) -> None:
+    """Rebuild the test fixture's MANIFEST and SHA256SUMS after a mutation."""
+    make_global_integrity(root)
+
+
+def test_canonical_report_is_required_package_file() -> None:
+    assert CANONICAL_REPORT in MODULE.REQUIRED_PACKAGE_FILES
+
+
+def test_canonical_report_verifier_accepts_matching_manifest_and_digest(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repo"
+
+    write_text(
+        canonical_report_path(root),
+        CANONICAL_REPORT_CONTENT,
+    )
+    make_global_integrity(root)
+
+    result = MODULE.verify_canonical_benchmark_report(root)
+
+    assert result["path"] == CANONICAL_REPORT
+    assert result["bytes"] > 0
+    assert result["sha256"] == sha256_file(
+        canonical_report_path(root)
+    )
+    assert result["manifest_verified"] is True
+    assert result["checksum_verified"] is True
+
+
+def test_canonical_report_verifier_rejects_missing_report(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repo"
+
+    write_text(root / "P3" / "other.txt", "other\n")
+    make_global_integrity(root)
+
+    with pytest.raises(
+        MODULE.VerificationError,
+        match="Canonical benchmark report",
+    ):
+        MODULE.verify_canonical_benchmark_report(root)
+
+
+def test_canonical_report_verifier_rejects_empty_report(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repo"
+
+    write_text(canonical_report_path(root), "")
+    make_global_integrity(root)
+
+    with pytest.raises(
+        MODULE.VerificationError,
+        match="empty",
+    ):
+        MODULE.verify_canonical_benchmark_report(root)
+
+
+def test_canonical_report_verifier_rejects_symlink_report(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repo"
+    report = canonical_report_path(root)
+    report.parent.mkdir(parents=True, exist_ok=True)
+
+    external = tmp_path / "external-report.md"
+    write_text(external, CANONICAL_REPORT_CONTENT)
+    report.symlink_to(external)
+
+    with pytest.raises(
+        MODULE.VerificationError,
+        match="symlink",
+    ):
+        MODULE.verify_canonical_benchmark_report(root)
+
+
+def test_canonical_report_verifier_rejects_missing_manifest_entry(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repo"
+
+    write_text(
+        canonical_report_path(root),
+        CANONICAL_REPORT_CONTENT,
+    )
+    write_text(root / "P3" / "other.txt", "other\n")
+    make_global_integrity(root)
+
+    manifest_path = root / "P3" / "MANIFEST.txt"
+    entries = manifest_path.read_text(encoding="utf-8").splitlines()
+    entries.remove(CANONICAL_REPORT)
+    write_text(
+        manifest_path,
+        "".join(f"{entry}\n" for entry in entries),
+    )
+
+    with pytest.raises(
+        MODULE.VerificationError,
+        match="MANIFEST",
+    ):
+        MODULE.verify_canonical_benchmark_report(root)
+
+
+def test_canonical_report_verifier_rejects_missing_checksum_entry(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repo"
+
+    write_text(
+        canonical_report_path(root),
+        CANONICAL_REPORT_CONTENT,
+    )
+    make_global_integrity(root)
+
+    checksum_path = root / "P3" / "SHA256SUMS.txt"
+    lines = checksum_path.read_text(encoding="ascii").splitlines()
+    lines = [
+        line
+        for line in lines
+        if not line.endswith(f"  {CANONICAL_REPORT}")
+    ]
+    write_text(
+        checksum_path,
+        "".join(f"{line}\n" for line in lines),
+    )
+
+    with pytest.raises(
+        MODULE.VerificationError,
+        match="SHA256SUMS",
+    ):
+        MODULE.verify_canonical_benchmark_report(root)
+
+
+def test_canonical_report_verifier_rejects_wrong_declared_digest(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repo"
+
+    write_text(
+        canonical_report_path(root),
+        CANONICAL_REPORT_CONTENT,
+    )
+    make_global_integrity(root)
+
+    checksum_path = root / "P3" / "SHA256SUMS.txt"
+    lines = checksum_path.read_text(encoding="ascii").splitlines()
+
+    replacement = "0" * 64
+    lines = [
+        f"{replacement}  {CANONICAL_REPORT}"
+        if line.endswith(f"  {CANONICAL_REPORT}")
+        else line
+        for line in lines
+    ]
+
+    write_text(
+        checksum_path,
+        "".join(f"{line}\n" for line in lines),
+    )
+
+    with pytest.raises(
+        MODULE.VerificationError,
+        match="SHA-256 mismatch",
+    ):
+        MODULE.verify_canonical_benchmark_report(root)
+
+
+def test_canonical_report_verifier_rejects_report_tampering(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repo"
+
+    write_text(
+        canonical_report_path(root),
+        CANONICAL_REPORT_CONTENT,
+    )
+    make_global_integrity(root)
+
+    write_text(
+        canonical_report_path(root),
+        CANONICAL_REPORT_CONTENT + "\nTAMPERED\n",
+    )
+
+    with pytest.raises(
+        MODULE.VerificationError,
+        match="SHA-256 mismatch",
+    ):
+        MODULE.verify_canonical_benchmark_report(root)
 
 
 # ---------------------------------------------------------------------------
@@ -954,6 +1165,12 @@ def test_valid_package_orchestration_is_accepted(
     assert result["source_commit"] == SOURCE_COMMIT
     assert result["workflow_run_id"] == WORKFLOW_RUN_ID
 
+    canonical = result["canonical_benchmark_report"]
+    assert canonical["path"] == CANONICAL_REPORT
+    assert canonical["bytes"] > 0
+    assert canonical["manifest_verified"] is True
+    assert canonical["checksum_verified"] is True
+
     assert (
         result["benchmark_v2"]["schema"]
         == "qflpn-benchmark-v2"
@@ -1018,6 +1235,142 @@ def test_package_rejects_missing_required_file(
     with pytest.raises(
         MODULE.VerificationError,
         match="Required P3 package files",
+    ):
+        call_package(root, outcomes_path)
+
+
+def test_package_rejects_missing_canonical_report(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, outcomes_path = make_package(tmp_path)
+
+    install_benchmark_stubs(monkeypatch)
+
+    canonical_report_path(root).unlink()
+
+    with pytest.raises(
+        MODULE.VerificationError,
+        match="Required P3 package files",
+    ):
+        call_package(root, outcomes_path)
+
+
+def test_package_rejects_empty_canonical_report(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, outcomes_path = make_package(tmp_path)
+
+    install_benchmark_stubs(monkeypatch)
+
+    write_text(canonical_report_path(root), "")
+
+    with pytest.raises(
+        MODULE.VerificationError,
+        match="empty",
+    ):
+        call_package(root, outcomes_path)
+
+
+def test_package_rejects_canonical_report_missing_from_manifest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, outcomes_path = make_package(tmp_path)
+
+    install_benchmark_stubs(monkeypatch)
+
+    manifest_path = root / "P3" / "MANIFEST.txt"
+    entries = manifest_path.read_text(encoding="utf-8").splitlines()
+    entries.remove(CANONICAL_REPORT)
+
+    write_text(
+        manifest_path,
+        "".join(f"{entry}\n" for entry in entries),
+    )
+
+    with pytest.raises(
+        MODULE.VerificationError,
+        match="MANIFEST",
+    ):
+        call_package(root, outcomes_path)
+
+
+def test_package_rejects_canonical_report_missing_from_checksums(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, outcomes_path = make_package(tmp_path)
+
+    install_benchmark_stubs(monkeypatch)
+
+    checksum_path = root / "P3" / "SHA256SUMS.txt"
+    lines = checksum_path.read_text(encoding="ascii").splitlines()
+    lines = [
+        line
+        for line in lines
+        if not line.endswith(f"  {CANONICAL_REPORT}")
+    ]
+
+    write_text(
+        checksum_path,
+        "".join(f"{line}\n" for line in lines),
+    )
+
+    with pytest.raises(
+        MODULE.VerificationError,
+        match="SHA256SUMS",
+    ):
+        call_package(root, outcomes_path)
+
+
+def test_package_rejects_canonical_report_digest_mismatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, outcomes_path = make_package(tmp_path)
+
+    install_benchmark_stubs(monkeypatch)
+
+    checksum_path = root / "P3" / "SHA256SUMS.txt"
+    lines = checksum_path.read_text(encoding="ascii").splitlines()
+
+    lines = [
+        f"{'0' * 64}  {CANONICAL_REPORT}"
+        if line.endswith(f"  {CANONICAL_REPORT}")
+        else line
+        for line in lines
+    ]
+
+    write_text(
+        checksum_path,
+        "".join(f"{line}\n" for line in lines),
+    )
+
+    with pytest.raises(
+        MODULE.VerificationError,
+        match="SHA-256 mismatch",
+    ):
+        call_package(root, outcomes_path)
+
+
+def test_package_rejects_canonical_report_tampered_after_checksums(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, outcomes_path = make_package(tmp_path)
+
+    install_benchmark_stubs(monkeypatch)
+
+    write_text(
+        canonical_report_path(root),
+        CANONICAL_REPORT_CONTENT + "\nTAMPERED\n",
+    )
+
+    with pytest.raises(
+        MODULE.VerificationError,
+        match="SHA-256 mismatch",
     ):
         call_package(root, outcomes_path)
 
