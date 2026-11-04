@@ -311,6 +311,15 @@ class HpcPreflightContractTests(unittest.TestCase):
             self.script,
         )
 
+        self.assertNotIn(
+            '"p3_verdict": "P3_ACCEPTED"',
+            self.script,
+        )
+        self.assertNotIn(
+            '"cluster_acceptance": "P3_ACCEPTED"',
+            self.script,
+        )
+
     def test_script_does_not_claim_to_execute_spmv(self) -> None:
         self.assertIn("does NOT:", self.script)
         self.assertIn("execute SpMV", self.script)
