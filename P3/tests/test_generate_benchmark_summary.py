@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -764,3 +765,231 @@ def test_summary_output_is_run_specific(
     assert RUN_ID in content
     assert "QFLPN-1M" in content
     assert "Validation: **PASS**" in content
+
+
+# ---------------------------------------------------------------------------
+# Canonical report protection
+# ---------------------------------------------------------------------------
+
+def make_canonical_report(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[Path, bytes]:
+    """Create an isolated canonical report for output-protection tests."""
+
+    canonical = (
+        tmp_path
+        / "repository"
+        / "P3"
+        / "results"
+        / "raw"
+        / "benchmark-report.md"
+    )
+
+    canonical.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    original = (
+        "# QFLPN P3 canonical benchmark report\n"
+        "\n"
+        "Immutable test fixture.\n"
+    ).encode("utf-8")
+
+    canonical.write_bytes(original)
+
+    monkeypatch.setattr(
+        generator,
+        "CANONICAL_REPORT_PATH",
+        canonical,
+    )
+
+    return canonical, original
+
+
+def assert_canonical_unchanged(
+    canonical: Path,
+    original: bytes,
+) -> None:
+    assert canonical.read_bytes() == original
+
+
+def test_output_rejects_canonical_report_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    canonical, original = make_canonical_report(
+        tmp_path,
+        monkeypatch,
+    )
+
+    with pytest.raises(
+        generator.SummaryError,
+        match="canonical benchmark report",
+    ):
+        generator.write_output(
+            canonical,
+            "MUST NOT REPLACE CANONICAL REPORT\n",
+            overwrite=True,
+        )
+
+    assert_canonical_unchanged(canonical, original)
+
+
+def test_output_rejects_absolute_canonical_report_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    canonical, original = make_canonical_report(
+        tmp_path,
+        monkeypatch,
+    )
+
+    absolute_path = canonical.resolve()
+
+    with pytest.raises(
+        generator.SummaryError,
+        match="canonical benchmark report",
+    ):
+        generator.write_output(
+            absolute_path,
+            "MUST NOT REPLACE CANONICAL REPORT\n",
+            overwrite=True,
+        )
+
+    assert_canonical_unchanged(canonical, original)
+
+
+def test_output_rejects_relative_canonical_report_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    canonical, original = make_canonical_report(
+        tmp_path,
+        monkeypatch,
+    )
+
+    relative_path = Path(
+        os.path.relpath(
+            canonical,
+            Path.cwd(),
+        )
+    )
+
+    with pytest.raises(
+        generator.SummaryError,
+        match="canonical benchmark report",
+    ):
+        generator.write_output(
+            relative_path,
+            "MUST NOT REPLACE CANONICAL REPORT\n",
+            overwrite=True,
+        )
+
+    assert_canonical_unchanged(canonical, original)
+
+
+def test_output_rejects_symlinked_parent_alias(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    canonical, original = make_canonical_report(
+        tmp_path,
+        monkeypatch,
+    )
+
+    alias_parent = tmp_path / "canonical-alias"
+    alias_parent.symlink_to(
+        canonical.parent,
+        target_is_directory=True,
+    )
+
+    alias_path = alias_parent / canonical.name
+
+    with pytest.raises(
+        generator.SummaryError,
+        match="canonical benchmark report",
+    ):
+        generator.write_output(
+            alias_path,
+            "MUST NOT REPLACE CANONICAL REPORT\n",
+            overwrite=True,
+        )
+
+    assert_canonical_unchanged(canonical, original)
+
+
+def test_output_rejects_hard_link_to_canonical_report(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    canonical, original = make_canonical_report(
+        tmp_path,
+        monkeypatch,
+    )
+
+    hard_link = tmp_path / "canonical-hard-link"
+
+    try:
+        os.link(canonical, hard_link)
+    except (OSError, NotImplementedError):
+        pytest.skip("hard links are not supported in this environment")
+
+    with pytest.raises(
+        generator.SummaryError,
+        match="hard link",
+    ):
+        generator.write_output(
+            hard_link,
+            "MUST NOT APPEND TO CANONICAL REPORT\n",
+            overwrite=False,
+        )
+
+    assert_canonical_unchanged(canonical, original)
+
+
+def test_output_allows_run_specific_report_next_to_canonical(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    canonical, original = make_canonical_report(
+        tmp_path,
+        monkeypatch,
+    )
+
+    run_id = "p3-test-run-001"
+    run_directory = canonical.parent / run_id
+    output_path = run_directory / "benchmark-report.md"
+
+    generator.write_output(
+        output_path,
+        f"# Run-specific report\n\nRUN_ID: {run_id}\n",
+        overwrite=True,
+    )
+
+    assert output_path.is_file()
+    assert run_id in output_path.read_text(encoding="utf-8")
+    assert_canonical_unchanged(canonical, original)
+
+
+def test_output_rejects_canonical_report_even_in_append_mode(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    canonical, original = make_canonical_report(
+        tmp_path,
+        monkeypatch,
+    )
+
+    with pytest.raises(
+        generator.SummaryError,
+        match="canonical benchmark report",
+    ):
+        generator.write_output(
+            canonical,
+            "\nAPPENDED CONTENT MUST NOT APPEAR\n",
+            overwrite=False,
+        )
+
+    assert_canonical_unchanged(canonical, original)
