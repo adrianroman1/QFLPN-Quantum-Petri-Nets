@@ -5,6 +5,10 @@ The generator supports:
 1. A run-specific report, written atomically with --overwrite --strict-output.
 2. A GitHub Actions step summary, appended to GITHUB_STEP_SUMMARY.
 
+The canonical repository report
+P3/results/raw/benchmark-report.md is immutable from this generator.
+It is an evidence input/reference, never a generator output target.
+
 Only canonical timed benchmark dimensions are accepted:
 1,000,000; 10,000,000; 70,000,000; 100,000,000.
 
@@ -23,6 +27,16 @@ import sys
 import tempfile
 from pathlib import Path
 from typing import Any
+
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+CANONICAL_REPORT_PATH = (
+    REPOSITORY_ROOT
+    / "P3"
+    / "results"
+    / "raw"
+    / "benchmark-report.md"
+)
 
 
 CANONICAL_BENCHMARKS = {
@@ -96,6 +110,53 @@ REPORT_NUMERIC_FIELDS = (
 
 class SummaryError(ValueError):
     """Raised when benchmark evidence cannot be safely summarized."""
+
+
+def canonical_report_path() -> Path:
+    """Return the canonical report path resolved against the repository."""
+
+    return CANONICAL_REPORT_PATH.resolve(strict=False)
+
+
+def reject_canonical_report_output(output_path: Path) -> None:
+    """Prevent every supported path alias from targeting the canonical report.
+
+    The check covers:
+    - the canonical relative path;
+    - an absolute path to the canonical report;
+    - paths passing through symlinked parent directories;
+    - an existing hard link to the canonical report.
+
+    This guard runs before creating parent directories or opening output files.
+    """
+
+    canonical = canonical_report_path()
+    candidate = output_path.resolve(strict=False)
+
+    if candidate == canonical:
+        raise SummaryError(
+            "refusing to write the canonical benchmark report: "
+            f"{canonical}. This file is an immutable evidence reference."
+        )
+
+    # resolve() handles symbolic-link aliases. samefile() additionally
+    # protects an existing hard link that resolves to a different pathname.
+    try:
+        if (
+            output_path.exists()
+            and canonical.exists()
+            and os.path.samefile(output_path, canonical)
+        ):
+            raise SummaryError(
+                "refusing to write an output path that is a hard link "
+                "to the canonical benchmark report: "
+                f"{canonical}"
+            )
+    except OSError as exc:
+        raise SummaryError(
+            "cannot safely verify output path against the canonical "
+            f"benchmark report: {exc}"
+        ) from exc
 
 
 def finite_number(value: Any, name: str) -> float:
@@ -526,7 +587,9 @@ def write_output(
     content: str,
     overwrite: bool,
 ) -> None:
-    """Write output safely; overwrite mode uses atomic replacement."""
+    """Write output safely; never target the canonical report."""
+
+    reject_canonical_report_output(output_path)
 
     if output_path.is_symlink():
         raise SummaryError(
@@ -663,7 +726,7 @@ def main() -> int:
                     failure,
                     overwrite=args.overwrite,
                 )
-            except OSError as output_error:
+            except (OSError, SummaryError) as output_error:
                 print(
                     f"[FAIL] Cannot write failure summary: {output_error}",
                     file=sys.stderr,
