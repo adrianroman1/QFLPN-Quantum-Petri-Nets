@@ -6,6 +6,7 @@ This validator checks:
 - the 16-node / 664-physical-core hardware target;
 - the 8x42 + 8x41 core distribution;
 - per-node RAM and motherboard inventory;
+- the exact 17 SpMV thresholds;
 - the SpMV proposal, including 664 workers and dimension 10,000,000.
 
 It does NOT validate measured benchmark CSV data and does NOT claim that
@@ -45,6 +46,26 @@ EXPECTED_PARALLELISM = 664
 EXPECTED_MAX_DIMENSION = 10_000_000
 EXPECTED_WARMUP = 5
 EXPECTED_MEASUREMENTS = 30
+
+EXPECTED_THRESHOLDS = (
+    256,
+    512,
+    1024,
+    2048,
+    4096,
+    8192,
+    16384,
+    32768,
+    65536,
+    131072,
+    262144,
+    524288,
+    1048576,
+    2097152,
+    4194304,
+    8388608,
+    10000000,
+)
 
 
 class InputError(ValueError):
@@ -261,17 +282,30 @@ def validate_configuration(
     worker_counts = benchmark.get("worker_counts")
     thresholds = benchmark.get("thresholds")
 
+    worker_counts_valid = (
+        isinstance(worker_counts, list)
+        and all(
+            isinstance(value, int) and not isinstance(value, bool)
+            for value in worker_counts
+        )
+        and worker_counts == sorted(set(worker_counts))
+        and EXPECTED_PARALLELISM in worker_counts
+    )
+
+    thresholds_valid = (
+        isinstance(thresholds, list)
+        and all(
+            isinstance(value, int) and not isinstance(value, bool)
+            for value in thresholds
+        )
+        and tuple(thresholds) == EXPECTED_THRESHOLDS
+    )
+
     benchmark_valid = (
         benchmark.get("workload") == EXPECTED_WORKLOAD
         and benchmark.get("parallelism_target") == EXPECTED_PARALLELISM
-        and isinstance(worker_counts, list)
-        and all(isinstance(x, int) and not isinstance(x, bool) for x in worker_counts)
-        and worker_counts == sorted(set(worker_counts))
-        and EXPECTED_PARALLELISM in worker_counts
-        and isinstance(thresholds, list)
-        and all(isinstance(x, int) and not isinstance(x, bool) for x in thresholds)
-        and thresholds == sorted(set(thresholds))
-        and EXPECTED_MAX_DIMENSION in thresholds
+        and worker_counts_valid
+        and thresholds_valid
         and benchmark.get("maximum_target_dimension") == EXPECTED_MAX_DIMENSION
         and benchmark.get("minimum_warmup") == EXPECTED_WARMUP
         and benchmark.get("minimum_valid_measurements") == EXPECTED_MEASUREMENTS
@@ -283,8 +317,9 @@ def validate_configuration(
         "SPMV_BENCHMARK_PROPOSAL",
         "PASS" if benchmark_valid else "FAIL",
         (
-            "SpMV proposal declares 664 workers, dimension 10,000,000, "
-            "5 warm-ups and 30 valid measurements; execution remains NOT_EXECUTED."
+            "SpMV proposal declares 664 workers, the exact 17 canonical "
+            "thresholds through dimension 10,000,000, 5 warm-ups and "
+            "30 valid measurements; execution remains NOT_EXECUTED."
             if benchmark_valid
             else "SpMV proposal does not match the required HPC target contract."
         ),
