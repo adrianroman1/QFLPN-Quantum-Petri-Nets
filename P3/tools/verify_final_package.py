@@ -163,13 +163,8 @@ def safe_p3_file(root: Path, relative: str, label: str) -> Path:
 
     root = Path(root).resolve()
     target = root / PurePosixPath(relative)
-    p3_root = (root / "P3").resolve()
 
-    require(
-        target.resolve(strict=False).is_relative_to(p3_root),
-        f"{label} resolves outside P3: {relative}",
-    )
-
+    # Detect symlinks before resolve(), including links escaping P3.
     current = root
     for part in PurePosixPath(relative).parts:
         current = current / part
@@ -177,6 +172,13 @@ def safe_p3_file(root: Path, relative: str, label: str) -> Path:
             not current.is_symlink(),
             f"{label} contains a symlink: {relative}",
         )
+
+    p3_root = root / "P3"
+
+    require(
+        target.resolve(strict=False).is_relative_to(p3_root.resolve()),
+        f"{label} resolves outside P3: {relative}",
+    )
 
     regular_file(target, label)
     return target
