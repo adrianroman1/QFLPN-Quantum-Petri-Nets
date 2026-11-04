@@ -74,6 +74,24 @@ def require_int(
 
 
 def validate_config(config: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    # validate_config() este API public intern și poate fi apelat direct
+    # de teste sau de alte module. Nu presupunem că obiectul a trecut
+    # anterior prin load_config().
+    if not isinstance(config, dict):
+        raise ProposalError("The configuration root must be a JSON object.")
+
+    if config.get("schema") != CONFIG_SCHEMA:
+        raise ProposalError(
+            f"Unsupported configuration schema: {config.get('schema')!r}; "
+            f"expected {CONFIG_SCHEMA!r}."
+        )
+
+    if config.get("status") != "PROPOSED_REFERENCE_CONFIGURATION_NOT_EVIDENCE":
+        raise ProposalError(
+            "The configuration must retain the explicit "
+            "PROPOSED_REFERENCE_CONFIGURATION_NOT_EVIDENCE status."
+        )
+
     hardware = config.get("hardware_target")
     benchmark = config.get("benchmark")
 
