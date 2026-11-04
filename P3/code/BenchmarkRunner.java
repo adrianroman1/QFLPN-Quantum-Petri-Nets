@@ -15,8 +15,15 @@ import java.util.concurrent.ForkJoinPool;
 /**
  * Reproducible CSR sparse matrix-vector benchmark.
  *
- * Includes warm-up, alternating measurement order, descriptive statistics,
- * an independent analytical oracle and versioned result persistence.
+ * Includes:
+ * - canonical benchmark-scale resolution;
+ * - fail-closed memory and Java-array-index preflight;
+ * - warm-up and alternating measurement order;
+ * - descriptive statistics;
+ * - independent analytical oracle;
+ * - versioned result persistence.
+ *
+ * The memory preflight is executed before matrix or vector allocation.
  */
 public final class BenchmarkRunner {
 
@@ -32,16 +39,43 @@ public final class BenchmarkRunner {
 
     public static void main(String[] args) {
         Config config = Config.parse(args);
+
+        /*
+         * Resolve only catalogued timed scales.
+         * This rejects unknown dimensions and the QFLPN-12 correctness
+         * fixture before any benchmark allocation takes place.
+         */
+        BenchmarkScale scale =
+                BenchmarkScale.fromTimedDimension(config.n());
+
+        /*
+         * The preflight must precede:
+         * - CSR values allocation;
+         * - CSR column-index allocation;
+         * - CSR row-pointer allocation;
+         * - normalized CSR allocation;
+         * - benchmark vector allocation.
+         */
+        Runtime runtime = Runtime.getRuntime();
+
+        long usedHeapBytes =
+                runtime.totalMemory() - runtime.freeMemory();
+
+        requireMemoryPreflight(
+                scale,
+                runtime.maxMemory(),
+                usedHeapBytes);
+
         String runId = createRunId();
 
         long setupStart = System.nanoTime();
 
-        SparseMatrixCSR matrix = createMatrix(config.n());
+        SparseMatrixCSR matrix = createMatrix(scale.dimension());
 
-        double[] input = new double[config.n()];
-        double[] sequentialOutput = new double[config.n()];
-        double[] parallelOutput = new double[config.n()];
-        double[] oracle = new double[config.n()];
+        double[] input = new double[scale.dimension()];
+        double[] sequentialOutput = new double[scale.dimension()];
+        double[] parallelOutput = new double[scale.dimension()];
+        double[] oracle = new double[scale.dimension()];
 
         Arrays.fill(input, 1.0);
         Arrays.fill(oracle, 1.5);
@@ -66,6 +100,27 @@ public final class BenchmarkRunner {
         } finally {
             pool.shutdown();
         }
+    }
+
+    /**
+     * Performs the scale's fail-closed heap and Java-array-index preflight.
+     *
+     * Package-private visibility allows deterministic unit testing without
+     * allocating benchmark arrays or requiring a large physical heap.
+     */
+    static void requireMemoryPreflight(
+            BenchmarkScale scale,
+            long maxHeapBytes,
+            long usedHeapBytes) {
+
+        if (scale == null) {
+            throw new IllegalArgumentException(
+                    "Benchmark scale must not be null.");
+        }
+
+        scale.requirePreflight(
+                maxHeapBytes,
+                usedHeapBytes);
     }
 
     private static void executeBenchmark(
@@ -391,16 +446,7 @@ public final class BenchmarkRunner {
     }
 
     private static String benchmarkId(int n) {
-        if (n == 12) {
-            return "QFLPN-12";
-        }
-        if (n == 1_000_000) {
-            return "QFLPN-1M";
-        }
-        if (n == 30_000_000) {
-            return "QFLPN-30M";
-        }
-        return "QFLPN-" + n;
+        return BenchmarkScale.fromTimedDimension(n).benchmarkId();
     }
 
     private static SparseMatrixCSR createMatrix(int n) {
