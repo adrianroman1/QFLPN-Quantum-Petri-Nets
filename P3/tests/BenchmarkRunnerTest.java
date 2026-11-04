@@ -106,7 +106,8 @@ class BenchmarkRunnerTest {
     void rejectsThreeHundredMillionWhenHeapIsInsufficient() {
         BenchmarkScale scale = BenchmarkScale.QFLPN_300M;
 
-        long simulatedMaxHeap = 32L * 1024L * 1024L * 1024L;
+        // 32 GB decimal: deliberately below the modelled requirement.
+        long simulatedMaxHeap = 32_000_000_000L;
         long simulatedUsedHeap = 128L * 1024L * 1024L;
 
         IllegalStateException exception = assertThrows(
