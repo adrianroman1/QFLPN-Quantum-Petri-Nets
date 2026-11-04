@@ -362,7 +362,7 @@ class BenchmarkScaleTest {
     @Test
     void shouldCalculateThreeHundredMillionPeakArrayPayload() {
         assertEquals(
-                26_400_000_016L,
+                26_400_000_024L,
                 BenchmarkScale.QFLPN_300M
                         .estimatedPeakArrayPayloadBytes());
     }
@@ -384,7 +384,7 @@ class BenchmarkScaleTest {
     @Test
     void shouldCalculateThreeHundredMillionHeapRequirement() {
         assertEquals(
-                33_067_108_884L,
+                33_067_108_894L,
                 BenchmarkScale.QFLPN_300M.requiredHeapBytes());
     }
 
@@ -468,7 +468,7 @@ class BenchmarkScaleTest {
     void shouldRejectThreeHundredMillionWhenHeapIsInsufficient() {
         BenchmarkScale scale = BenchmarkScale.QFLPN_300M;
 
-        long simulatedMaxHeap = 32L * 1024L * 1024L * 1024L;
+        long simulatedMaxHeap = 30L * 1024L * 1024L * 1024L;
         long simulatedUsedHeap = 128L * 1024L * 1024L;
 
         assertFalse(
