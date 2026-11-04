@@ -260,6 +260,62 @@ class HpcPreflightContractTests(unittest.TestCase):
         self.assertIn('"PREFLIGHT_DEFERRED"', self.script)
         self.assertIn('"validation_status": overall', self.script)
 
+    def test_collector_exit_code_is_checked_against_json_verdict(self) -> None:
+        self.assertIn(
+            'EXPECTED_VALIDATION_EXIT_CLASS="PASS"',
+            self.script,
+        )
+        self.assertIn(
+            'EXPECTED_VALIDATION_EXIT_CLASS="DEFERRED_OR_FAIL"',
+            self.script,
+        )
+        self.assertIn(
+            'if exit_code != 0 or overall != "PASS":',
+            self.script,
+        )
+        self.assertIn(
+            'if exit_code != 1 or overall not in {"DEFERRED", "FAIL"}:',
+            self.script,
+        )
+        self.assertIn(
+            "COLLECTOR_EXIT_STATUS_CONSISTENCY=PASS",
+            self.script,
+        )
+
+    def test_deferred_collector_exit_code_is_not_treated_as_execution_failure(self) -> None:
+        self.assertIn(
+            '1)\n        EXPECTED_VALIDATION_EXIT_CLASS="DEFERRED_OR_FAIL"',
+            self.script,
+        )
+        self.assertIn(
+            'overall == "DEFERRED"',
+            self.script,
+        )
+        self.assertIn(
+            '"PREFLIGHT_DEFERRED"',
+            self.script,
+        )
+
+    def test_unexpected_collector_exit_codes_are_rejected(self) -> None:
+        self.assertIn(
+            '*)\n        cat "${OUTPUT_DIR}/HPC_TARGET_VALIDATION.json" >&2',
+            self.script,
+        )
+        self.assertIn(
+            "Validatorul colectorului a returnat un cod neașteptat",
+            self.script,
+        )
+
+    def test_fail_verdict_still_fails_preflight(self) -> None:
+        self.assertIn(
+            'if overall == "FAIL":',
+            self.script,
+        )
+        self.assertIn(
+            'raise SystemExit(3)',
+            self.script,
+        )
+
     def test_summary_distinguishes_preflight_from_cluster_acceptance(self) -> None:
         self.assertIn('"cluster_acceptance": "NOT_EVALUATED"', self.script)
         self.assertIn('"p3_verdict": "NOT_EVALUATED"', self.script)
