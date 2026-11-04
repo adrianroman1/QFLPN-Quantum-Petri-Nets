@@ -177,6 +177,13 @@ def validate_configuration(
         )
         return checks, {}
 
+    add_check(
+        checks,
+        "CONFIG_SCHEMA",
+        "PASS",
+        f"Configuration schema is valid: {CONFIG_SCHEMA}.",
+    )
+
     if config.get("status") != "PROPOSED_REFERENCE_CONFIGURATION_NOT_EVIDENCE":
         add_check(
             checks, "CONFIG_STATUS", "FAIL",
