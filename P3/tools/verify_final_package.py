@@ -10,10 +10,9 @@ Acceptance requires:
 - PASS evidence-consistency report;
 - independently verified MPI build, execution and numerical evidence;
 - exact MPI executable path and verified build log;
+- canonical benchmark report presence and SHA-256 membership in the
+  package MANIFEST.txt and SHA256SUMS.txt;
 - independently reconstructed MANIFEST.txt and SHA256SUMS.txt.
-
-A missing, skipped, failed, incomplete or incorrectly attributed MPI
-execution rejects the package.
 """
 
 from __future__ import annotations
@@ -50,6 +49,8 @@ EXCLUDED_DIRS = {
 
 EXCLUDED_SUFFIXES = {".pyc", ".pyo"}
 
+CANONICAL_BENCHMARK_REPORT = "P3/results/raw/benchmark-report.md"
+
 MPI_REPORT = "P3/reports/mpi-validation.json"
 MPI_SOURCE = "P3/hpc/mpi/native/p3_mpi_spmv.c"
 MPI_RUNNER = "P3/hpc/mpi/run_mpi_validation.py"
@@ -66,6 +67,7 @@ REQUIRED_PACKAGE_FILES = (
     "P3/results/validate_benchmark.py",
     "P3/results/validate_benchmark_v3.py",
     "P3/results/generate_benchmark_summary.py",
+    CANONICAL_BENCHMARK_REPORT,
     "P3/tools/verify_evidence_consistency.py",
     "P3/tools/verify_final_package.py",
     "P3/tools/compute_checksums.py",
@@ -304,6 +306,63 @@ def parse_checksums(path: Path) -> dict[str, str]:
         "SHA256SUMS.txt entries are not sorted",
     )
     return result
+
+
+def verify_canonical_benchmark_report(root: Path) -> dict[str, Any]:
+    """Require the immutable canonical report and verify its declared digest.
+
+    This is an explicit package-level check. The generic global-integrity
+    verifier remains reusable for isolated inventories that do not represent
+    a complete accepted P3 package.
+    """
+    root = Path(root).resolve()
+
+    report_path = safe_p3_file(
+        root,
+        CANONICAL_BENCHMARK_REPORT,
+        "Canonical benchmark report",
+    )
+    nonempty_file(report_path, "Canonical benchmark report")
+
+    manifest_path = safe_p3_file(
+        root,
+        "P3/MANIFEST.txt",
+        "P3 manifest",
+    )
+    checksums_path = safe_p3_file(
+        root,
+        "P3/SHA256SUMS.txt",
+        "P3 checksum inventory",
+    )
+
+    manifest = parse_manifest(manifest_path)
+    checksums = parse_checksums(checksums_path)
+
+    require(
+        CANONICAL_BENCHMARK_REPORT in manifest,
+        "Canonical benchmark report is missing from P3/MANIFEST.txt",
+    )
+
+    require(
+        CANONICAL_BENCHMARK_REPORT in checksums,
+        "Canonical benchmark report is missing from P3/SHA256SUMS.txt",
+    )
+
+    actual_digest = sha256_file(report_path)
+    declared_digest = checksums[CANONICAL_BENCHMARK_REPORT]
+
+    require(
+        actual_digest == declared_digest,
+        "Canonical benchmark report SHA-256 mismatch",
+    )
+
+    return {
+        "path": CANONICAL_BENCHMARK_REPORT,
+        "bytes": report_path.stat().st_size,
+        "sha256": actual_digest,
+        "manifest_verified": True,
+        "checksum_verified": True,
+    }
 
 
 def verify_global_integrity(root: Path) -> dict[str, int]:
@@ -700,8 +759,6 @@ def verify_mpi(
         "MPI provenance workflow_run_id_verified is not true",
     )
 
-    # The claims in the provenance object are not treated as standalone proof:
-    # all identity fields have been independently compared with CLI inputs.
     return {
         "schema": report["schema"],
         "validation": "PASS",
@@ -983,7 +1040,7 @@ def verify_evidence_consistency(
     report = load_json(report_path, "P3 evidence consistency report")
 
     require(
-        report.get("schema") == "qflpn-p3-evidence-consistency-v2",
+        report.get("schema") == "qflqn-p3-evidence-consistency-v2",
         "Evidence consistency schema mismatch",
     )
     require(
@@ -1126,6 +1183,8 @@ def verify_package(
 
     verify_required_files(root)
 
+    canonical_report = verify_canonical_benchmark_report(root)
+
     v2 = verify_v2(root, run_id, expected)
     v3 = verify_v3(root, run_id, source_commit, workflow_run_id)
     evidence = verify_evidence_consistency(
@@ -1144,6 +1203,7 @@ def verify_package(
         "run_id": run_id,
         "source_commit": source_commit,
         "workflow_run_id": workflow_run_id,
+        "canonical_benchmark_report": canonical_report,
         "benchmark_v2": v2,
         "benchmark_v3": v3,
         "evidence_consistency": evidence,
