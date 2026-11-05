@@ -1,8 +1,29 @@
 {
   "execution": {
+    "build_log_file": "P3/reports/mpi-build.log",
+    "command": [
+      "/usr/bin/mpiexec.hydra",
+      "-np",
+      "2",
+      "/home/runner/work/QFLPN-Quantum-Petri-Nets/QFLPN-Quantum-Petri-Nets/P3/target/mpi/p3_mpi_spmv",
+      "/home/runner/work/QFLPN-Quantum-Petri-Nets/QFLPN-Quantum-Petri-Nets/P3/target/mpi/mpi-smoke-request.p3mpi",
+      "/home/runner/work/QFLPN-Quantum-Petri-Nets/QFLPN-Quantum-Petri-Nets/P3/target/mpi/mpi-smoke-response.p3mpi"
+    ],
+    "duration_seconds": 0.3282982119999929,
     "exit_code": 0,
+    "launch_error": null,
     "launcher": "/usr/bin/mpiexec.hydra",
+    "launcher_metadata": {
+      "configured": "/usr/bin/mpiexec.hydra",
+      "path": "/usr/bin/mpiexec.hydra",
+      "version": "HYDRA build details:\n    Version:                                 4.2.0\n    Release Date:                            Fri Feb  9 12:29:21 CST 2024\n    CC:                              gcc -Wdate-time -D_FORTIFY_SOURCE=3 -g -O2 -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer -ffile-prefix-map=/build/mpich-C3oteG/mpich-4.2.0=. -flto=auto -ffat-lto-objects -fstack-protector-strong -fstack-clash-protection -Wformat -Werror=format-security -fcf-protection -fdebug-prefix-map=/build/mpich-C3oteG/mpich-4.2.0=/usr/src/mpich-4.2.0-5build3 -Wl,-Bsymbolic-functions -flto=auto -ffat-lto-objects -Wl,-z,relro \n    Configure options:                       '--with-hwloc-prefix=/usr' '--with-device=ch4:ucx' 'FFLAGS=-O2 -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer -ffile-prefix-map=/build/mpich-C3oteG/mpich-4.2.0=. -flto=auto -ffat-lto-objects -fstack-protector-strong -fstack-clash-protection -fcf-protection -fdebug-prefix-map=/build/mpich-C3oteG/mpich-4.2.0=/usr/src/mpich-4.2.0-5build3 -fallow-invalid-boz -fallow-argument-mismatch' '--prefix=/usr' 'CFLAGS=-g -O2 -fno-omit-frame-pointer -mno-omit-leaf-frame-pointer -ffile-prefix-map=/build/mpich-C3oteG/mpich-4.2.0=. -flto=auto -ffat-lto-objects -fstack-protector-strong -fstack-clash-protection -Wformat -Werror=format-security -fcf-protection -fdebug-prefix-map=/build/mpich-C3oteG/mpich-4.2.0=/usr/src/mpich-4.2.0-5build3' 'LDFLAGS=-Wl,-Bsymbolic-functions -flto=auto -ffat-lto-objects -Wl,-z,relro' 'CPPFLAGS=-Wdate-time -D_FORTIFY_SOURCE=3'\n    Process Manager:                         pmi\n    Launchers available:                     ssh rsh fork slurm ll lsf sge manual persist\n    Topology libraries available:            hwloc\n    Resource management kernels available:   user slurm ll lsf sge pbs cobalt\n    Demux engines available:                 poll select",
+      "version_error": null
+    },
+    "outcome_type": "EXIT_CODE",
     "process_count": 2,
+    "returncode": 0,
+    "signal": null,
+    "signal_name": null,
     "skipped": false,
     "status": "PASS",
     "stderr_file": "P3/reports/mpi-stderr.log",
@@ -23,6 +44,7 @@
     "absolute_tolerance": 1e-12,
     "columns": 128,
     "comparison": "PASS",
+    "comparison_executed": true,
     "max_absolute_error": 0.0,
     "max_reference_magnitude": 1.0546875,
     "max_relative_error": 0.0,
@@ -38,10 +60,10 @@
     "workflow_run_id_verified": true
   },
   "repository": "adrianroman1/QFLPN-Quantum-Petri-Nets",
-  "run_id": "p3-41245327491-1",
+  "run_id": "p3-42096453045-1",
   "schema": "qflqn-p3-mpi-validation-v1",
-  "source_commit": "7207a0f040af3a1820179b77182dd0289daa2e1c",
+  "source_commit": "ac690ceeda664088e264b9a0441b00bf2e4e3a7a",
   "validation": "PASS",
   "workflow_run_attempt": 1,
-  "workflow_run_id": "41245327491"
+  "workflow_run_id": "42096453045"
 }
