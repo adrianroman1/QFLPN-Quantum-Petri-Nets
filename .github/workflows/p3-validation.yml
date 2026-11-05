@@ -167,6 +167,7 @@ jobs:
             "P3/results/validate_benchmark.py"
             "P3/results/validate_benchmark_v3.py"
             "P3/results/generate_benchmark_summary.py"
+            "P3/results/raw/benchmark-report.md"
             "P3/tools/verify_evidence_consistency.py"
             "P3/tools/verify_final_package.py"
             "P3/tools/compute_checksums.py"
@@ -195,7 +196,15 @@ jobs:
             fi
           done
 
+          CANONICAL_REPORT="P3/results/raw/benchmark-report.md"
+
+          if [[ ! -s "${CANONICAL_REPORT}" ]]; then
+            echo "::error::Canonical benchmark report is empty."
+            exit 1
+          fi
+
           echo "P3_REQUIRED_FILES: PASS"
+          echo "P3_CANONICAL_REPORT: PRESENT"
 
       - name: Compile all P3 Python sources
         id: p3_python_compile
@@ -933,6 +942,7 @@ jobs:
           retention-days: 30
           path: |
             P3/reports/
+            P3/results/raw/benchmark-report.md
             P3/results/raw/${{ env.P3_RUN_ID }}/
             P3/results/run_benchmark.sh
             P3/benchmarks/benchmark_results_v2.csv
@@ -1337,6 +1347,7 @@ jobs:
           path: |
             P3/MANIFEST.txt
             P3/SHA256SUMS.txt
+            P3/results/raw/benchmark-report.md
             P3/results/run_benchmark.sh
             P3/benchmarks/benchmark_results_v2.csv
             P3/benchmarks/benchmark_results_v3.csv
@@ -1371,8 +1382,14 @@ jobs:
         run: |
           set -Eeuo pipefail
 
-          SUMMARY="${GITHUB_STEP_SUMMARY}"
+          # Build the summary in a temporary file first. This allows
+          # a size check before writing to GITHUB_STEP_SUMMARY.
+          SUMMARY="${RUNNER_TEMP}/p3-step-summary.md"
           RAW="P3/results/raw/${P3_RUN_ID}"
+          CANONICAL_REPORT="P3/results/raw/benchmark-report.md"
+          SUMMARY_MAX_BYTES=950000
+
+          : > "${SUMMARY}"
 
           if [[ "${FINAL_VERIFICATION_OUTCOME}" == "success" ]]; then
             VERDICT="P3_ACCEPTED"
@@ -1403,6 +1420,77 @@ jobs:
           else
             echo "The final artifact URL is not available for this execution." \
               >> "${SUMMARY}"
+          fi
+
+          # --------------------------------------------------------
+          # Canonical report: verify source identity and immutability.
+          # This step reads the report only; it never writes to it.
+          # --------------------------------------------------------
+
+          CANONICAL_SHA_BEFORE=""
+          CANONICAL_SHA_AFTER=""
+          CANONICAL_SOURCE_SHA=""
+
+          {
+            echo
+            echo "## Canonical P3 benchmark report"
+            echo
+          } >> "${SUMMARY}"
+
+          if [[ -L "${CANONICAL_REPORT}" ||
+                ! -f "${CANONICAL_REPORT}" ||
+                ! -s "${CANONICAL_REPORT}" ]]; then
+            {
+              echo "**Canonical report unavailable:** missing, empty or unsafe file."
+              echo
+            } >> "${SUMMARY}"
+          else
+            CANONICAL_SHA_BEFORE="$(
+              sha256sum "${CANONICAL_REPORT}" | awk '{print $1}'
+            )"
+
+            SOURCE_COMMIT="${P3_SOURCE_COMMIT:-${GITHUB_SHA}}"
+
+            if git cat-file -e \
+              "${SOURCE_COMMIT}:${CANONICAL_REPORT}" 2>/dev/null; then
+              CANONICAL_SOURCE_SHA="$(
+                git show "${SOURCE_COMMIT}:${CANONICAL_REPORT}" |
+                  sha256sum | awk '{print $1}'
+              )"
+
+              if [[ "${CANONICAL_SHA_BEFORE}" != "${CANONICAL_SOURCE_SHA}" ]]; then
+                echo "::error::Canonical report differs from the source commit."
+                exit 1
+              fi
+            else
+              echo "::error::Canonical report cannot be verified against source commit."
+              exit 1
+            fi
+
+            {
+              echo "[Open canonical report in GitHub](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/${SOURCE_COMMIT}/${CANONICAL_REPORT})"
+              echo
+              echo "**SHA-256:** \`${CANONICAL_SHA_BEFORE}\`"
+              echo
+              echo "---"
+              echo
+              cat "${CANONICAL_REPORT}"
+              echo
+              echo "---"
+              echo
+            } >> "${SUMMARY}"
+
+            CANONICAL_SHA_AFTER="$(
+              sha256sum "${CANONICAL_REPORT}" | awk '{print $1}'
+            )"
+
+            if [[ "${CANONICAL_SHA_AFTER}" != "${CANONICAL_SHA_BEFORE}" ]]; then
+              echo "::error::Canonical report changed during summary publication."
+              exit 1
+            fi
+
+            echo "P3_CANONICAL_REPORT_SHA256=${CANONICAL_SHA_AFTER}"
+            echo "P3_CANONICAL_REPORT_PUBLICATION: PASS"
           fi
 
           {
@@ -1445,6 +1533,7 @@ jobs:
 
           add_file "P3/MANIFEST.txt"
           add_file "P3/SHA256SUMS.txt"
+          add_file "P3/results/raw/benchmark-report.md"
           add_file "P3/results/run_benchmark.sh"
           add_file "P3/benchmarks/benchmark_results_v2.csv"
           add_file "P3/benchmarks/benchmark_results_v3.csv"
@@ -1488,23 +1577,19 @@ jobs:
             local file="$1"
             local limit="${2:-60}"
             local line_count
-
-            {
-              echo "### ${file}"
-              echo
-            } >> "${SUMMARY}"
+            local preview_file="${RUNNER_TEMP}/p3-preview-${RANDOM}.md"
+            local current_size
+            local preview_size
 
             if [[ ! -f "${file}" || -L "${file}" ]]; then
-              {
-                echo "File not available in this execution."
-                echo
-              } >> "${SUMMARY}"
               return 0
             fi
 
             line_count="$(wc -l < "${file}")"
 
             {
+              echo "### ${file}"
+              echo
               echo '```text'
               sed -n "1,${limit}p" "${file}"
               if [[ "${line_count}" -gt "${limit}" ]]; then
@@ -1513,7 +1598,23 @@ jobs:
               fi
               echo '```'
               echo
-            } >> "${SUMMARY}"
+            } > "${preview_file}"
+
+            current_size="$(wc -c < "${SUMMARY}")"
+            preview_size="$(wc -c < "${preview_file}")"
+
+            if (( current_size + preview_size <= SUMMARY_MAX_BYTES )); then
+              cat "${preview_file}" >> "${SUMMARY}"
+            else
+              {
+                echo "### ${file}"
+                echo
+                echo "Preview omitted to preserve the GitHub Actions summary size limit. The complete file remains in the artifact."
+                echo
+              } >> "${SUMMARY}"
+            fi
+
+            rm -f "${preview_file}"
           }
 
           {
@@ -1521,11 +1622,17 @@ jobs:
             echo
             echo "Previews are generated only for text files found in the inventory."
             echo "Each preview is limited to 60 lines; complete files remain in the artifact."
+            echo "The canonical benchmark report above is rendered as Markdown, not as a code block."
             echo
           } >> "${SUMMARY}"
 
           for file in "${INVENTORY[@]}"; do
             case "${file}" in
+              "P3/results/raw/benchmark-report.md")
+                # The canonical report has already been rendered in full
+                # as Markdown above. Do not duplicate it as a text preview.
+                continue
+                ;;
               *.json|*.txt|*.md|*.csv|*.xml|*.log|*.sh)
                 append_preview "${file}" 60
                 ;;
@@ -1556,8 +1663,31 @@ jobs:
             echo "P3 automatic evidence index generation completed."
           } >> "${SUMMARY}"
 
+          FINAL_SUMMARY_SIZE="$(wc -c < "${SUMMARY}")"
+
+          if (( FINAL_SUMMARY_SIZE > SUMMARY_MAX_BYTES )); then
+            echo "::error::GitHub Actions summary exceeds the configured safe size budget."
+            echo "::error::Summary size: ${FINAL_SUMMARY_SIZE} bytes."
+            exit 1
+          fi
+
+          # Final immutability check immediately before publication.
+          if [[ -n "${CANONICAL_SHA_BEFORE}" ]]; then
+            FINAL_CANONICAL_SHA="$(
+              sha256sum "${CANONICAL_REPORT}" | awk '{print $1}'
+            )"
+
+            if [[ "${FINAL_CANONICAL_SHA}" != "${CANONICAL_SHA_BEFORE}" ]]; then
+              echo "::error::Canonical report changed before summary publication."
+              exit 1
+            fi
+          fi
+
+          cat "${SUMMARY}" >> "${GITHUB_STEP_SUMMARY}"
+
           echo "P3_GITHUB_STEP_SUMMARY: PUBLISHED"
           echo "P3_SUMMARY_INDEXED_FILES=${#INVENTORY[@]}"
+          echo "P3_SUMMARY_SIZE_BYTES=${FINAL_SUMMARY_SIZE}"
 
       # ============================================================
       # 20. COMMIT GENERATED P3 EVIDENCE — MAIN ONLY
