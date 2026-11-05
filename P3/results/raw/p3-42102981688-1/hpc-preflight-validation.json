@@ -1,0 +1,136 @@
+{
+  "configuration_validation": {
+    "benchmark_proposal": {
+      "execution_status": "NOT_EXECUTED",
+      "maximum_target_dimension": 10000000,
+      "minimum_valid_measurements": 30,
+      "minimum_warmup": 5,
+      "parallelism_target": 664,
+      "thresholds": [
+        256,
+        512,
+        1024,
+        2048,
+        4096,
+        8192,
+        16384,
+        32768,
+        65536,
+        131072,
+        262144,
+        524288,
+        1048576,
+        2097152,
+        4194304,
+        8388608,
+        10000000
+      ],
+      "worker_counts": [
+        1,
+        2,
+        4,
+        8,
+        16,
+        32,
+        64,
+        128,
+        256,
+        512,
+        640,
+        664
+      ],
+      "workload": "SpMV"
+    },
+    "checks": [
+      {
+        "detail": "Target is explicitly marked as proposed, not execution evidence.",
+        "id": "CONFIG_STATUS",
+        "status": "PASS"
+      },
+      {
+        "detail": "Node, physical-core and RAM target fields have valid numeric values.",
+        "id": "HARDWARE_NUMERIC_FIELDS",
+        "status": "PASS"
+      },
+      {
+        "detail": "16 nodes / 664 physical cores; declared 16 nodes / 664 cores; RAM 4096 GiB total / 256 GiB per node.",
+        "id": "HARDWARE_TARGET_INTERNAL_CONSISTENCY",
+        "status": "PASS"
+      },
+      {
+        "detail": "Motherboard manufacturer, model and version are required from DMI sysfs.",
+        "id": "MOTHERBOARD_COLLECTION_CONTRACT",
+        "status": "PASS"
+      },
+      {
+        "detail": "SpMV proposal declares 664 workers, dimension 10,000,000, 5 warm-ups and 30 valid measurements; execution remains NOT_EXECUTED.",
+        "id": "SPMV_BENCHMARK_PROPOSAL",
+        "status": "PASS"
+      }
+    ],
+    "expected_cores_by_node": {
+      "hpc-01": 42,
+      "hpc-02": 42,
+      "hpc-03": 42,
+      "hpc-04": 42,
+      "hpc-05": 42,
+      "hpc-06": 42,
+      "hpc-07": 42,
+      "hpc-08": 42,
+      "hpc-09": 41,
+      "hpc-10": 41,
+      "hpc-11": 41,
+      "hpc-12": 41,
+      "hpc-13": 41,
+      "hpc-14": 41,
+      "hpc-15": 41,
+      "hpc-16": 41
+    },
+    "expected_nodes": 16,
+    "expected_physical_cores": 664,
+    "expected_ram_gib_per_node": 256,
+    "expected_ram_gib_total": 4096,
+    "motherboard_contract": {
+      "collection_required": true,
+      "fields": [
+        "manufacturer",
+        "model",
+        "version"
+      ],
+      "missing_value": "UNAVAILABLE",
+      "source": "/sys/class/dmi/id/"
+    },
+    "overall": "PASS"
+  },
+  "execution_evidence": {
+    "664_worker_execution_demonstrated": false,
+    "benchmark_execution_status": "NOT_EXECUTED",
+    "dimension_10000000_execution_demonstrated": false,
+    "this_report_is_not_performance_evidence": true
+  },
+  "inventory_validation": {
+    "checks": [
+      {
+        "detail": "No node inventories supplied; hardware target is not demonstrated.",
+        "id": "INVENTORY_PRESENT",
+        "status": "DEFERRED"
+      },
+      {
+        "detail": "No motherboard inventory is available.",
+        "id": "MOTHERBOARD_INVENTORY",
+        "status": "DEFERRED"
+      }
+    ],
+    "overall": "DEFERRED"
+  },
+  "overall": "DEFERRED",
+  "provenance": {
+    "physical_cluster_inventory_collected": false,
+    "run_id": "p3-42102981688-1",
+    "slurm_preflight_executed": false,
+    "source_commit": "9379f00ac24b3a75a445d05910530baedb3d9808",
+    "target_config": "P3/hpc/config/hpc-target.json",
+    "workflow_run_id": "42102981688"
+  },
+  "schema": "qflpn-p3-hpc-preflight-validation-v2"
+}
