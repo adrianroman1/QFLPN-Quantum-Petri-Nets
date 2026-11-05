@@ -9,7 +9,7 @@ P3/tools/verify_final_package.py:
 - integrity-generation and final-verification stages are not required
   as entries in ci-outcomes.json;
 - RUN_ID, source_commit and workflow_run_id are bound explicitly;
-- evidence consistency uses qflqn-p3-evidence-consistency-v2;
+- evidence consistency uses qflpn-p3-evidence-consistency-v2;
 - the canonical benchmark report must be present, nonempty and checksummed;
 - global MANIFEST.txt and SHA256SUMS.txt are independently verified.
 """
@@ -61,7 +61,7 @@ WRONG_SOURCE_COMMIT = "b" * 40
 WORKFLOW_RUN_ID = "12345"
 
 CI_SCHEMA = "qflpn-p3-ci-outcomes-v1"
-EVIDENCE_SCHEMA = "qflqn-p3-evidence-consistency-v2"
+EVIDENCE_SCHEMA = "qflpn-p3-evidence-consistency-v2"
 
 EXPECTED = {
     "dimension": 1_000_000,
@@ -950,6 +950,14 @@ def test_removed_integrity_stages_are_not_ci_outcomes_requirements() -> None:
 
 def test_artifact_upload_remains_a_mandatory_ci_stage() -> None:
     assert "p3_artifact_upload" in MODULE.REQUIRED_CI_STAGES
+
+
+def test_hpc_validation_remains_a_mandatory_ci_stage() -> None:
+    assert "p3_hpc_validation" in MODULE.REQUIRED_CI_STAGES
+
+
+def test_evidence_consistency_schema_is_canonical() -> None:
+    assert EVIDENCE_SCHEMA == "qflpn-p3-evidence-consistency-v2"
 
 
 def test_ci_outcomes_requires_every_mandatory_stage(
