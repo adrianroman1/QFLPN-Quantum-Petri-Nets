@@ -692,18 +692,25 @@ def main() -> int:
                 "$ " + shlex.join(compile_command)
                 + "\nSTDOUT:\n" + result.stdout
                 + "\nSTDERR:\n" + result.stderr
-                + f"\nRETURN_CODE={result.returncode}\n"
+                + f"\nEXIT_CODE={result.returncode}\n"
             )
         except subprocess.TimeoutExpired as exc:
             build_timed_out = True
             build_output = (
                 "$ " + shlex.join(compile_command)
-                + "\nBUILD_TIMEOUT\n"
-                + f"STDOUT={exc.stdout!r}\nSTDERR={exc.stderr!r}\n"
+                + "\nSTDOUT:\n" + _decode_captured(exc.stdout)
+                + "\nSTDERR:\n" + _decode_captured(exc.stderr)
+                + "\nEXIT_CODE=TIMEOUT\n"
             )
             raise ValidationError("Native MPI compilation timed out.") from exc
         except OSError as exc:
-            build_output = f"BUILD_LAUNCH_ERROR: {exc}\n"
+            build_output = (
+                "$ " + shlex.join(compile_command)
+                + "\nSTDOUT:\n"
+                + "\nSTDERR:\n"
+                + f"BUILD_LAUNCH_ERROR: {exc}\n"
+                + "EXIT_CODE=NOT_AVAILABLE\n"
+            )
             raise ValidationError(f"Could not launch mpicc: {exc}") from exc
 
         write_text(build_log_path, build_output)
@@ -814,7 +821,12 @@ def main() -> int:
 
     finally:
         if not build_output:
-            build_output = "BUILD_NOT_COMPLETED\n"
+            build_output = (
+                "STDOUT:\n"
+                "STDERR:\n"
+                "BUILD_NOT_COMPLETED\n"
+                "EXIT_CODE=NOT_AVAILABLE\n"
+            )
         if not execution_stdout:
             execution_stdout = "NO_STDOUT_CAPTURED\n"
         if not execution_stderr:
