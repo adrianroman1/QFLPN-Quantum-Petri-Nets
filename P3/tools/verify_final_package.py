@@ -104,6 +104,7 @@ REQUIRED_CI_STAGES = (
     "p3_benchmark_summary",
     "p3_evidence_consistency",
     "p3_mpi_validation",
+    "p3_hpc_validation",
     "p3_artifact_upload",
 )
 
@@ -1042,7 +1043,7 @@ def verify_evidence_consistency(
     report = load_json(report_path, "P3 evidence consistency report")
 
     require(
-        report.get("schema") == "qflqn-p3-evidence-consistency-v2",
+        report.get("schema") == "qflpn-p3-evidence-consistency-v2",
         "Evidence consistency schema mismatch",
     )
     require(
