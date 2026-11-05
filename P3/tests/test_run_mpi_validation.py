@@ -7,10 +7,9 @@ import importlib.util
 import json
 import math
 import struct
-import sys
 import subprocess
+import sys
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -22,14 +21,12 @@ SPEC = importlib.util.spec_from_file_location(
     "p3_run_mpi_validation_under_test",
     RUNNER_PATH,
 )
-
 assert SPEC is not None
 assert SPEC.loader is not None
 
 mpi_runner = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = mpi_runner
 SPEC.loader.exec_module(mpi_runner)
-
 
 VALID_RUN_ID = "p3-123456789-1"
 VALID_COMMIT = "a" * 40
@@ -45,10 +42,9 @@ def valid_environment(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def small_matrix():
-    rows = 8
-    columns = 8
-    row_ptr, col_idx, values, vector = (
-        mpi_runner.build_test_matrix(rows, columns)
+    rows, columns = 8, 8
+    row_ptr, col_idx, values, vector = mpi_runner.build_test_matrix(
+        rows, columns
     )
     return rows, columns, row_ptr, col_idx, values, vector
 
@@ -64,17 +60,9 @@ def write_response(
 ) -> None:
     declared_rows = len(values) if rows is None else rows
     header = struct.pack(
-        "<8s3Q",
-        magic,
-        declared_rows,
-        status,
-        reserved,
+        "<8s3Q", magic, declared_rows, status, reserved
     )
-    payload = (
-        struct.pack(f"<{len(values)}d", *values)
-        if values
-        else b""
-    )
+    payload = struct.pack(f"<{len(values)}d", *values) if values else b""
     path.write_bytes(header + payload)
 
 
@@ -110,20 +98,15 @@ def test_runner_exists_and_is_regular_file() -> None:
     assert not RUNNER_PATH.is_symlink()
 
 
-def test_valid_provenance_accepts_three_argument_contract() -> None:
+def test_valid_provenance_accepts_default_attempt() -> None:
     mpi_runner.validate_provenance(
-        VALID_RUN_ID,
-        VALID_COMMIT,
-        VALID_WORKFLOW_RUN_ID,
+        VALID_RUN_ID, VALID_COMMIT, VALID_WORKFLOW_RUN_ID
     )
 
 
-def test_valid_provenance_accepts_explicit_workflow_attempt() -> None:
+def test_valid_provenance_accepts_explicit_attempt() -> None:
     mpi_runner.validate_provenance(
-        VALID_RUN_ID,
-        VALID_COMMIT,
-        VALID_WORKFLOW_RUN_ID,
-        VALID_ATTEMPT,
+        VALID_RUN_ID, VALID_COMMIT, VALID_WORKFLOW_RUN_ID, VALID_ATTEMPT
     )
 
 
@@ -151,10 +134,7 @@ def test_invalid_provenance_fails_closed(
 ) -> None:
     with pytest.raises(mpi_runner.ValidationError):
         mpi_runner.validate_provenance(
-            run_id,
-            commit,
-            workflow_id,
-            attempt,
+            run_id, commit, workflow_id, attempt
         )
 
 
@@ -166,10 +146,9 @@ def test_build_test_matrix_is_deterministic() -> None:
 
 def test_build_test_matrix_produces_valid_csr() -> None:
     rows, columns = 32, 24
-    row_ptr, col_idx, values, vector = (
-        mpi_runner.build_test_matrix(rows, columns)
+    row_ptr, col_idx, values, vector = mpi_runner.build_test_matrix(
+        rows, columns
     )
-
     assert len(row_ptr) == rows + 1
     assert row_ptr[0] == 0
     assert row_ptr[-1] == len(col_idx)
@@ -185,8 +164,7 @@ def test_build_test_matrix_produces_valid_csr() -> None:
     [(0, 8), (1, 8), (8, 0), (8, 1), (8, 2)],
 )
 def test_build_test_matrix_rejects_invalid_dimensions(
-    rows: int,
-    columns: int,
+    rows: int, columns: int
 ) -> None:
     with pytest.raises(mpi_runner.ValidationError):
         mpi_runner.build_test_matrix(rows, columns)
@@ -194,19 +172,12 @@ def test_build_test_matrix_rejects_invalid_dimensions(
 
 def test_encode_request_has_expected_header_and_payload() -> None:
     rows, columns, row_ptr, col_idx, values, vector = small_matrix()
-
     payload = mpi_runner.encode_request(
         rows, columns, row_ptr, col_idx, values, vector
     )
-
     (
-        magic,
-        declared_rows,
-        declared_columns,
-        nnz,
-        vector_length,
-        flags,
-        reserved,
+        magic, declared_rows, declared_columns, nnz,
+        vector_length, flags, reserved,
     ) = struct.unpack("<8s6Q", payload[:56])
 
     assert magic == b"P3SPMV01"
@@ -214,15 +185,11 @@ def test_encode_request_has_expected_header_and_payload() -> None:
     assert declared_columns == columns
     assert nnz == len(col_idx)
     assert vector_length == columns
-    assert flags == 0
-    assert reserved == 0
+    assert flags == reserved == 0
 
     expected_length = (
-        56
-        + (rows + 1) * 8
-        + len(col_idx) * 8
-        + len(values) * 8
-        + columns * 8
+        56 + (rows + 1) * 8 + len(col_idx) * 8
+        + len(values) * 8 + columns * 8
     )
     assert len(payload) == expected_length
 
@@ -277,34 +244,34 @@ def test_sequential_reference_supports_empty_rows() -> None:
     assert result == [6.0, 0.0, 0.0, 35.0]
 
 
-def test_compare_results_accepts_identical_vectors() -> None:
+def test_compare_results_reports_identical_vectors() -> None:
     values = [0.0, 1.0, -2.5, 8.125]
     result = mpi_runner.compare_results(values, values)
-
     assert result["max_absolute_error"] == 0.0
     assert result["max_relative_error"] == 0.0
     assert result["max_reference_magnitude"] == 8.125
 
 
-def test_compare_results_accepts_values_inside_tolerance() -> None:
+def test_compare_results_reports_errors_inside_tolerance() -> None:
     reference = [1.0, 2.0, 0.0]
-    actual = [1.0 + 1.0e-13, 2.0 - 1.0e-13, 1.0e-13]
-
+    actual = [1.0 + 1e-13, 2.0 - 1e-13, 1e-13]
     result = mpi_runner.compare_results(actual, reference)
-    allowed = (
-        mpi_runner.ABSOLUTE_TOLERANCE
-        + mpi_runner.RELATIVE_TOLERANCE
-        * result["max_reference_magnitude"]
+    metrics, passed = mpi_runner.compare_results_with_status(
+        actual, reference
     )
-    assert result["max_absolute_error"] <= allowed
+    assert passed is True
+    assert metrics == result
 
 
-def test_compare_results_rejects_numerical_mismatch() -> None:
-    with pytest.raises(mpi_runner.ValidationError):
-        mpi_runner.compare_results(
-            [1.0, 2.0, 3.01],
-            [1.0, 2.0, 3.0],
-        )
+def test_compare_results_retains_metrics_for_numerical_mismatch() -> None:
+    metrics, passed = mpi_runner.compare_results_with_status(
+        [1.0, 2.0, 3.01],
+        [1.0, 2.0, 3.0],
+    )
+    assert passed is False
+    assert metrics["max_absolute_error"] == pytest.approx(0.01)
+    assert metrics["max_relative_error"] > 0.0
+    assert metrics["max_reference_magnitude"] == 3.0
 
 
 def test_compare_results_rejects_different_lengths() -> None:
@@ -322,7 +289,6 @@ def test_decode_response_accepts_valid_output(tmp_path: Path) -> None:
     path = tmp_path / "valid-response.p3mpi"
     expected = [1.0, -2.0, 3.5, 0.0]
     write_response(path, expected)
-
     assert mpi_runner.decode_response(path, len(expected)) == expected
 
 
@@ -344,26 +310,48 @@ def test_decode_response_rejects_missing_file(tmp_path: Path) -> None:
     ],
 )
 def test_decode_response_rejects_invalid_payload(
-    tmp_path: Path,
-    payload: bytes,
+    tmp_path: Path, payload: bytes
 ) -> None:
     path = tmp_path / "invalid-response.p3mpi"
     path.write_bytes(payload)
-
     with pytest.raises(mpi_runner.ValidationError):
         mpi_runner.decode_response(path, 1)
 
 
 @pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf])
 def test_decode_response_rejects_non_finite_values(
-    tmp_path: Path,
-    value: float,
+    tmp_path: Path, value: float
 ) -> None:
     path = tmp_path / "non-finite.p3mpi"
     write_response(path, [value])
-
     with pytest.raises(mpi_runner.ValidationError):
         mpi_runner.decode_response(path, 1)
+
+
+def test_process_outcome_distinguishes_exit_15_from_sigterm() -> None:
+    normal_exit = mpi_runner._process_outcome(15, False, None)
+    signal_exit = mpi_runner._process_outcome(-15, False, None)
+
+    assert normal_exit["type"] == "EXIT_CODE"
+    assert normal_exit["exit_code"] == 15
+    assert normal_exit["signal"] is None
+
+    assert signal_exit["type"] == "SIGNAL"
+    assert signal_exit["exit_code"] is None
+    assert signal_exit["signal"] == 15
+    assert signal_exit["signal_name"] == "SIGTERM"
+
+
+def test_process_outcome_classifies_timeout_and_launch_error() -> None:
+    timeout = mpi_runner._process_outcome(None, True, None)
+    launch = mpi_runner._process_outcome(
+        None, False, "FileNotFoundError: mpirun"
+    )
+    not_run = mpi_runner._process_outcome(None, False, None, not_run=True)
+
+    assert timeout["type"] == "TIMEOUT"
+    assert launch["type"] == "LAUNCH_ERROR"
+    assert not_run["type"] == "NOT_RUN"
 
 
 def test_make_report_contains_required_provenance_and_evidence() -> None:
@@ -375,20 +363,16 @@ def test_make_report_contains_required_provenance_and_evidence() -> None:
     assert report["source_commit"] == VALID_COMMIT
     assert report["workflow_run_id"] == VALID_WORKFLOW_RUN_ID
     assert report["workflow_run_attempt"] == 1
-
     assert report["native_build"]["status"] == "PASS"
     assert report["native_build"]["compiler"] == "mpicc"
     assert report["native_build"]["executable_sha256"] == "b" * 64
-
     assert report["execution"]["status"] == "PASS"
     assert report["execution"]["process_count"] == 2
     assert report["execution"]["skipped"] is False
     assert report["execution"]["timeout"] is False
-
     assert report["numerical_validation"]["status"] == "PASS"
     assert report["numerical_validation"]["reference"] == "sequential_csr"
     assert report["numerical_validation"]["comparison"] == "PASS"
-
     assert report["provenance"] == {
         "commit_verified": True,
         "run_id_verified": True,
@@ -396,13 +380,52 @@ def test_make_report_contains_required_provenance_and_evidence() -> None:
     }
 
 
+def test_make_report_sets_unexecuted_comparison_metrics_to_null() -> None:
+    arguments = valid_report_arguments()
+    arguments.update(
+        comparison={},
+        comparison_executed=False,
+        comparison_passed=False,
+        validation="FAIL",
+        execution_outcome=mpi_runner._process_outcome(15, False, None),
+    )
+    report = mpi_runner.make_report(**arguments)
+    numerical = report["numerical_validation"]
+
+    assert report["validation"] == "FAIL"
+    assert numerical["comparison_executed"] is False
+    assert numerical["comparison"] == "NOT_RUN"
+    assert numerical["max_absolute_error"] is None
+    assert numerical["max_relative_error"] is None
+    assert numerical["max_reference_magnitude"] is None
+
+
+def test_make_report_preserves_metrics_when_comparison_fails() -> None:
+    arguments = valid_report_arguments()
+    arguments.update(
+        comparison={
+            "max_absolute_error": 0.01,
+            "max_relative_error": 0.003333,
+            "max_reference_magnitude": 3.0,
+        },
+        comparison_executed=True,
+        comparison_passed=False,
+        validation="FAIL",
+    )
+    report = mpi_runner.make_report(**arguments)
+    numerical = report["numerical_validation"]
+
+    assert numerical["comparison_executed"] is True
+    assert numerical["comparison"] == "FAIL"
+    assert numerical["max_absolute_error"] == pytest.approx(0.01)
+    assert numerical["max_relative_error"] == pytest.approx(0.003333)
+
+
 def test_make_report_fails_when_build_fails() -> None:
     arguments = valid_report_arguments()
     arguments["build_exit_code"] = 1
     arguments["executable_sha256"] = ""
-
     report = mpi_runner.make_report(**arguments)
-
     assert report["validation"] == "FAIL"
     assert report["native_build"]["status"] == "FAIL"
     assert report["numerical_validation"]["status"] == "FAIL"
@@ -411,9 +434,7 @@ def test_make_report_fails_when_build_fails() -> None:
 def test_make_report_fails_when_execution_is_skipped() -> None:
     arguments = valid_report_arguments()
     arguments["skipped"] = True
-
     report = mpi_runner.make_report(**arguments)
-
     assert report["validation"] == "FAIL"
     assert report["execution"]["status"] == "FAIL"
     assert report["execution"]["skipped"] is True
@@ -421,21 +442,20 @@ def test_make_report_fails_when_execution_is_skipped() -> None:
 
 def test_make_report_fails_when_execution_times_out() -> None:
     arguments = valid_report_arguments()
-    arguments["timed_out"] = True
-
+    arguments.update(
+        timed_out=True,
+        execution_outcome=mpi_runner._process_outcome(None, True, None),
+    )
     report = mpi_runner.make_report(**arguments)
-
     assert report["validation"] == "FAIL"
     assert report["execution"]["status"] == "FAIL"
-    assert report["execution"]["timeout"] is True
+    assert report["execution"]["outcome_type"] == "TIMEOUT"
 
 
 def test_make_report_fails_for_single_process() -> None:
     arguments = valid_report_arguments()
     arguments["process_count"] = 1
-
     report = mpi_runner.make_report(**arguments)
-
     assert report["validation"] == "FAIL"
     assert report["execution"]["status"] == "FAIL"
 
@@ -443,9 +463,7 @@ def test_make_report_fails_for_single_process() -> None:
 def test_write_json_atomic_creates_parseable_report(tmp_path: Path) -> None:
     target = tmp_path / "nested" / "mpi-validation.json"
     payload = {"schema": "test-schema", "validation": "PASS"}
-
     mpi_runner.write_json_atomic(target, payload)
-
     assert target.is_file()
     assert json.loads(target.read_text(encoding="utf-8")) == payload
     assert not target.with_suffix(".json.tmp").exists()
@@ -453,19 +471,15 @@ def test_write_json_atomic_creates_parseable_report(tmp_path: Path) -> None:
 
 def test_write_json_atomic_rejects_nan(tmp_path: Path) -> None:
     target = tmp_path / "invalid.json"
-
     with pytest.raises(ValueError):
         mpi_runner.write_json_atomic(target, {"value": math.nan})
-
     assert not target.exists()
 
 
 def test_write_bytes_atomic_creates_exact_payload(tmp_path: Path) -> None:
     target = tmp_path / "nested" / "request.bin"
     payload = b"\x00P3SPMV01\xff"
-
     mpi_runner.write_bytes_atomic(target, payload)
-
     assert target.read_bytes() == payload
     assert not target.with_suffix(".bin.tmp").exists()
 
@@ -486,37 +500,216 @@ def prepare_main_repository(
         sys,
         "argv",
         [
-            str(RUNNER_PATH),
-            "--root",
-            str(repository),
-            "--timeout",
-            "5",
+            str(RUNNER_PATH), "--root", str(repository), "--timeout", "5"
         ],
     )
     return repository
 
 
-def test_main_fails_closed_when_mpicc_is_missing(
-    tmp_path: Path,
+def install_fake_tools(
+    repository: Path,
     monkeypatch: pytest.MonkeyPatch,
+    *,
+    mpi_returncode: int = 0,
+    mpi_error: BaseException | None = None,
+    actual_values: list[float] | None = None,
+) -> tuple[str, str]:
+    compiler = "/test-tools/mpicc"
+    launcher = "/test-tools/mpirun"
+    executable = repository / mpi_runner.EXECUTABLE_RELATIVE
+
+    monkeypatch.setenv("MPICC", compiler)
+    monkeypatch.setenv("P3_MPI_LAUNCHER", launcher)
+
+    def fake_resolve_tool(value: str, label: str) -> str:
+        if value in (compiler, launcher):
+            return value
+        raise mpi_runner.ValidationError(f"Unexpected tool: {value}")
+
+    def fake_command_version(command, environment):
+        return "MPI test tool version"
+
+    def fake_run_command(command, timeout_seconds, environment):
+        if command[0] == compiler:
+            executable.parent.mkdir(parents=True, exist_ok=True)
+            executable.write_bytes(b"fake executable")
+            executable.chmod(0o755)
+            return subprocess.CompletedProcess(command, 0, "compiler ok\n", "")
+
+        if command[0] == launcher:
+            if mpi_error is not None:
+                raise mpi_error
+            if mpi_returncode != 0:
+                return subprocess.CompletedProcess(
+                    command, mpi_returncode, "mpi stdout", "mpi stderr"
+                )
+
+            response = Path(command[-1])
+            rows, columns = 128, 128
+            row_ptr, col_idx, values, vector = (
+                mpi_runner.build_test_matrix(rows, columns)
+            )
+            reference = mpi_runner.sequential_csr_reference(
+                rows, row_ptr, col_idx, values, vector
+            )
+            output = reference if actual_values is None else actual_values
+            write_response(response, output)
+            return subprocess.CompletedProcess(
+                command, 0, "MPI ok\n", ""
+            )
+
+        raise AssertionError(f"Unexpected command: {command!r}")
+
+    monkeypatch.setattr(mpi_runner, "resolve_tool", fake_resolve_tool)
+    monkeypatch.setattr(mpi_runner, "command_version", fake_command_version)
+    monkeypatch.setattr(mpi_runner, "run_command", fake_run_command)
+    monkeypatch.setattr(mpi_runner, "sha256_file", lambda path: "c" * 64)
+    return compiler, launcher
+
+
+def read_report(repository: Path) -> dict:
+    path = repository / mpi_runner.REPORT_RELATIVE
+    assert path.is_file()
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_main_successful_build_execution_and_comparison(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     repository = prepare_main_repository(tmp_path, monkeypatch)
+    install_fake_tools(repository, monkeypatch)
 
+    assert mpi_runner.main() == 0
+    report = read_report(repository)
+
+    assert report["validation"] == "PASS"
+    assert report["native_build"]["status"] == "PASS"
+    assert report["execution"]["status"] == "PASS"
+    assert report["execution"]["outcome_type"] == "EXIT_CODE"
+    assert report["execution"]["exit_code"] == 0
+    assert report["execution"]["duration_seconds"] >= 0
+    assert report["execution"]["command"]
+    assert report["execution"]["launcher_metadata"]["path"]
+    assert report["numerical_validation"]["comparison_executed"] is True
+    assert report["numerical_validation"]["comparison"] == "PASS"
+
+
+@pytest.mark.parametrize(
+    ("returncode", "expected_type", "expected_exit", "expected_signal"),
+    [
+        (15, "EXIT_CODE", 15, None),
+        (-15, "SIGNAL", None, 15),
+    ],
+)
+def test_main_classifies_mpi_exit_status_and_signal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    returncode: int,
+    expected_type: str,
+    expected_exit: int | None,
+    expected_signal: int | None,
+) -> None:
+    repository = prepare_main_repository(tmp_path, monkeypatch)
+    install_fake_tools(
+        repository, monkeypatch, mpi_returncode=returncode
+    )
+
+    assert mpi_runner.main() == 1
+    report = read_report(repository)
+    execution = report["execution"]
+    numerical = report["numerical_validation"]
+
+    assert execution["outcome_type"] == expected_type
+    assert execution["exit_code"] == expected_exit
+    assert execution["signal"] == expected_signal
+    assert execution["returncode"] == returncode
+    assert numerical["comparison_executed"] is False
+    assert numerical["comparison"] == "NOT_RUN"
+    assert numerical["max_absolute_error"] is None
+    assert numerical["max_relative_error"] is None
+    assert numerical["max_reference_magnitude"] is None
+
+
+def test_main_records_mpi_timeout_and_duration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository = prepare_main_repository(tmp_path, monkeypatch)
+    install_fake_tools(
+        repository,
+        monkeypatch,
+        mpi_error=subprocess.TimeoutExpired(
+            ["/test-tools/mpirun", "-np", "2"], 5,
+            output=b"partial out", stderr=b"partial err"
+        ),
+    )
+
+    assert mpi_runner.main() == 1
+    report = read_report(repository)
+    execution = report["execution"]
+
+    assert execution["outcome_type"] == "TIMEOUT"
+    assert execution["timeout"] is True
+    assert execution["duration_seconds"] is not None
+    assert execution["duration_seconds"] >= 0
+    assert execution["command"]
+    assert report["numerical_validation"]["comparison_executed"] is False
+
+
+def test_main_records_mpi_launch_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository = prepare_main_repository(tmp_path, monkeypatch)
+    install_fake_tools(
+        repository,
+        monkeypatch,
+        mpi_error=FileNotFoundError("mpirun executable disappeared"),
+    )
+
+    assert mpi_runner.main() == 1
+    report = read_report(repository)
+    execution = report["execution"]
+
+    assert execution["outcome_type"] == "LAUNCH_ERROR"
+    assert execution["exit_code"] is None
+    assert execution["signal"] is None
+    assert "FileNotFoundError" in execution["launch_error"]
+    assert execution["duration_seconds"] is not None
+    assert report["numerical_validation"]["max_absolute_error"] is None
+
+
+def test_main_preserves_numerical_mismatch_metrics(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository = prepare_main_repository(tmp_path, monkeypatch)
+    install_fake_tools(
+        repository, monkeypatch, actual_values=[999.0] * 128
+    )
+
+    assert mpi_runner.main() == 1
+    report = read_report(repository)
+    numerical = report["numerical_validation"]
+
+    assert report["validation"] == "FAIL"
+    assert numerical["status"] == "FAIL"
+    assert numerical["comparison_executed"] is True
+    assert numerical["comparison"] == "FAIL"
+    assert numerical["max_absolute_error"] is not None
+    assert numerical["max_absolute_error"] > 0
+    assert numerical["max_relative_error"] is not None
+
+
+def test_main_fails_closed_when_mpicc_is_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository = prepare_main_repository(tmp_path, monkeypatch)
     empty_path = tmp_path / "empty-bin"
     empty_path.mkdir()
-
     monkeypatch.setenv("PATH", str(empty_path))
     monkeypatch.setenv("MPICC", "missing-mpicc")
     monkeypatch.setenv("P3_MPI_LAUNCHER", "missing-mpirun")
 
-    result = mpi_runner.main()
-
-    assert result == 1
-
-    report_path = repository / mpi_runner.REPORT_RELATIVE
-    assert report_path.is_file()
-
-    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert mpi_runner.main() == 1
+    report = read_report(repository)
     assert report["validation"] == "FAIL"
     assert report["native_build"]["status"] == "FAIL"
 
@@ -531,300 +724,59 @@ def test_main_fails_closed_when_mpicc_is_missing(
 
 
 def test_main_fails_closed_when_provenance_is_missing(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     repository = tmp_path / "repository"
     source = repository / mpi_runner.SOURCE_RELATIVE
     source.parent.mkdir(parents=True)
-    source.write_text("/* test-only source placeholder */\n", encoding="utf-8")
+    source.write_text("/* test source */\n", encoding="utf-8")
 
     for name in (
-        "P3_RUN_ID",
-        "P3_SOURCE_COMMIT",
-        "P3_WORKFLOW_RUN_ID",
-        "GITHUB_SHA",
-        "GITHUB_RUN_ID",
-        "GITHUB_RUN_ATTEMPT",
+        "P3_RUN_ID", "P3_SOURCE_COMMIT", "P3_WORKFLOW_RUN_ID",
+        "GITHUB_SHA", "GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT",
     ):
         monkeypatch.delenv(name, raising=False)
 
     monkeypatch.setattr(
-        sys,
-        "argv",
-        [str(RUNNER_PATH), "--root", str(repository)],
+        sys, "argv", [str(RUNNER_PATH), "--root", str(repository)]
     )
 
-    result = mpi_runner.main()
-
-    assert result == 1
-    report_path = repository / mpi_runner.REPORT_RELATIVE
-    assert report_path.is_file()
-
-    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert mpi_runner.main() == 1
+    report = read_report(repository)
     assert report["validation"] == "FAIL"
     assert report["provenance"]["commit_verified"] is False
     assert report["provenance"]["run_id_verified"] is False
     assert report["provenance"]["workflow_run_id_verified"] is False
 
 
-def install_successful_mpi_simulation(
-    repository: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    *,
-    actual_values: list[float] | None = None,
-) -> None:
-    """Replace external compiler/launcher calls with deterministic fakes."""
-    compiler = "/test-tools/mpicc"
-    launcher = "/test-tools/mpirun"
-    executable = repository / mpi_runner.EXECUTABLE_RELATIVE
-
-    monkeypatch.setenv("MPICC", compiler)
-    monkeypatch.setenv("P3_MPI_LAUNCHER", launcher)
-
-    def fake_resolve_tool(value: str, label: str) -> str:
-        if value == compiler or value == launcher:
-            return value
-        raise mpi_runner.ValidationError(f"Unexpected tool: {value}")
-
-    def fake_command_version(command, environment):
-        return "MPI test tool version"
-
-    def fake_run_command(command, timeout_seconds, environment):
-        if command[0] == compiler and "--version" in command:
-            return subprocess.CompletedProcess(command, 0, "compiler\n", "")
-
-        if command[0] == compiler:
-            executable.parent.mkdir(parents=True, exist_ok=True)
-            executable.write_bytes(b"fake executable")
-            executable.chmod(0o755)
-            return subprocess.CompletedProcess(command, 0, "", "")
-
-        if command[0] == launcher:
-            request = Path(command[-2])
-            response = Path(command[-1])
-
-            assert request.is_file()
-
-            rows = 128
-            columns = 128
-
-            row_ptr, col_idx, values, vector = (
-                mpi_runner.build_test_matrix(rows, columns)
-            )
-
-            reference = mpi_runner.sequential_csr_reference(
-                rows,
-                row_ptr,
-                col_idx,
-                values,
-                vector,
-            )
-
-            output = (
-                reference
-                if actual_values is None
-                else actual_values
-            )
-
-            write_response(response, output)
-
-            return subprocess.CompletedProcess(
-                command,
-                0,
-                "MPI ok\n",
-                "",
-            )
-
-        raise AssertionError(f"Unexpected command: {command!r}")
-
-    monkeypatch.setattr(mpi_runner, "resolve_tool", fake_resolve_tool)
-    monkeypatch.setattr(mpi_runner, "command_version", fake_command_version)
-    monkeypatch.setattr(mpi_runner, "run_command", fake_run_command)
-    monkeypatch.setattr(
-        mpi_runner,
-        "sha256_file",
-        lambda path: "c" * 64,
-    )
-
-
-def test_main_successful_build_execution_and_numerical_validation(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    repository = prepare_main_repository(tmp_path, monkeypatch)
-    install_successful_mpi_simulation(repository, monkeypatch)
-
-    result = mpi_runner.main()
-
-    assert result == 0
-    report = json.loads(
-        (repository / mpi_runner.REPORT_RELATIVE).read_text(encoding="utf-8")
-    )
-
-    assert report["validation"] == "PASS"
-    assert report["native_build"]["status"] == "PASS"
-    assert report["execution"]["status"] == "PASS"
-    assert report["numerical_validation"]["status"] == "PASS"
-    assert report["source_commit"] == VALID_COMMIT
-    assert report["run_id"] == VALID_RUN_ID
-
-
-def test_main_rejects_numerical_mismatch_without_pass(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    repository = prepare_main_repository(tmp_path, monkeypatch)
-    wrong = [999.0] * 128
-    install_successful_mpi_simulation(
-        repository,
-        monkeypatch,
-        actual_values=wrong,
-    )
-
-    result = mpi_runner.main()
-
-    assert result == 1
-    report = json.loads(
-        (repository / mpi_runner.REPORT_RELATIVE).read_text(encoding="utf-8")
-    )
-    assert report["validation"] == "FAIL"
-    assert report["numerical_validation"]["status"] == "FAIL"
-
-
 def test_main_rejects_compiler_nonzero_exit(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     repository = prepare_main_repository(tmp_path, monkeypatch)
     compiler = "/test-tools/mpicc"
     monkeypatch.setenv("MPICC", compiler)
     monkeypatch.setenv("P3_MPI_LAUNCHER", "/test-tools/mpirun")
-
+    monkeypatch.setattr(mpi_runner, "resolve_tool", lambda value, label: value)
     monkeypatch.setattr(
-        mpi_runner,
-        "resolve_tool",
-        lambda value, label: value,
-    )
-    monkeypatch.setattr(
-        mpi_runner,
-        "command_version",
-        lambda command, environment: "compiler version",
+        mpi_runner, "command_version", lambda command, environment: "version"
     )
 
     def failed_compile(command, timeout_seconds, environment):
-        if "--version" in command:
-            return subprocess.CompletedProcess(command, 0, "version", "")
-        return subprocess.CompletedProcess(command, 2, "", "intentional compile error")
+        return subprocess.CompletedProcess(
+            command, 2, "", "intentional compile error"
+        )
 
     monkeypatch.setattr(mpi_runner, "run_command", failed_compile)
-
-    result = mpi_runner.main()
-
-    assert result == 1
-    report = json.loads(
-        (repository / mpi_runner.REPORT_RELATIVE).read_text(encoding="utf-8")
-    )
+    assert mpi_runner.main() == 1
+    report = read_report(repository)
     assert report["validation"] == "FAIL"
     assert report["native_build"]["status"] == "FAIL"
     assert report["native_build"]["exit_code"] == 2
     assert not (repository / mpi_runner.RESPONSE_RELATIVE).exists()
 
 
-def test_main_rejects_mpi_launcher_nonzero_exit(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    repository = prepare_main_repository(tmp_path, monkeypatch)
-    compiler = "/test-tools/mpicc"
-    launcher = "/test-tools/mpirun"
-    executable = repository / mpi_runner.EXECUTABLE_RELATIVE
-
-    monkeypatch.setenv("MPICC", compiler)
-    monkeypatch.setenv("P3_MPI_LAUNCHER", launcher)
-    monkeypatch.setattr(
-        mpi_runner,
-        "resolve_tool",
-        lambda value, label: value,
-    )
-    monkeypatch.setattr(
-        mpi_runner,
-        "command_version",
-        lambda command, environment: "compiler version",
-    )
-
-    def fake_run(command, timeout_seconds, environment):
-        if command[0] == compiler:
-            executable.parent.mkdir(parents=True, exist_ok=True)
-            executable.write_bytes(b"fake executable")
-            executable.chmod(0o755)
-            return subprocess.CompletedProcess(command, 0, "", "")
-        if command[0] == launcher:
-            return subprocess.CompletedProcess(command, 7, "", "MPI failed")
-        raise AssertionError(command)
-
-    monkeypatch.setattr(mpi_runner, "run_command", fake_run)
-    monkeypatch.setattr(mpi_runner, "sha256_file", lambda path: "d" * 64)
-
-    result = mpi_runner.main()
-
-    assert result == 1
-    report = json.loads(
-        (repository / mpi_runner.REPORT_RELATIVE).read_text(encoding="utf-8")
-    )
-    assert report["validation"] == "FAIL"
-    assert report["execution"]["status"] == "FAIL"
-    assert report["execution"]["exit_code"] == 7
-
-
-def test_main_rejects_mpi_timeout(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    repository = prepare_main_repository(tmp_path, monkeypatch)
-    compiler = "/test-tools/mpicc"
-    launcher = "/test-tools/mpirun"
-    executable = repository / mpi_runner.EXECUTABLE_RELATIVE
-
-    monkeypatch.setenv("MPICC", compiler)
-    monkeypatch.setenv("P3_MPI_LAUNCHER", launcher)
-    monkeypatch.setattr(
-        mpi_runner,
-        "resolve_tool",
-        lambda value, label: value,
-    )
-    monkeypatch.setattr(
-        mpi_runner,
-        "command_version",
-        lambda command, environment: "compiler version",
-    )
-
-    def fake_run(command, timeout_seconds, environment):
-        if command[0] == compiler:
-            executable.parent.mkdir(parents=True, exist_ok=True)
-            executable.write_bytes(b"fake executable")
-            executable.chmod(0o755)
-            return subprocess.CompletedProcess(command, 0, "", "")
-        if command[0] == launcher:
-            raise subprocess.TimeoutExpired(command, timeout_seconds)
-        raise AssertionError(command)
-
-    monkeypatch.setattr(mpi_runner, "run_command", fake_run)
-    monkeypatch.setattr(mpi_runner, "sha256_file", lambda path: "e" * 64)
-
-    result = mpi_runner.main()
-
-    assert result == 1
-    report = json.loads(
-        (repository / mpi_runner.REPORT_RELATIVE).read_text(encoding="utf-8")
-    )
-    assert report["validation"] == "FAIL"
-    assert report["execution"]["timeout"] is True
-
-
-def test_main_removes_stale_response_before_new_mpi_execution(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+def test_main_removes_stale_response_before_execution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     repository = prepare_main_repository(tmp_path, monkeypatch)
     response = repository / mpi_runner.RESPONSE_RELATIVE
@@ -834,18 +786,11 @@ def test_main_removes_stale_response_before_new_mpi_execution(
     compiler = "/test-tools/mpicc"
     launcher = "/test-tools/mpirun"
     executable = repository / mpi_runner.EXECUTABLE_RELATIVE
-
     monkeypatch.setenv("MPICC", compiler)
     monkeypatch.setenv("P3_MPI_LAUNCHER", launcher)
+    monkeypatch.setattr(mpi_runner, "resolve_tool", lambda value, label: value)
     monkeypatch.setattr(
-        mpi_runner,
-        "resolve_tool",
-        lambda value, label: value,
-    )
-    monkeypatch.setattr(
-        mpi_runner,
-        "command_version",
-        lambda command, environment: "compiler version",
+        mpi_runner, "command_version", lambda command, environment: "version"
     )
 
     def fake_run(command, timeout_seconds, environment):
@@ -862,11 +807,8 @@ def test_main_removes_stale_response_before_new_mpi_execution(
     monkeypatch.setattr(mpi_runner, "run_command", fake_run)
     monkeypatch.setattr(mpi_runner, "sha256_file", lambda path: "f" * 64)
 
-    result = mpi_runner.main()
-
-    assert result == 1
+    assert mpi_runner.main() == 1
     assert not response.exists()
-    report = json.loads(
-        (repository / mpi_runner.REPORT_RELATIVE).read_text(encoding="utf-8")
-    )
+    report = read_report(repository)
     assert report["validation"] == "FAIL"
+    assert report["execution"]["exit_code"] == 9
